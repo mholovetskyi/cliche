@@ -107,16 +107,82 @@ A custom provider lives in the config like this:
 cliche chat                 # interactive session — type a task, watch it cook
 ```
 
-Inside a session: `/model` to switch models, `/diff` to see what changed,
-`/undo` to revert the last edit, `/cost` for spend, `/verify` to re-run tests,
-`/help` for the rest.
+Inside a session: `/model` switch models, `/mode` change permission mode,
+`/diff` see changes, `/undo` revert the last edit, `/rewind` undo all edits this
+session, `/commit` commit the work, `/cost` spend, `/verify` re-run tests,
+`/help` for the rest. Resume later with `cliche chat --continue` (or `--resume
+<id>`; list them with `cliche sessions`).
 
 One-shot and headless:
 
 ```sh
 cliche run --max-usd 0.50 --allow-write --verify "fix the failing test in ./api"
+cliche run --branch --commit --allow-write "..."   # isolate on a cliche/<id> branch, commit the result
 git diff | cliche exec -p "review this change" --max-usd 0.10   # JSON out, CI exit codes
 ```
 
-That's it. Every run is capped, breaker-guarded, and logged to an append-only
-ledger you can read with `cliche cost`.
+Every run is capped, breaker-guarded, and logged to an append-only ledger. See
+`cliche cost`, or `cliche report` for a Markdown verdict (task, cost, changes)
+you can paste into a PR — `cliche report --pr 42` posts it via the GitHub CLI.
+
+---
+
+## 5. Tighten the leash (optional)
+
+Everything below is opt-in, in `.cliche/config.json`. Defaults stay conservative.
+
+**Permission mode** — `--mode plan` (read-only: it proposes, never touches the
+disk), `suggest` (ask before each action, the default), `auto-edit` (auto-apply
+edits, ask before commands), `full` (auto everything). `--yolo` skips approvals
+but **never** the spend cap or the loop breaker.
+
+**Allow/deny rules** — deterministic policy-as-code. Deny wins over allow and
+overrides even `--yolo`:
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash(go test *)", "Edit(src/**)"],
+    "deny":  ["Read(**/.env)", "Bash(rm -rf *)"]
+  }
+}
+```
+
+**Network** — the agent can pull docs with `web_fetch` (gated by `--allow-web`).
+Constrain which hosts it may reach:
+
+```json
+{ "egress": { "allow": ["pkg.go.dev", "*.github.com"] } }
+```
+
+**`--sandbox`** — one strict switch for a task you don't fully trust: confines to
+the project root (overriding `--allow-outside-root`), denies network unless an
+egress allowlist is set, and scrubs your provider API keys from any shell command
+the agent runs. (Application-level isolation; kernel sandboxing is a roadmap item.)
+
+**Hooks** — run your own command at lifecycle points; a non-zero `pre_tool_use`
+exit *blocks* the tool (its output is the reason), making policy externally
+enforceable:
+
+```json
+{ "hooks": { "pre_tool_use": "sh ./gate.sh", "stop": "make notify" } }
+```
+
+**Cheaper delegation** — let the strong model plan and route grunt work to a
+cheaper one:
+
+```json
+{ "subagents": { "max_depth": 2, "model": "openai/gpt-4o-mini" } }
+```
+
+**Remote tools (MCP)** — stdio or Streamable-HTTP servers:
+
+```json
+{ "mcp": [
+  { "name": "fs",  "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] },
+  { "name": "docs", "url": "https://mcp.example.com/mcp" }
+] }
+```
+
+Run `cliche config` to print and validate your effective configuration, and
+`cliche map` to see the project overview the agent starts with.
