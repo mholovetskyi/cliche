@@ -110,18 +110,19 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 }
 
 type session struct {
-	a       *agent.Agent
-	r       *bufio.Reader
-	out     io.Writer
-	dir     string
-	cfg     config.Config
-	verify  bool
-	journal *tools.EditJournal
-	spin    *spinner // active "thinking" indicator during a model wait (main goroutine only)
-	id      string   // session id for on-disk persistence
-	title   string   // first prompt, used as the session title
-	created time.Time
-	resumed int // messages restored from a resumed session (0 if fresh)
+	a         *agent.Agent
+	r         *bufio.Reader
+	out       io.Writer
+	dir       string
+	cfg       config.Config
+	verify    bool
+	journal   *tools.EditJournal
+	spin      *spinner // active "thinking" indicator during a model wait (main goroutine only)
+	id        string   // session id for on-disk persistence
+	title     string   // first prompt, used as the session title
+	created   time.Time
+	resumed   int  // messages restored from a resumed session (0 if fresh)
+	streaming bool // currently mid live-streamed assistant block
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -146,10 +147,28 @@ func (s *session) persist() {
 // spinner: any event stops the spinner first (so frames never race output),
 // and after tool results the model will think again, so it's restarted.
 func (s *session) onEvent(e agent.Event) {
+	if e.Kind == "delta" {
+		s.stopSpin()
+		if !s.streaming {
+			fmt.Fprintln(s.out) // start the assistant block on its own line
+			s.streaming = true
+		}
+		fmt.Fprint(s.out, e.Text)
+		return
+	}
+	s.endStream()
 	s.stopSpin()
 	printEvent(s.out, e)
 	if e.Kind == "tool_result" {
 		s.startSpin()
+	}
+}
+
+// endStream closes a live-streamed assistant block with a trailing newline.
+func (s *session) endStream() {
+	if s.streaming {
+		fmt.Fprintln(s.out)
+		s.streaming = false
 	}
 }
 
@@ -211,6 +230,7 @@ func (s *session) loop() int {
 		s.startSpin() // shimmer while we wait on the first model response
 		o, runErr := s.a.Run(ctx, line)
 		s.stopSpin()
+		s.endStream() // close any open streamed block before the outcome line
 		stop()
 		s.persist() // save the transcript after every task (incl. halts)
 		if runErr != nil {
@@ -364,6 +384,10 @@ func (s *session) undo() {
 // printEvent renders one live activity event from the agent loop.
 func printEvent(out io.Writer, e agent.Event) {
 	switch e.Kind {
+	case "delta":
+		// Live-streamed text chunk (used by `run`; chat handles deltas in onEvent
+		// with newline management). Print raw, no newline.
+		fmt.Fprint(out, e.Text)
 	case "text":
 		if t := strings.TrimSpace(e.Text); t != "" {
 			fmt.Fprintf(out, "\n%s\n", renderMarkdown(t))

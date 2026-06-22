@@ -212,6 +212,17 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			req.MaxOutputTokens = rem
 		}
 
+		// Stream text deltas live at the top level only. Subagents (depth>0)
+		// share the observer; streaming their tokens would interleave and garble
+		// the parent's output, so they stay request/response.
+		streamed := false
+		if a.obs != nil && a.depth == 0 {
+			req.OnDelta = func(t string) {
+				streamed = true
+				a.emit(Event{Kind: "delta", Turn: turn, Text: t})
+			}
+		}
+
 		resp, err := a.prov.Complete(ctx, req)
 		if err != nil {
 			// Roll back a dangling fresh user prompt so a later task in the same
@@ -249,7 +260,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		if u.CacheReadTokens > 0 {
 			a.emit(Event{Kind: "cache", Turn: turn, Detail: fmt.Sprintf("%d tokens served from cache (billed ~0.1×)", u.CacheReadTokens)})
 		}
-		if resp.Text != "" {
+		// Emit the full text only when it wasn't already streamed live (deltas).
+		if resp.Text != "" && !streamed {
 			a.emit(Event{Kind: "text", Turn: turn, Text: resp.Text})
 		}
 		if capErr != nil {

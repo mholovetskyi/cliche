@@ -22,7 +22,7 @@ func TestBuildRequestBody(t *testing.T) {
 		},
 		MaxOutputTokens: 1000,
 	}
-	body, err := a.buildRequestBody(req)
+	body, err := a.buildRequestBody(req, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestBuildRequestBodyPromptCaching(t *testing.T) {
 	body, err := a.buildRequestBody(Request{
 		System:   "be careful",
 		Messages: []Message{{Role: "user", Text: "hello"}},
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestBuildRequestBodySkipsEmptyContent(t *testing.T) {
 	body, err := a.buildRequestBody(Request{Messages: []Message{
 		{Role: "assistant"}, // no text, no tool calls -> skipped
 		{Role: "user", Text: "hello"},
-	}})
+	}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

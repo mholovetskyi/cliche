@@ -69,6 +69,11 @@ type Request struct {
 	Messages        []Message
 	Tools           []ToolSpec
 	MaxOutputTokens int // when > 0, bounds output so a turn can't overshoot the cap
+	// OnDelta, when set, switches the provider to streaming: it is called with
+	// each text delta as it arrives (live output), and the read loop honors
+	// context cancellation between chunks (token-by-token abort). The provider
+	// still returns the fully-accumulated Response.
+	OnDelta func(text string)
 }
 
 // Response is a single completion result.

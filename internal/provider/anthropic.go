@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -20,13 +21,14 @@ const maxBodyBytes = 16 << 20 // 16 MiB cap on response bodies
 // blocks, and consumes tool_result blocks fed back by the agent. Transient
 // failures (429/5xx/network) are retried with backoff.
 type Anthropic struct {
-	apiKey     string
-	model      string
-	client     *http.Client
-	maxTok     int
-	baseURL    string
-	maxRetries int
-	retryBase  time.Duration
+	apiKey       string
+	model        string
+	client       *http.Client
+	streamClient *http.Client // no total timeout; ctx governs a long stream
+	maxTok       int
+	baseURL      string
+	maxRetries   int
+	retryBase    time.Duration
 }
 
 // NewAnthropic returns an Anthropic provider. maxTokens bounds the response
@@ -36,13 +38,14 @@ func NewAnthropic(apiKey, model string, maxTokens int) *Anthropic {
 		maxTokens = 4096
 	}
 	return &Anthropic{
-		apiKey:     apiKey,
-		model:      model,
-		client:     &http.Client{Timeout: 120 * time.Second},
-		maxTok:     maxTokens,
-		baseURL:    "https://api.anthropic.com/v1/messages",
-		maxRetries: 4,
-		retryBase:  500 * time.Millisecond,
+		apiKey:       apiKey,
+		model:        model,
+		client:       &http.Client{Timeout: 120 * time.Second},
+		streamClient: &http.Client{},
+		maxTok:       maxTokens,
+		baseURL:      "https://api.anthropic.com/v1/messages",
+		maxRetries:   4,
+		retryBase:    500 * time.Millisecond,
 	}
 }
 
@@ -102,6 +105,7 @@ type anthRequest struct {
 	System    []sysBlock    `json:"system,omitempty"`
 	Tools     []toolDef     `json:"tools,omitempty"`
 	Messages  []wireMessage `json:"messages"`
+	Stream    bool          `json:"stream,omitempty"`
 }
 
 type anthResponse struct {
@@ -126,8 +130,8 @@ type anthResponse struct {
 }
 
 // buildRequestBody translates a provider-neutral Request into the Anthropic
-// wire format. Split out for testability.
-func (a *Anthropic) buildRequestBody(req Request) ([]byte, error) {
+// wire format. Split out for testability. stream sets the SSE flag.
+func (a *Anthropic) buildRequestBody(req Request, stream bool) ([]byte, error) {
 	maxTok := a.maxTok
 	if req.MaxOutputTokens > 0 && req.MaxOutputTokens < maxTok {
 		maxTok = req.MaxOutputTokens
@@ -192,6 +196,7 @@ func (a *Anthropic) buildRequestBody(req Request) ([]byte, error) {
 		System:    system,
 		Tools:     tools,
 		Messages:  msgs,
+		Stream:    stream,
 	})
 }
 
@@ -296,7 +301,10 @@ func signature(name string, args map[string]string) string {
 // retrying transient failures (429/5xx/network) with backoff, honoring
 // Retry-After, and respecting context cancellation between attempts.
 func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error) {
-	body, err := a.buildRequestBody(req)
+	if req.OnDelta != nil {
+		return a.completeStream(ctx, req)
+	}
+	body, err := a.buildRequestBody(req, false)
 	if err != nil {
 		return Response{}, err
 	}
@@ -360,6 +368,190 @@ func (a *Anthropic) doOnce(ctx context.Context, body []byte) (raw []byte, status
 		return nil, resp.StatusCode, retryAfter, rerr
 	}
 	return raw, resp.StatusCode, retryAfter, nil
+}
+
+// completeStream runs one turn over the SSE streaming endpoint, emitting text
+// deltas live via req.OnDelta and honoring ctx for token-by-token abort. It
+// retries transient failures only before any delta has been emitted (a partial
+// stream can't be safely replayed).
+func (a *Anthropic) completeStream(ctx context.Context, req Request) (Response, error) {
+	body, err := a.buildRequestBody(req, true)
+	if err != nil {
+		return Response{}, err
+	}
+	var delay time.Duration
+	for attempt := 0; ; attempt++ {
+		if delay > 0 {
+			t := time.NewTimer(delay)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return Response{}, ctx.Err()
+			}
+		}
+		resp, emitted, retryable, retryAfter, derr := a.streamOnce(ctx, body, req.OnDelta)
+		if derr == nil {
+			return resp, nil
+		}
+		if ctx.Err() != nil {
+			return Response{}, ctx.Err()
+		}
+		if emitted || !retryable || attempt >= a.maxRetries {
+			return Response{}, derr
+		}
+		delay = a.backoff(attempt, retryAfter)
+	}
+}
+
+func (a *Anthropic) streamOnce(ctx context.Context, body []byte, onDelta func(string)) (Response, bool, bool, time.Duration, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL, bytes.NewReader(body))
+	if err != nil {
+		return Response{}, false, false, 0, err
+	}
+	httpReq.Header.Set("content-type", "application/json")
+	httpReq.Header.Set("x-api-key", a.apiKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("accept", "text/event-stream")
+
+	resp, err := a.streamClient.Do(httpReq)
+	if err != nil {
+		return Response{}, false, true, 0, err // network error: retryable before any output
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+		ra := parseRetryAfter(resp.Header.Get("Retry-After"))
+		if isRetryable(resp.StatusCode) {
+			return Response{}, false, true, ra, fmt.Errorf("anthropic api returned retryable status %d", resp.StatusCode)
+		}
+		if _, perr := parseResponse(raw); perr != nil {
+			return Response{}, false, false, 0, perr // structured API error
+		}
+		return Response{}, false, false, 0, fmt.Errorf("anthropic api returned status %d", resp.StatusCode)
+	}
+	return parseAnthropicStream(ctx, resp.Body, onDelta)
+}
+
+// streamEvent is the subset of Anthropic SSE event fields we consume.
+type streamEvent struct {
+	Type    string `json:"type"`
+	Index   int    `json:"index"`
+	Message struct {
+		Usage struct {
+			InputTokens              int `json:"input_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		} `json:"usage"`
+	} `json:"message"`
+	ContentBlock struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"content_block"`
+	Delta struct {
+		Type        string `json:"type"`
+		Text        string `json:"text"`
+		PartialJSON string `json:"partial_json"`
+		StopReason  string `json:"stop_reason"`
+	} `json:"delta"`
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	Error struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+type toolAccum struct {
+	id, name string
+	buf      strings.Builder
+}
+
+// parseAnthropicStream consumes the SSE event stream, accumulating text + tool
+// calls + usage, emitting text deltas live, and aborting between events on ctx
+// cancellation. Returns (response, emittedAny, retryable, retryAfter, err).
+func parseAnthropicStream(ctx context.Context, r io.Reader, onDelta func(string)) (Response, bool, bool, time.Duration, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), maxBodyBytes)
+	var text strings.Builder
+	tools := map[int]*toolAccum{}
+	var order []int
+	usage := Usage{}
+	stopReason := ""
+	emitted := false
+
+	for sc.Scan() {
+		select {
+		case <-ctx.Done():
+			return Response{}, emitted, false, 0, ctx.Err()
+		default:
+		}
+		line := sc.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(line[len("data:"):])
+		if data == "" {
+			continue
+		}
+		var ev streamEvent
+		if json.Unmarshal([]byte(data), &ev) != nil {
+			continue
+		}
+		switch ev.Type {
+		case "message_start":
+			usage.InputTokens = ev.Message.Usage.InputTokens
+			usage.CacheReadTokens = ev.Message.Usage.CacheReadInputTokens
+			usage.CacheWriteTokens = ev.Message.Usage.CacheCreationInputTokens
+		case "content_block_start":
+			if ev.ContentBlock.Type == "tool_use" {
+				tools[ev.Index] = &toolAccum{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
+				order = append(order, ev.Index)
+			}
+		case "content_block_delta":
+			switch ev.Delta.Type {
+			case "text_delta":
+				text.WriteString(ev.Delta.Text)
+				if onDelta != nil && ev.Delta.Text != "" {
+					onDelta(ev.Delta.Text)
+					emitted = true
+				}
+			case "input_json_delta":
+				if t := tools[ev.Index]; t != nil {
+					t.buf.WriteString(ev.Delta.PartialJSON)
+				}
+			}
+		case "message_delta":
+			if ev.Delta.StopReason != "" {
+				stopReason = ev.Delta.StopReason
+			}
+			if ev.Usage.OutputTokens > 0 {
+				usage.OutputTokens = ev.Usage.OutputTokens
+			}
+		case "error":
+			return Response{}, emitted, false, 0, fmt.Errorf("anthropic stream error: %s", ev.Error.Message)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return Response{}, emitted, false, 0, err
+	}
+
+	var calls []ToolCall
+	for _, idx := range order {
+		t := tools[idx]
+		raw := json.RawMessage(t.buf.String())
+		if len(raw) == 0 {
+			raw = json.RawMessage("{}")
+		}
+		args := decodeInput(raw)
+		calls = append(calls, ToolCall{
+			ID: t.id, Name: t.name, Args: args,
+			Raw:       append(json.RawMessage(nil), raw...),
+			Signature: signature(t.name, args),
+		})
+	}
+	return Response{Text: text.String(), ToolCalls: calls, Usage: usage, Done: stopReason != "tool_use"}, emitted, false, 0, nil
 }
 
 func isRetryable(status int) bool {

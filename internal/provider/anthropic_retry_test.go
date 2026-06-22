@@ -66,7 +66,7 @@ func TestRawToolInputRoundTrips(t *testing.T) {
 			Raw: json.RawMessage(`{"n":5,"flag":true}`),
 		}}},
 	}}
-	body, err := a.buildRequestBody(req)
+	body, err := a.buildRequestBody(req, false)
 	if err != nil {
 		t.Fatal(err)
 	}

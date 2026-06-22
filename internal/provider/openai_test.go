@@ -21,7 +21,7 @@ func TestOpenAIBuildRequestToolRoundTrip(t *testing.T) {
 			{Role: "user", ToolResults: []ToolResult{{ID: "c1", Content: "package x"}}},
 		},
 	}
-	body, err := o.buildRequestBody(req)
+	body, err := o.buildRequestBody(req, false)
 	if err != nil {
 		t.Fatal(err)
 	}

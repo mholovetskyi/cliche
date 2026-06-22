@@ -1,12 +1,14 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -14,15 +16,16 @@ import (
 // OpenRouter, OpenAI, and most local servers. It supports multi-turn tool
 // calling and shares the retry/backoff behavior with the Anthropic backend.
 type OpenAICompat struct {
-	apiKey     string
-	model      string
-	baseURL    string
-	referer    string // OpenRouter attribution headers (optional)
-	title      string
-	client     *http.Client
-	maxTok     int
-	maxRetries int
-	retryBase  time.Duration
+	apiKey       string
+	model        string
+	baseURL      string
+	referer      string // OpenRouter attribution headers (optional)
+	title        string
+	client       *http.Client
+	streamClient *http.Client // no total timeout; ctx governs a long stream
+	maxTok       int
+	maxRetries   int
+	retryBase    time.Duration
 }
 
 // NewOpenAICompat returns a provider for the given Chat Completions endpoint.
@@ -31,15 +34,16 @@ func NewOpenAICompat(apiKey, model, baseURL string, maxTokens int) *OpenAICompat
 		maxTokens = 4096
 	}
 	return &OpenAICompat{
-		apiKey:     apiKey,
-		model:      model,
-		baseURL:    baseURL,
-		referer:    "https://github.com/mholovetskyi/cliche",
-		title:      "cliche",
-		client:     &http.Client{Timeout: 120 * time.Second},
-		maxTok:     maxTokens,
-		maxRetries: 4,
-		retryBase:  500 * time.Millisecond,
+		apiKey:       apiKey,
+		model:        model,
+		baseURL:      baseURL,
+		referer:      "https://github.com/mholovetskyi/cliche",
+		title:        "cliche",
+		client:       &http.Client{Timeout: 120 * time.Second},
+		streamClient: &http.Client{},
+		maxTok:       maxTokens,
+		maxRetries:   4,
+		retryBase:    500 * time.Millisecond,
 	}
 }
 
@@ -75,11 +79,17 @@ type oaiToolDef struct {
 	} `json:"function"`
 }
 
+type oaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type oaiRequest struct {
-	Model     string       `json:"model"`
-	Messages  []oaiMessage `json:"messages"`
-	Tools     []oaiToolDef `json:"tools,omitempty"`
-	MaxTokens int          `json:"max_tokens,omitempty"`
+	Model         string            `json:"model"`
+	Messages      []oaiMessage      `json:"messages"`
+	Tools         []oaiToolDef      `json:"tools,omitempty"`
+	MaxTokens     int               `json:"max_tokens,omitempty"`
+	Stream        bool              `json:"stream,omitempty"`
+	StreamOptions *oaiStreamOptions `json:"stream_options,omitempty"`
 }
 
 type oaiResponse struct {
@@ -98,7 +108,7 @@ type oaiResponse struct {
 
 func strPtr(s string) *string { return &s }
 
-func (o *OpenAICompat) buildRequestBody(req Request) ([]byte, error) {
+func (o *OpenAICompat) buildRequestBody(req Request, stream bool) ([]byte, error) {
 	var msgs []oaiMessage
 	if req.System != "" {
 		msgs = append(msgs, oaiMessage{Role: "system", Content: strPtr(req.System)})
@@ -150,7 +160,12 @@ func (o *OpenAICompat) buildRequestBody(req Request) ([]byte, error) {
 	if req.Model != "" {
 		model = req.Model // honor a per-request / in-session model switch
 	}
-	return json.Marshal(oaiRequest{Model: model, Messages: msgs, Tools: tools, MaxTokens: maxTok})
+	r := oaiRequest{Model: model, Messages: msgs, Tools: tools, MaxTokens: maxTok}
+	if stream {
+		r.Stream = true
+		r.StreamOptions = &oaiStreamOptions{IncludeUsage: true} // get usage on the final chunk
+	}
+	return json.Marshal(r)
 }
 
 // argString returns the tool-call arguments as the JSON string OpenAI expects.
@@ -204,7 +219,10 @@ func parseOpenAIResponse(raw []byte) (Response, error) {
 
 // Complete performs one multi-turn step, retrying transient failures.
 func (o *OpenAICompat) Complete(ctx context.Context, req Request) (Response, error) {
-	body, err := o.buildRequestBody(req)
+	if req.OnDelta != nil {
+		return o.completeStream(ctx, req)
+	}
+	body, err := o.buildRequestBody(req, false)
 	if err != nil {
 		return Response{}, err
 	}
@@ -244,6 +262,175 @@ func (o *OpenAICompat) Complete(ctx context.Context, req Request) (Response, err
 		}
 		delay = backoffDelay(o.retryBase, attempt, retryAfter)
 	}
+}
+
+// completeStream streams one turn over SSE, emitting text deltas live and
+// honoring ctx for token-by-token abort. Retries only before any delta.
+func (o *OpenAICompat) completeStream(ctx context.Context, req Request) (Response, error) {
+	body, err := o.buildRequestBody(req, true)
+	if err != nil {
+		return Response{}, err
+	}
+	var delay time.Duration
+	for attempt := 0; ; attempt++ {
+		if delay > 0 {
+			t := time.NewTimer(delay)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return Response{}, ctx.Err()
+			}
+		}
+		resp, emitted, retryable, retryAfter, derr := o.streamOnce(ctx, body, req.OnDelta)
+		if derr == nil {
+			return resp, nil
+		}
+		if ctx.Err() != nil {
+			return Response{}, ctx.Err()
+		}
+		if emitted || !retryable || attempt >= o.maxRetries {
+			return Response{}, derr
+		}
+		delay = backoffDelay(o.retryBase, attempt, retryAfter)
+	}
+}
+
+func (o *OpenAICompat) streamOnce(ctx context.Context, body []byte, onDelta func(string)) (Response, bool, bool, time.Duration, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL, bytes.NewReader(body))
+	if err != nil {
+		return Response{}, false, false, 0, err
+	}
+	httpReq.Header.Set("content-type", "application/json")
+	httpReq.Header.Set("authorization", "Bearer "+o.apiKey)
+	httpReq.Header.Set("accept", "text/event-stream")
+	if o.referer != "" {
+		httpReq.Header.Set("HTTP-Referer", o.referer)
+		httpReq.Header.Set("X-Title", o.title)
+	}
+	resp, err := o.streamClient.Do(httpReq)
+	if err != nil {
+		return Response{}, false, true, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+		ra := parseRetryAfter(resp.Header.Get("Retry-After"))
+		if isRetryable(resp.StatusCode) {
+			return Response{}, false, true, ra, fmt.Errorf("api returned retryable status %d", resp.StatusCode)
+		}
+		if _, perr := parseOpenAIResponse(raw); perr != nil {
+			return Response{}, false, false, 0, perr
+		}
+		return Response{}, false, false, 0, fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+	return parseOpenAIStream(ctx, resp.Body, onDelta)
+}
+
+type oaiToolAccum struct {
+	id, name string
+	buf      strings.Builder
+}
+
+// parseOpenAIStream consumes an OpenAI-compatible SSE stream, accumulating text
+// + tool calls + usage and emitting text deltas live. Tool-call arguments arrive
+// in fragments keyed by index and are concatenated.
+func parseOpenAIStream(ctx context.Context, r io.Reader, onDelta func(string)) (Response, bool, bool, time.Duration, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), maxBodyBytes)
+	var text strings.Builder
+	calls := map[int]*oaiToolAccum{}
+	var order []int
+	usage := Usage{}
+	emitted := false
+
+	for sc.Scan() {
+		select {
+		case <-ctx.Done():
+			return Response{}, emitted, false, 0, ctx.Err()
+		default:
+		}
+		line := sc.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(line[len("data:"):])
+		if data == "" || data == "[DONE]" {
+			if data == "[DONE]" {
+				break
+			}
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal([]byte(data), &chunk) != nil {
+			continue
+		}
+		if chunk.Usage != nil {
+			usage.InputTokens = chunk.Usage.PromptTokens
+			usage.OutputTokens = chunk.Usage.CompletionTokens
+		}
+		for _, ch := range chunk.Choices {
+			if ch.Delta.Content != "" {
+				text.WriteString(ch.Delta.Content)
+				if onDelta != nil {
+					onDelta(ch.Delta.Content)
+					emitted = true
+				}
+			}
+			for _, tc := range ch.Delta.ToolCalls {
+				acc := calls[tc.Index]
+				if acc == nil {
+					acc = &oaiToolAccum{}
+					calls[tc.Index] = acc
+					order = append(order, tc.Index)
+				}
+				if tc.ID != "" {
+					acc.id = tc.ID
+				}
+				if tc.Function.Name != "" {
+					acc.name = tc.Function.Name
+				}
+				acc.buf.WriteString(tc.Function.Arguments)
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return Response{}, emitted, false, 0, err
+	}
+
+	var toolCalls []ToolCall
+	for _, idx := range order {
+		acc := calls[idx]
+		raw := acc.buf.String()
+		if raw == "" {
+			raw = "{}"
+		}
+		args := decodeInput(json.RawMessage(raw))
+		toolCalls = append(toolCalls, ToolCall{
+			ID: acc.id, Name: acc.name, Args: args,
+			Raw:       json.RawMessage(raw),
+			Signature: signature(acc.name, args),
+		})
+	}
+	return Response{Text: text.String(), ToolCalls: toolCalls, Usage: usage, Done: len(toolCalls) == 0}, emitted, false, 0, nil
 }
 
 func (o *OpenAICompat) doOnce(ctx context.Context, body []byte) (raw []byte, status int, retryAfter time.Duration, err error) {
