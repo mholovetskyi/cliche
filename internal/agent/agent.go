@@ -224,14 +224,20 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 
 		// Gate 2 (post-turn): record ACTUAL usage. Catches a fat-completion
 		// turn that blew the pre-flight estimate; halts before the next turn.
-		capErr := a.bud.Record(a.cfg.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
+		// Prompt-cache reads/writes count toward the hard token cap but bill at
+		// the discounted rate, so the dollar estimate reflects what caching saves.
+		u := resp.Usage
+		capErr := a.bud.RecordCached(a.cfg.Model, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens)
 		price, _ := pricing.Lookup(a.cfg.Model)
 		a.rec(ledger.Entry{
 			Turn: turn, Event: ledger.EventTurn, Model: a.cfg.Model,
-			InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens,
-			USD:    price.CostUSD(resp.Usage.InputTokens, resp.Usage.OutputTokens),
+			InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+			USD:    price.CostUSDCached(u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens),
 			Detail: truncate(resp.Text, 120),
 		})
+		if u.CacheReadTokens > 0 {
+			a.emit(Event{Kind: "cache", Turn: turn, Detail: fmt.Sprintf("%d tokens served from cache (billed ~0.1×)", u.CacheReadTokens)})
+		}
 		if resp.Text != "" {
 			a.emit(Event{Kind: "text", Turn: turn, Text: resp.Text})
 		}

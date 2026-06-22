@@ -51,6 +51,16 @@ func (a *Anthropic) Model() string { return a.model }
 
 // ---- wire types ----
 
+// cacheControl marks a content block as a prompt-cache breakpoint. The prefix
+// up to (and including) it is cached for ~5 minutes; later requests with the
+// same prefix read it at ~0.1× the input price.
+type cacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+// ephemeral is the shared marker placed on cache breakpoints.
+var ephemeral = &cacheControl{Type: "ephemeral"}
+
 type contentBlock struct {
 	Type string `json:"type"`
 	// text
@@ -63,6 +73,16 @@ type contentBlock struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   string `json:"content,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+	// caching
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+// sysBlock is a system-prompt text block; carrying cache_control on the last
+// one caches the system prompt AND the tools (tools render before system).
+type sysBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 type wireMessage struct {
@@ -79,7 +99,7 @@ type toolDef struct {
 type anthRequest struct {
 	Model     string        `json:"model"`
 	MaxTokens int           `json:"max_tokens"`
-	System    string        `json:"system,omitempty"`
+	System    []sysBlock    `json:"system,omitempty"`
 	Tools     []toolDef     `json:"tools,omitempty"`
 	Messages  []wireMessage `json:"messages"`
 }
@@ -94,8 +114,10 @@ type anthResponse struct {
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
 	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 	Error *struct {
 		Type    string `json:"type"`
@@ -150,10 +172,24 @@ func (a *Anthropic) buildRequestBody(req Request) ([]byte, error) {
 	if req.Model != "" {
 		model = req.Model // honor a per-request / in-session model switch
 	}
+
+	// Prompt caching: one breakpoint on the system block (caches tools+system,
+	// the large stable prefix) and one on the last message block (caches the
+	// conversation prefix so each later turn reads it instead of re-sending it).
+	var system []sysBlock
+	if req.System != "" {
+		system = []sysBlock{{Type: "text", Text: req.System, CacheControl: ephemeral}}
+	}
+	if n := len(msgs); n > 0 {
+		if c := len(msgs[n-1].Content); c > 0 {
+			msgs[n-1].Content[c-1].CacheControl = ephemeral
+		}
+	}
+
 	return json.Marshal(anthRequest{
 		Model:     model,
 		MaxTokens: maxTok,
-		System:    req.System,
+		System:    system,
 		Tools:     tools,
 		Messages:  msgs,
 	})
@@ -190,8 +226,13 @@ func parseResponse(raw []byte) (Response, error) {
 	return Response{
 		Text:      text,
 		ToolCalls: calls,
-		Usage:     Usage{InputTokens: parsed.Usage.InputTokens, OutputTokens: parsed.Usage.OutputTokens},
-		Done:      parsed.StopReason != "tool_use",
+		Usage: Usage{
+			InputTokens:      parsed.Usage.InputTokens,
+			OutputTokens:     parsed.Usage.OutputTokens,
+			CacheReadTokens:  parsed.Usage.CacheReadInputTokens,
+			CacheWriteTokens: parsed.Usage.CacheCreationInputTokens,
+		},
+		Done: parsed.StopReason != "tool_use",
 	}, nil
 }
 

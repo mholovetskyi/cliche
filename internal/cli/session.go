@@ -332,6 +332,8 @@ func printEvent(out io.Writer, e agent.Event) {
 		fmt.Fprintf(out, "  %s\n", style.Red(gl("■", "!")+" budget: "+e.Detail))
 	case "context":
 		fmt.Fprintf(out, "  %s\n", style.Gray(gl("◆", "~")+" context compacted: "+e.Detail))
+	case "cache":
+		fmt.Fprintf(out, "  %s\n", style.Gray(gl("⚡", "~")+" "+e.Detail))
 	case "warn":
 		fmt.Fprintf(out, "  %s\n", style.Red("! "+e.Detail))
 	}

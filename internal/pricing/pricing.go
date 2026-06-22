@@ -65,6 +65,23 @@ func (p Price) CostUSD(inputTokens, outputTokens int) float64 {
 	return float64(inputTokens)/1e6*p.InputPerM + float64(outputTokens)/1e6*p.OutputPerM
 }
 
+// Prompt-cache multipliers on the input rate (Anthropic ephemeral caching):
+// a cache READ costs ~0.1× input, a cache WRITE ~1.25× input.
+const (
+	cacheReadMultiplier  = 0.1
+	cacheWriteMultiplier = 1.25
+)
+
+// CostUSDCached is CostUSD with the prompt-cache discount applied: uncached
+// input at full rate, cache reads at 0.1×, cache writes at 1.25×. This makes the
+// dollar estimate reflect what caching actually saves on the provider bill.
+func (p Price) CostUSDCached(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int) float64 {
+	return float64(inputTokens)/1e6*p.InputPerM +
+		float64(cacheReadTokens)/1e6*p.InputPerM*cacheReadMultiplier +
+		float64(cacheWriteTokens)/1e6*p.InputPerM*cacheWriteMultiplier +
+		float64(outputTokens)/1e6*p.OutputPerM
+}
+
 // Entry pairs a model id with its maintained price.
 type Entry struct {
 	Model string

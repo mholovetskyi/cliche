@@ -16,6 +16,26 @@ func TestTokenCapIsHard(t *testing.T) {
 	}
 }
 
+func TestRecordCachedCountsTokensButDiscountsDollars(t *testing.T) {
+	// mock pricing is $1/1M in and $1/1M out.
+	k := New(Limits{MaxTokens: 2_000_000, MaxUSD: 100})
+	// 100k uncached in + 50k out + 800k cache-read + 50k cache-write.
+	if err := k.RecordCached("mock", 100_000, 50_000, 800_000, 50_000); err != nil {
+		t.Fatalf("unexpected cap: %v", err)
+	}
+	u := k.Usage()
+	// The HARD token cap counts ALL tokens (incl. cache read/write).
+	if u.TotalTokens() != 100_000+50_000+800_000+50_000 {
+		t.Fatalf("token total should include cache tokens, got %d", u.TotalTokens())
+	}
+	// Dollars are discounted: 100k in + 50k out (full) + 800k read @0.1× + 50k
+	// write @1.25× = 0.1 + 0.05 + 0.08 + 0.0625 = $0.2925 — far below counting
+	// every token at the full input rate ($1.0M-equiv would be ~$1.00).
+	if u.USD > 0.30 {
+		t.Fatalf("cache discount not applied to dollars, got $%.4f", u.USD)
+	}
+}
+
 func TestUSDCap(t *testing.T) {
 	// mock pricing is $1/1M in and $1/1M out.
 	k := New(Limits{MaxUSD: 0.001}) // $0.001 == 1000 tokens worth at mock pricing

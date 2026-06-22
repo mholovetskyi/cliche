@@ -40,10 +40,15 @@ type ToolResult struct {
 	IsError bool
 }
 
-// Usage reports token consumption for a single completion.
+// Usage reports token consumption for a single completion. CacheReadTokens and
+// CacheWriteTokens are the prompt-cache breakdown (Anthropic ephemeral caching):
+// reads are billed at ~0.1× and writes at ~1.25× the input rate. InputTokens is
+// the uncached remainder, as the provider reports it.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
 }
 
 // Message is one turn of the transcript in a provider-neutral form. An

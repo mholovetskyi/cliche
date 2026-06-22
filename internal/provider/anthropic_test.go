@@ -61,6 +61,48 @@ func TestBuildRequestBody(t *testing.T) {
 	}
 }
 
+func TestBuildRequestBodyPromptCaching(t *testing.T) {
+	a := NewAnthropic("key", "claude-sonnet-4-6", 4096)
+	body, err := a.buildRequestBody(Request{
+		System:   "be careful",
+		Messages: []Message{{Role: "user", Text: "hello"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	// System is an array of blocks with a cache_control breakpoint (caches
+	// tools+system).
+	sys, ok := out["system"].([]any)
+	if !ok || len(sys) != 1 {
+		t.Fatalf("system should be a one-block array, got %v", out["system"])
+	}
+	if sys[0].(map[string]any)["cache_control"] == nil {
+		t.Fatal("system block should carry cache_control")
+	}
+	// The last message's last block carries a cache_control breakpoint (caches
+	// the conversation prefix).
+	msgs := out["messages"].([]any)
+	last := msgs[len(msgs)-1].(map[string]any)["content"].([]any)
+	if last[len(last)-1].(map[string]any)["cache_control"] == nil {
+		t.Fatal("last message block should carry cache_control")
+	}
+}
+
+func TestParseResponseCacheTokens(t *testing.T) {
+	raw := []byte(`{"content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":6656,"cache_creation_input_tokens":1024}}`)
+	r, err := parseResponse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Usage.CacheReadTokens != 6656 || r.Usage.CacheWriteTokens != 1024 {
+		t.Fatalf("cache usage not parsed: %+v", r.Usage)
+	}
+}
+
 func TestBuildRequestBodySkipsEmptyContent(t *testing.T) {
 	a := NewAnthropic("key", "m", 4096)
 	body, err := a.buildRequestBody(Request{Messages: []Message{

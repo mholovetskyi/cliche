@@ -94,14 +94,22 @@ func (k *Kernel) Preflight(model string, estInputTokens, estOutputTokens int) er
 }
 
 // Record adds ACTUAL usage after a turn and returns an error if a cap has now
-// been crossed. This is the mid-stream / post-turn gate. The charge bubbles to
-// ancestor kernels so the session cap stays authoritative across subagents.
+// been crossed. Equivalent to RecordCached with no cached tokens.
 func (k *Kernel) Record(model string, inputTokens, outputTokens int) error {
+	return k.RecordCached(model, inputTokens, outputTokens, 0, 0)
+}
+
+// RecordCached is Record with a prompt-cache breakdown. The token cap is a HARD
+// guarantee on ALL tokens sent — including cache reads and writes — so they
+// count toward the token total; the dollar charge applies the cache discount
+// (reads 0.1×, writes 1.25×) so the estimate reflects the real saving. The
+// charge bubbles to ancestor kernels so the session cap stays authoritative.
+func (k *Kernel) RecordCached(model string, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int) error {
 	price, _ := pricing.Lookup(model)
 	k.mu.Lock()
-	k.usage.InputTokens += inputTokens
+	k.usage.InputTokens += inputTokens + cacheReadTokens + cacheWriteTokens
 	k.usage.OutputTokens += outputTokens
-	k.usage.USD += price.CostUSD(inputTokens, outputTokens)
+	k.usage.USD += price.CostUSDCached(inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
 	snap := k.usage
 	k.mu.Unlock()
 	// Always bubble the charge so the root stays authoritative even when this
@@ -109,7 +117,7 @@ func (k *Kernel) Record(model string, inputTokens, outputTokens int) error {
 	// one kernel's lock is held at a time, so concurrent subagents can't deadlock.
 	var perr error
 	if k.parent != nil {
-		perr = k.parent.Record(model, inputTokens, outputTokens)
+		perr = k.parent.RecordCached(model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
 	}
 	if err := k.check(snap.TotalTokens(), snap.USD, "recorded"); err != nil {
 		return err
