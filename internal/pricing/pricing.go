@@ -14,6 +14,8 @@
 // derived from this file.
 package pricing
 
+import "sort"
+
 // Price is the cost of a model in USD per 1,000,000 tokens.
 type Price struct {
 	InputPerM  float64
@@ -60,3 +62,23 @@ func Lookup(model string) (Price, bool) {
 func (p Price) CostUSD(inputTokens, outputTokens int) float64 {
 	return float64(inputTokens)/1e6*p.InputPerM + float64(outputTokens)/1e6*p.OutputPerM
 }
+
+// Entry pairs a model id with its maintained price.
+type Entry struct {
+	Model string
+	Price Price
+}
+
+// Models returns the maintained price table sorted by model id, so callers can
+// show users exactly what the dollar estimate is based on.
+func Models() []Entry {
+	out := make([]Entry, 0, len(table))
+	for m, p := range table {
+		out = append(out, Entry{Model: m, Price: p})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
+	return out
+}
+
+// Fallback returns the deliberately-high price applied to unknown models.
+func Fallback() Price { return fallback }

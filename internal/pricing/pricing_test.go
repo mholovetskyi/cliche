@@ -1,6 +1,27 @@
 package pricing
 
-import "testing"
+import (
+	"sort"
+	"testing"
+)
+
+func TestModelsSortedAndComplete(t *testing.T) {
+	ms := Models()
+	if len(ms) != len(table) {
+		t.Fatalf("Models() returned %d entries, table has %d", len(ms), len(table))
+	}
+	if !sort.SliceIsSorted(ms, func(i, j int) bool { return ms[i].Model < ms[j].Model }) {
+		t.Fatal("Models() must be sorted by model id")
+	}
+	for _, e := range ms {
+		if e.Price != table[e.Model] {
+			t.Fatalf("Models() price for %q disagrees with table", e.Model)
+		}
+	}
+	if Fallback() != fallback {
+		t.Fatal("Fallback() must equal the internal fallback price")
+	}
+}
 
 func TestLookupKnownAndUnknown(t *testing.T) {
 	if p, ok := Lookup("claude-sonnet-4-6"); !ok || p.InputPerM != 3 || p.OutputPerM != 15 {
