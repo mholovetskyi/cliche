@@ -27,11 +27,10 @@ var clicheLetters = []string{
 // final E block, which spans columns 35-42.
 const accentCol = 39
 
-// splash is the first-run hero shown for a bare `cliche`: the gradient
-// block-letter wordmark over the dictionary motif, a gradient rule, the
-// taglines, and a get-started command palette. Gradient is reserved for the
-// wordmark and the rule; everything else uses the flat white/gray/red roles.
-func splash() string {
+// heroLogo renders the gradient ANSI-Shadow "CLICHÉ" block (with the é accent),
+// every row padded to a uniform width so the per-row sweep forms one coherent
+// vertical coral band. Each line is prefixed with a two-space indent.
+func heroLogo() string {
 	art := append([]string{strings.Repeat(" ", accentCol) + "╱╱"}, clicheLetters...)
 	width := 0
 	for _, row := range art {
@@ -39,22 +38,38 @@ func splash() string {
 			width = n
 		}
 	}
-
 	var b strings.Builder
-	b.WriteByte('\n')
 	for _, row := range art {
 		if pad := width - utf8.RuneCountInString(row); pad > 0 {
 			row += strings.Repeat(" ", pad)
 		}
 		b.WriteString("  " + style.Gradient(row) + "\n")
 	}
+	return b.String()
+}
+
+// heroHeader is the shared hero: the block wordmark over the dictionary motif,
+// a gradient rule, and the taglines. Used by both the first-run splash and the
+// interactive session header.
+func heroHeader() string {
+	var b strings.Builder
+	b.WriteByte('\n')
+	b.WriteString(heroLogo())
 	b.WriteString("\n")
 	b.WriteString("  " + style.Color(gl("⬡", "*"), style.Sample(0)) +
 		style.Gray(" cli·ché  /ˈklē-ˌshā/  noun · the ") + style.Red("loop breaker") + "\n")
 	b.WriteString("  " + style.GradientRule(45) + "\n")
 	b.WriteString("  " + style.White("the AI coding agent you can actually leave running.") + "\n")
-	b.WriteString("  " + style.Gray("trust kernel · on by default · auditable to the token") + "\n\n")
+	b.WriteString("  " + style.Gray("trust kernel · on by default · auditable to the token") + "\n")
+	return b.String()
+}
 
+// splash is the first-run hero for a bare `cliche`: the shared header plus a
+// get-started command palette.
+func splash() string {
+	var b strings.Builder
+	b.WriteString(heroHeader())
+	b.WriteString("\n")
 	cmds := []struct{ name, desc string }{
 		{"login", "connect your model key — BYO, never marked up"},
 		{"chat", "start a session with the trust kernel on"},
@@ -78,25 +93,9 @@ func gradientWordmark() string {
 	return style.Color(gl("⬡", "*"), style.Sample(0)) + " " + style.GradientBold("cliché")
 }
 
-// banner is the interactive-session header: a gradient wordmark and rule over
-// the dictionary-entry motif, with a coral gradient ribbon down the left.
-func banner() string {
-	lines := []string{
-		gradientWordmark(),
-		style.GradientRule(44),
-		style.Gray("cli·ché  /ˈklē-ˌshā/  noun · the ") + style.Red("loop breaker"),
-		style.White("the AI coding agent you can actually leave running."),
-		style.Gray("trust kernel · on by default · auditable to the token"),
-	}
-	var b strings.Builder
-	b.WriteByte('\n')
-	last := len(lines) - 1
-	for i, ln := range lines {
-		ribbon := style.Color(gl("▌", " "), style.Sample(float64(i)/float64(last)))
-		b.WriteString("  " + ribbon + "  " + ln + "\n")
-	}
-	return b.String()
-}
+// banner is the interactive-session header — the same impressive hero as the
+// first-run splash (the session loop adds the provider/model + slash lines).
+func banner() string { return heroHeader() }
 
 // verdictStyled colors a verify verdict: verified=white, flagged=red.
 func verdictStyled(status string) string {
