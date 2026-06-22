@@ -267,7 +267,7 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 // tail (errors usually surface at the end) with a note in the middle, so the
 // model still sees how a long run started and finished without the whole flood.
 func boundOutput(s string, limit int) string {
-	if len(s) <= limit {
+	if limit <= 0 || len(s) <= limit {
 		return s
 	}
 	head := limit * 2 / 3

@@ -95,6 +95,24 @@ func TestJournalUndoRestoresAndUncreates(t *testing.T) {
 	}
 }
 
+// TestJournalRelPathDefaultRoot reproduces the production wiring where the
+// journal root is "." but the executor records absolute paths: display paths
+// must still come out clean and relative, not as absolute leaks.
+func TestJournalRelPathDefaultRoot(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if real, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = real
+	}
+	j := NewEditJournal(".")
+	abs := filepath.Join(cwd, "sub", "x.txt")
+	if got := j.relPath(abs); got != "sub/x.txt" {
+		t.Fatalf("relPath(%q) with root %q = %q, want \"sub/x.txt\"", abs, ".", got)
+	}
+}
+
 func TestNilJournalIsNoOp(t *testing.T) {
 	// An executor with no journal must work exactly as before.
 	root := t.TempDir()

@@ -3,6 +3,7 @@ package tools
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -119,11 +120,23 @@ func (j *EditJournal) Undo() (path string, did bool, err error) {
 	return j.relPath(c.path), true, nil
 }
 
+// relPath reports p relative to the journal root for display. The executor
+// records absolute, symlink-resolved paths (see OSExecutor.resolve), so the
+// root is normalized the same way before relativizing — otherwise a journal
+// built with the default root "." would fail to relativize and leak the user's
+// absolute filesystem layout into /diff, /undo, and the run summary.
 func (j *EditJournal) relPath(p string) string {
-	if r, err := filepath.Rel(j.root, p); err == nil {
+	root := j.root
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		root = real
+	}
+	if r, err := filepath.Rel(root, p); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 		return filepath.ToSlash(r)
 	}
-	return p
+	return filepath.ToSlash(p)
 }
 
 // PreviewChange renders a compact, bounded before→after diff in the same format

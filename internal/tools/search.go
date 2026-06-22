@@ -87,7 +87,12 @@ func (e OSExecutor) searchFiles(args map[string]string) Result {
 		if err != nil || isBinary(data) {
 			return nil
 		}
-		for n, line := range strings.Split(string(data), "\n") {
+		text := string(data)
+		lines := strings.Split(text, "\n")
+		if strings.HasSuffix(text, "\n") {
+			lines = lines[:len(lines)-1] // a terminating newline doesn't start a new line
+		}
+		for n, line := range lines {
 			if re.MatchString(line) {
 				matches = append(matches, fmt.Sprintf("%s:%d: %s", rel, n+1, clipLine(line)))
 				if len(matches) >= maxSearchMatches {

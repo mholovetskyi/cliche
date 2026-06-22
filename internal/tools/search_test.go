@@ -85,6 +85,23 @@ func TestSearchFilesIgnoreCaseAndNoMatch(t *testing.T) {
 	}
 }
 
+func TestSearchFilesNoPhantomTrailingLine(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "f.txt"), []byte("a\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := OSExecutor{Root: root}
+	// "^" matches every line; a 2-line file has 2 lines, not 3 — the terminating
+	// newline must not manufacture a phantom empty line N+1.
+	r := e.Execute(context.Background(), "search_files", map[string]string{"pattern": "^", "glob": "f.txt"})
+	if !r.Success || !strings.Contains(r.Output, "2 match") {
+		t.Fatalf("expected exactly 2 matches, got:\n%s", r.Output)
+	}
+	if strings.Contains(r.Output, "f.txt:3") {
+		t.Fatalf("phantom trailing line should not be reported:\n%s", r.Output)
+	}
+}
+
 func TestSearchFilesInvalidRegex(t *testing.T) {
 	root := scaffold(t)
 	e := OSExecutor{Root: root}
