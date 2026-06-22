@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +40,9 @@ type Config struct {
 	// is compacted (never silently) when its estimate exceeds this.
 	ContextLimitTokens int
 	ContextKeepRecent  int
+	// MaxSubagentDepth caps subagent nesting (0 disables subagents). A depth-d
+	// agent may spawn children up to depth MaxSubagentDepth.
+	MaxSubagentDepth int
 }
 
 // Agent ties the Trust Kernel around a provider and tool executor.
@@ -53,6 +57,7 @@ type Agent struct {
 	hist         *history.Manager
 	messages     []provider.Message // persists across Run calls (the session transcript)
 	ledgerWarned bool               // emit at most one warning if audit writes fail
+	depth        int                // subagent nesting depth (0 = top-level)
 }
 
 // New builds an Agent. EstInputTokens/EstOutputTokens default to conservative
@@ -165,14 +170,13 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			return a.budgetHalt(err, turn), nil
 		}
 
-		req := provider.Request{System: a.cfg.System, Model: a.cfg.Model, Messages: a.messages, Tools: DefaultToolSpecs()}
-		// Bound this request's OUTPUT by the remaining token budget. Input
-		// overshoot (a large transcript) is still caught post-turn by Record,
-		// which halts before the next turn fires.
-		if a.bud.Limits().MaxTokens > 0 {
-			if rem, _ := a.bud.Remaining(); rem > 0 {
-				req.MaxOutputTokens = rem
-			}
+		req := provider.Request{System: a.cfg.System, Model: a.cfg.Model, Messages: a.messages, Tools: a.toolSpecs()}
+		// Bound this request's OUTPUT by the remaining token budget (the tightest
+		// across the kernel chain, so a scoped subagent is bounded too). Input
+		// overshoot is still caught post-turn by Record. Remaining() returns 0
+		// when nothing in the chain has a token cap.
+		if rem, _ := a.bud.Remaining(); rem > 0 {
+			req.MaxOutputTokens = rem
 		}
 
 		resp, err := a.prov.Complete(ctx, req)
@@ -238,7 +242,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 				break
 			}
 			a.emit(Event{Kind: "tool_call", Turn: turn, Tool: call.Name, Detail: argSummary(call.Args)})
-			res := a.exec.Execute(ctx, call.Name, call.Args)
+			var res tools.Result
+			if call.Name == "spawn_subagent" {
+				res = a.spawnSubagent(ctx, call.Args)
+			} else {
+				res = a.exec.Execute(ctx, call.Name, call.Args)
+			}
 			// Record an attributable target (path or truncated command) — but
 			// never file contents or old_string (which could carry secrets).
 			target := call.Args["file"]
@@ -382,4 +391,68 @@ func DefaultToolSpecs() []provider.ToolSpec {
 			},
 		},
 	}
+}
+
+// toolSpecs is the tool set advertised for this agent — DefaultToolSpecs plus
+// spawn_subagent when nesting is still permitted at this depth.
+func (a *Agent) toolSpecs() []provider.ToolSpec {
+	specs := DefaultToolSpecs()
+	if a.depth < a.cfg.MaxSubagentDepth {
+		specs = append(specs, spawnSubagentSpec())
+	}
+	return specs
+}
+
+func spawnSubagentSpec() provider.ToolSpec {
+	return provider.ToolSpec{
+		Name:        "spawn_subagent",
+		Description: "Delegate a self-contained subtask to a subagent that has its OWN fresh context and a scoped budget (drawn from, and bounded by, the session budget). Use for isolated work (investigate a file, draft a function). Returns the subagent's final summary.",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"prompt":     map[string]any{"type": "string", "description": "the subtask for the subagent"},
+				"max_usd":    map[string]any{"type": "number", "description": "optional dollar cap for this subagent"},
+				"max_tokens": map[string]any{"type": "integer", "description": "optional token cap for this subagent"},
+			},
+			"required": []string{"prompt"},
+		},
+	}
+}
+
+// spawnSubagent runs a child agent on an isolated subtask with a scoped budget
+// and returns its summary as a tool result.
+func (a *Agent) spawnSubagent(ctx context.Context, args map[string]string) tools.Result {
+	if a.depth >= a.cfg.MaxSubagentDepth {
+		return tools.Result{Output: "subagents are not available at this depth", Success: false}
+	}
+	prompt := strings.TrimSpace(args["prompt"])
+	if prompt == "" {
+		return tools.Result{Output: "spawn error: empty subagent prompt", Success: false}
+	}
+	var sub budget.Limits
+	if v, err := strconv.Atoi(strings.TrimSpace(args["max_tokens"])); err == nil && v > 0 {
+		sub.MaxTokens = v
+	}
+	if v, err := strconv.ParseFloat(strings.TrimSpace(args["max_usd"]), 64); err == nil && v > 0 {
+		sub.MaxUSD = v
+	}
+
+	child := a.newChild(sub)
+	o, err := child.Run(ctx, prompt)
+	if err != nil {
+		return tools.Result{Output: "subagent error: " + err.Error(), Success: false}
+	}
+	out := fmt.Sprintf("subagent finished (%s, %d turns, ~$%.4f): %s",
+		o.Stop, o.Turns, o.Usage.USD, truncate(o.Reason, 2000))
+	return tools.Result{Output: out, Success: o.Stop == StopCompleted}
+}
+
+// newChild builds a subagent that shares the provider, ledger, and tool
+// executor (so confinement and permissions are inherited), gets a budget scoped
+// under the parent's, and starts with a FRESH, isolated context.
+func (a *Agent) newChild(sub budget.Limits) *Agent {
+	c := New(a.prov, a.bud.Scoped(sub), a.govLimits, a.led, a.exec, a.cfg)
+	c.depth = a.depth + 1
+	c.obs = a.obs
+	return c
 }

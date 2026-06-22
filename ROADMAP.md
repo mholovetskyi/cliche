@@ -76,7 +76,10 @@ Windows tier-1 TUI, OS sandbox, subagents, skills/hooks, local-model hardening.
 
 - ⬜ Fleet budgets — org-level ceilings across concurrent agents/CI jobs
   (+ SSO, audit logs, self-hosted control plane, SOC2 path).
-- ⬜ Subagents with **per-subagent scoped budget + scoped MCP**.
+- 🟡 Subagents: `spawn_subagent` delegates an isolated subtask with a FRESH
+  context and a budget scoped under (and bubbling into) the session cap, with a
+  configurable depth limit. Still ⬜: per-subagent scoped MCP and parallel
+  subagents.
 - ⬜ Ticket-to-PR with the Verifier verdict as the first PR comment.
 - ⬜ Verifier v2 — model-assisted critic on a *separate cheap model*.
 - ⬜ OS sandbox (Seatbelt / Landlock+seccomp / Windows job objects);

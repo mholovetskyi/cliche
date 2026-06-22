@@ -46,14 +46,22 @@ var (
 )
 
 // Kernel enforces spend limits. It is part of the deterministic core: no LLM
-// is ever in this path.
+// is ever in this path. Kernels nest: a scoped child kernel enforces its own
+// (tighter) limits AND bubbles every charge up to its parent, so a subagent
+// can never exceed either its own sub-budget or the shared session cap.
 type Kernel struct {
 	limits Limits
 	usage  Usage
+	parent *Kernel
 }
 
 // New returns a Budget Kernel with the given limits.
 func New(l Limits) *Kernel { return &Kernel{limits: l} }
+
+// Scoped returns a child kernel with its own limits that also charges this
+// kernel (and its ancestors). Use for subagents: the child gets a bounded slice
+// while the session cap on the root remains authoritative.
+func (k *Kernel) Scoped(l Limits) *Kernel { return &Kernel{limits: l, parent: k} }
 
 // Usage returns the current running tally.
 func (k *Kernel) Usage() Usage { return k.usage }
@@ -67,17 +75,33 @@ func (k *Kernel) Preflight(model string, estInputTokens, estOutputTokens int) er
 	price, _ := pricing.Lookup(model)
 	projTokens := k.usage.TotalTokens() + estInputTokens + estOutputTokens
 	projUSD := k.usage.USD + price.CostUSD(estInputTokens, estOutputTokens)
-	return k.check(projTokens, projUSD, "preflight")
+	if err := k.check(projTokens, projUSD, "preflight"); err != nil {
+		return err
+	}
+	if k.parent != nil {
+		return k.parent.Preflight(model, estInputTokens, estOutputTokens)
+	}
+	return nil
 }
 
 // Record adds ACTUAL usage after a turn and returns an error if a cap has now
-// been crossed. This is the mid-stream / post-turn gate.
+// been crossed. This is the mid-stream / post-turn gate. The charge bubbles to
+// ancestor kernels so the session cap stays authoritative across subagents.
 func (k *Kernel) Record(model string, inputTokens, outputTokens int) error {
 	price, _ := pricing.Lookup(model)
 	k.usage.InputTokens += inputTokens
 	k.usage.OutputTokens += outputTokens
 	k.usage.USD += price.CostUSD(inputTokens, outputTokens)
-	return k.check(k.usage.TotalTokens(), k.usage.USD, "recorded")
+	// Always bubble the charge so the root stays authoritative even when this
+	// level's cap trips; the local cap is the more specific error and wins.
+	var perr error
+	if k.parent != nil {
+		perr = k.parent.Record(model, inputTokens, outputTokens)
+	}
+	if err := k.check(k.usage.TotalTokens(), k.usage.USD, "recorded"); err != nil {
+		return err
+	}
+	return perr
 }
 
 func (k *Kernel) check(tokens int, usd float64, stage string) error {
@@ -90,18 +114,36 @@ func (k *Kernel) check(tokens int, usd float64, stage string) error {
 	return nil
 }
 
-// Remaining reports how much budget is left. For USD this is best-effort
-// (an estimate). Zero values mean "no limit configured" for that dimension.
+// Remaining reports the TIGHTEST remaining budget across this kernel and its
+// ancestors (so a subagent's headroom never exceeds the session's). For USD
+// this is best-effort. Zero values mean "no limit configured" anywhere.
 func (k *Kernel) Remaining() (tokens int, usd float64) {
-	if k.limits.MaxTokens > 0 {
-		if tokens = k.limits.MaxTokens - k.usage.TotalTokens(); tokens < 0 {
-			tokens = 0
+	tok, dol := -1, -1.0 // -1 == unlimited so far
+	for cur := k; cur != nil; cur = cur.parent {
+		if cur.limits.MaxTokens > 0 {
+			r := cur.limits.MaxTokens - cur.usage.TotalTokens()
+			if r < 0 {
+				r = 0
+			}
+			if tok == -1 || r < tok {
+				tok = r
+			}
+		}
+		if cur.limits.MaxUSD > 0 {
+			r := cur.limits.MaxUSD - cur.usage.USD
+			if r < 0 {
+				r = 0
+			}
+			if dol == -1 || r < dol {
+				dol = r
+			}
 		}
 	}
-	if k.limits.MaxUSD > 0 {
-		if usd = k.limits.MaxUSD - k.usage.USD; usd < 0 {
-			usd = 0
-		}
+	if tok == -1 {
+		tok = 0
 	}
-	return tokens, usd
+	if dol == -1 {
+		dol = 0
+	}
+	return tok, dol
 }

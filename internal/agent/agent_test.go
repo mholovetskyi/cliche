@@ -20,6 +20,77 @@ func (errProvider) Complete(context.Context, provider.Request) (provider.Respons
 	return provider.Response{}, errors.New("boom")
 }
 
+func firstUserText(msgs []provider.Message) string {
+	for _, m := range msgs {
+		if m.Role == "user" && m.Text != "" {
+			return m.Text
+		}
+	}
+	return ""
+}
+
+func hasToolResult(msgs []provider.Message) bool {
+	for _, m := range msgs {
+		if len(m.ToolResults) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// routingMock branches on the initial prompt: the "parent" run delegates once
+// then finishes; any other (child) run finishes immediately.
+type routingMock struct{}
+
+func (routingMock) Name() string  { return "routing" }
+func (routingMock) Model() string { return "mock" }
+func (routingMock) Complete(_ context.Context, req provider.Request) (provider.Response, error) {
+	if firstUserText(req.Messages) == "parent" {
+		if hasToolResult(req.Messages) {
+			return provider.Response{Text: "parent finished", Done: true, Usage: provider.Usage{InputTokens: 100, OutputTokens: 20}}, nil
+		}
+		return provider.Response{
+			Text:      "delegating",
+			ToolCalls: []provider.ToolCall{{ID: "s1", Name: "spawn_subagent", Args: map[string]string{"prompt": "child task"}, Signature: "spawn:child"}},
+			Usage:     provider.Usage{InputTokens: 200, OutputTokens: 30},
+		}, nil
+	}
+	return provider.Response{Text: "child finished", Done: true, Usage: provider.Usage{InputTokens: 50, OutputTokens: 10}}, nil
+}
+
+func TestSubagentDelegationAndBudgetBubbling(t *testing.T) {
+	led, _ := ledger.Open(t.TempDir())
+	bud := budget.New(budget.Limits{MaxTokens: 1_000_000, MaxUSD: 100})
+	a := New(routingMock{}, bud, governor.DefaultLimits(), led, tools.SimExecutor{},
+		Config{Model: "mock", MaxSubagentDepth: 2})
+	o, err := a.Run(context.Background(), "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Stop != StopCompleted || o.Reason != "parent finished" {
+		t.Fatalf("want completed/parent finished, got %s/%q", o.Stop, o.Reason)
+	}
+	// Root budget must include the child's spend (parent 230+120 + child 60).
+	if got := bud.Usage().TotalTokens(); got != 410 {
+		t.Fatalf("child spend should bubble into the session budget; got %d, want 410", got)
+	}
+}
+
+func TestSubagentDepthLimit(t *testing.T) {
+	led, _ := ledger.Open(t.TempDir())
+	a := New(provider.NewMock("mock", provider.NormalScript(), false),
+		budget.New(budget.Limits{MaxTokens: 1000}), governor.DefaultLimits(), led,
+		tools.SimExecutor{}, Config{Model: "mock", MaxSubagentDepth: 0})
+	for _, s := range a.toolSpecs() {
+		if s.Name == "spawn_subagent" {
+			t.Fatal("spawn_subagent must not be advertised at depth >= max")
+		}
+	}
+	if res := a.spawnSubagent(context.Background(), map[string]string{"prompt": "x"}); res.Success {
+		t.Fatal("spawnSubagent must refuse when depth limit is 0")
+	}
+}
+
 func TestProviderErrorRollsBackPrompt(t *testing.T) {
 	a := newTestAgent(t, errProvider{}, governor.DefaultLimits(),
 		budget.Limits{MaxTokens: 1_000_000}, tools.SimExecutor{})

@@ -47,6 +47,58 @@ func TestMidStreamCatchesUnderestimate(t *testing.T) {
 	}
 }
 
+func TestScopedChildCapTripsFirst(t *testing.T) {
+	root := New(Limits{MaxTokens: 1000})
+	child := root.Scoped(Limits{MaxTokens: 300})
+	if err := child.Record("mock", 200, 50); err != nil { // child 250, root 250
+		t.Fatalf("unexpected: %v", err)
+	}
+	if err := child.Record("mock", 60, 0); !errors.Is(err, ErrTokenCap) { // child 310 >= 300
+		t.Fatalf("expected child token cap, got %v", err)
+	}
+}
+
+func TestScopedChildCapStillChargesRoot(t *testing.T) {
+	root := New(Limits{MaxTokens: 10000})
+	child := root.Scoped(Limits{MaxTokens: 100})
+	if err := child.Record("mock", 80, 40); !errors.Is(err, ErrTokenCap) { // child 120 >= 100
+		t.Fatalf("expected child cap, got %v", err)
+	}
+	if root.Usage().TotalTokens() != 120 {
+		t.Fatalf("root must be charged even when the child cap trips, got %d", root.Usage().TotalTokens())
+	}
+}
+
+func TestScopedSessionCapEnforcedThroughChild(t *testing.T) {
+	root := New(Limits{MaxTokens: 100})
+	child := root.Scoped(Limits{MaxTokens: 100000}) // huge sub-cap
+	if err := child.Record("mock", 80, 40); !errors.Is(err, ErrTokenCap) {
+		t.Fatalf("the session cap must be enforced through the child, got %v", err)
+	}
+}
+
+func TestScopedSpendBubblesToRoot(t *testing.T) {
+	root := New(Limits{MaxTokens: 1_000_000})
+	child := root.Scoped(Limits{})
+	_ = child.Record("mock", 100, 50)
+	if root.Usage().TotalTokens() != 150 {
+		t.Fatalf("child spend should bubble to root, got %d", root.Usage().TotalTokens())
+	}
+}
+
+func TestScopedRemainingIsTightest(t *testing.T) {
+	root := New(Limits{MaxTokens: 1000})
+	_ = root.Record("mock", 100, 0) // root rem 900
+	child := root.Scoped(Limits{MaxTokens: 300})
+	if tok, _ := child.Remaining(); tok != 300 {
+		t.Fatalf("remaining should be min(300, 900)=300, got %d", tok)
+	}
+	_ = child.Record("mock", 250, 0) // child rem 50, root rem 650
+	if tok, _ := child.Remaining(); tok != 50 {
+		t.Fatalf("remaining should now be 50, got %d", tok)
+	}
+}
+
 func TestRemaining(t *testing.T) {
 	k := New(Limits{MaxTokens: 1000, MaxUSD: 1})
 	_ = k.Record("mock", 300, 0)

@@ -38,13 +38,19 @@ type Context struct {
 	KeepRecent  int `json:"keep_recent"`
 }
 
+// Subagents configures subagent delegation.
+type Subagents struct {
+	MaxDepth int `json:"max_depth"` // 0 disables subagents
+}
+
 // Config is the full run configuration.
 type Config struct {
-	Model    string   `json:"model"`
-	Budget   Budget   `json:"budget"`
-	Governor Governor `json:"governor"`
-	Verify   Verify   `json:"verify"`
-	Context  Context  `json:"context"`
+	Model     string    `json:"model"`
+	Budget    Budget    `json:"budget"`
+	Governor  Governor  `json:"governor"`
+	Verify    Verify    `json:"verify"`
+	Context   Context   `json:"context"`
+	Subagents Subagents `json:"subagents"`
 }
 
 // Default returns conservative, trust-first defaults.
@@ -66,6 +72,9 @@ func Default() Config {
 		Context: Context{
 			LimitTokens: 120_000,
 			KeepRecent:  12,
+		},
+		Subagents: Subagents{
+			MaxDepth: 2,
 		},
 	}
 }
@@ -89,6 +98,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("governor limits must be >= 0")
 	case g.RepetitionThreshold > 0 && g.RepetitionWindow > 0 && g.RepetitionWindow < g.RepetitionThreshold:
 		return fmt.Errorf("governor.repetition_window (%d) must be >= repetition_threshold (%d) or the breaker never trips", g.RepetitionWindow, g.RepetitionThreshold)
+	case c.Subagents.MaxDepth < 0:
+		return fmt.Errorf("subagents.max_depth must be >= 0 (got %d)", c.Subagents.MaxDepth)
 	}
 	return nil
 }

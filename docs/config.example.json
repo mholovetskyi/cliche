@@ -18,5 +18,8 @@
   },
   "verify": {
     "test_command": "go test ./..."
+  },
+  "subagents": {
+    "max_depth": 2
   }
 }

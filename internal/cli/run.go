@@ -94,6 +94,7 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 		MaxWallClock:       wallClock,
 		ContextLimitTokens: cfg.Context.LimitTokens,
 		ContextKeepRecent:  cfg.Context.KeepRecent,
+		MaxSubagentDepth:   cfg.Subagents.MaxDepth,
 	}
 	return agent.New(prov, bud, govLimits, led, exec, acfg), cfg, nil
 }
