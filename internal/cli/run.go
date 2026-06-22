@@ -87,13 +87,16 @@ func firstProviderWithKey() string {
 
 // defaultModelFor returns a sensible default model id for a provider — used when
 // the provider is chosen (or auto-detected) but no model was specified, so a
-// non-Anthropic provider doesn't inherit an Anthropic-only model id.
+// non-Anthropic provider doesn't inherit an Anthropic-only model id. The
+// non-Anthropic defaults favor a cheap, tool-capable model that works on a
+// free/low-credit account out of the box; pick a stronger one with --model or
+// in .cliche/config.json once you have credits.
 func defaultModelFor(name string) string {
 	switch name {
 	case "openrouter":
-		return "anthropic/claude-sonnet-4.6"
+		return "openai/gpt-4o-mini"
 	case "openai":
-		return "gpt-5"
+		return "gpt-4o-mini"
 	default:
 		return "claude-sonnet-4-6"
 	}

@@ -58,7 +58,13 @@ func validateRequest(ctx context.Context, name, key, baseURLOverride string) (*h
 		req.Header.Set("anthropic-version", "2023-06-01")
 		return req, nil
 	case "openrouter":
-		url = modelsURLFrom(orElse(baseURLOverride, "https://openrouter.ai/api/v1/chat/completions"))
+		// OpenRouter's /models endpoint is PUBLIC (returns 200 for any key), so it
+		// can't validate a key. /auth/key is authenticated and 401s on a bad key.
+		if baseURLOverride != "" {
+			url = modelsURLFrom(baseURLOverride)
+		} else {
+			url = "https://openrouter.ai/api/v1/auth/key"
+		}
 	case "openai":
 		url = modelsURLFrom(orElse(baseURLOverride, "https://api.openai.com/v1/chat/completions"))
 	default:

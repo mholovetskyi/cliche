@@ -25,7 +25,7 @@ func TestResolveBackendAutoDetect(t *testing.T) {
 		if prov != "openrouter" {
 			t.Fatalf("provider = %q, want openrouter (Cliche must not be Anthropic-by-default)", prov)
 		}
-		if model != "anthropic/claude-sonnet-4.6" {
+		if model != "openai/gpt-4o-mini" {
 			t.Fatalf("model = %q, want the openrouter default (not the Anthropic id)", model)
 		}
 	})

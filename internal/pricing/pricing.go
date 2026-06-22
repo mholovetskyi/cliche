@@ -30,6 +30,8 @@ var table = map[string]Price{
 	"claude-sonnet-4-6": {InputPerM: 3, OutputPerM: 15},
 	"claude-haiku-4-5":  {InputPerM: 1, OutputPerM: 5},
 	"gpt-5":             {InputPerM: 10, OutputPerM: 30},
+	"gpt-4o":            {InputPerM: 2.5, OutputPerM: 10},
+	"gpt-4o-mini":       {InputPerM: 0.15, OutputPerM: 0.60},
 	"o4-mini":           {InputPerM: 1.1, OutputPerM: 4.4},
 	"gemini-2.5-pro":    {InputPerM: 2.5, OutputPerM: 15},
 	"mock":              {InputPerM: 1, OutputPerM: 1},
