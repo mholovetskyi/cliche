@@ -1,5 +1,7 @@
 {
   "model": "claude-sonnet-4-6",
+  "provider": "anthropic",
+  "_provider_note": "anthropic (ANTHROPIC_API_KEY) | openrouter (OPENROUTER_API_KEY) | openai (OPENAI_API_KEY); optional base_url override",
   "budget": {
     "max_tokens": 2000000,
     "max_usd": 5.0

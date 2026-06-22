@@ -331,10 +331,15 @@ func isRetryable(status int) bool {
 // backoff returns the delay before the next attempt: Retry-After if present,
 // else capped exponential backoff.
 func (a *Anthropic) backoff(attempt int, retryAfter time.Duration) time.Duration {
+	return backoffDelay(a.retryBase, attempt, retryAfter)
+}
+
+// backoffDelay is the shared backoff: Retry-After wins, else capped exponential.
+func backoffDelay(base time.Duration, attempt int, retryAfter time.Duration) time.Duration {
 	if retryAfter > 0 {
 		return retryAfter
 	}
-	d := a.retryBase * time.Duration(int64(1)<<uint(attempt))
+	d := base * time.Duration(int64(1)<<uint(attempt))
 	if max := 30 * time.Second; d > max {
 		d = max
 	}

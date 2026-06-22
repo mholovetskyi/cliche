@@ -54,6 +54,8 @@ type MCPServer struct {
 // Config is the full run configuration.
 type Config struct {
 	Model     string      `json:"model"`
+	Provider  string      `json:"provider"` // anthropic | openrouter | openai
+	BaseURL   string      `json:"base_url"` // override the provider's API endpoint
 	Budget    Budget      `json:"budget"`
 	Governor  Governor    `json:"governor"`
 	Verify    Verify      `json:"verify"`
@@ -65,7 +67,8 @@ type Config struct {
 // Default returns conservative, trust-first defaults.
 func Default() Config {
 	return Config{
-		Model: "claude-sonnet-4-6",
+		Model:    "claude-sonnet-4-6",
+		Provider: "anthropic",
 		Budget: Budget{
 			MaxTokens: 2_000_000,
 			MaxUSD:    5.0,
@@ -109,6 +112,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("governor.repetition_window (%d) must be >= repetition_threshold (%d) or the breaker never trips", g.RepetitionWindow, g.RepetitionThreshold)
 	case c.Subagents.MaxDepth < 0:
 		return fmt.Errorf("subagents.max_depth must be >= 0 (got %d)", c.Subagents.MaxDepth)
+	}
+	switch c.Provider {
+	case "", "anthropic", "openrouter", "openai":
+	default:
+		return fmt.Errorf("provider must be one of anthropic|openrouter|openai (got %q)", c.Provider)
 	}
 	for i, s := range c.MCP {
 		if s.Name == "" || s.Command == "" {

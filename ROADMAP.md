@@ -23,6 +23,9 @@ unattended without a runaway, a blown budget, or a silently faked result.
 - ✅ Auto-verify wired into `run`/`exec`/`chat` (`--verify`, `/verify`).
 
 **Extensibility**
+- ✅ Provider-neutral (BYO-key): Anthropic Messages API + an OpenAI-compatible
+  backend (OpenRouter, OpenAI, local servers) selectable via `--provider` /
+  config, both with multi-turn tool calling and retry/backoff.
 - ✅ MCP client (stdio): connect external Model Context Protocol servers via the
   `mcp` config array; their tools are namespaced (`mcp__<server>__<tool>`),
   permission-gated (`--allow-mcp`/approval), and governed by the same

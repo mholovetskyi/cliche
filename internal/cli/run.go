@@ -24,6 +24,8 @@ import (
 // runFlags are shared by `run` and `exec`.
 type runFlags struct {
 	model            string
+	provider         string
+	baseURL          string
 	maxUSD           float64
 	maxTokens        int
 	maxTurns         int
@@ -41,6 +43,8 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	f := &runFlags{}
 	fs.StringVar(&f.model, "model", "", "model id")
+	fs.StringVar(&f.provider, "provider", "", "anthropic | openrouter | openai")
+	fs.StringVar(&f.baseURL, "base-url", "", "override the provider API endpoint")
 	fs.Float64Var(&f.maxUSD, "max-usd", -1, "estimated dollar cap")
 	fs.IntVar(&f.maxTokens, "max-tokens", -1, "hard token cap")
 	fs.IntVar(&f.maxTurns, "max-turns", -1, "governor turn limit")
@@ -55,9 +59,48 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	return f, fs
 }
 
-// buildAgent wires a real (Anthropic) provider through the Trust Kernel. The
-// approve callback (may be nil) handles permission prompts for actions the
-// flags don't pre-authorize.
+// buildProvider selects the model backend (BYO-key, provider-neutral).
+func buildProvider(cfg config.Config, f *runFlags, model string) (provider.Provider, error) {
+	name := f.provider
+	if name == "" {
+		name = cfg.Provider
+	}
+	baseURL := func(def string) string {
+		if f.baseURL != "" {
+			return f.baseURL
+		}
+		if cfg.BaseURL != "" {
+			return cfg.BaseURL
+		}
+		return def
+	}
+	switch name {
+	case "", "anthropic":
+		key := os.Getenv("ANTHROPIC_API_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set — Cliche is BYO-key. Export your key and retry")
+		}
+		return provider.NewAnthropic(key, model, 4096), nil
+	case "openrouter":
+		key := os.Getenv("OPENROUTER_API_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("OPENROUTER_API_KEY is not set")
+		}
+		return provider.NewOpenAICompat(key, model, baseURL("https://openrouter.ai/api/v1/chat/completions"), 4096), nil
+	case "openai":
+		key := os.Getenv("OPENAI_API_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("OPENAI_API_KEY is not set")
+		}
+		return provider.NewOpenAICompat(key, model, baseURL("https://api.openai.com/v1/chat/completions"), 4096), nil
+	default:
+		return nil, fmt.Errorf("unknown provider %q (want anthropic|openrouter|openai)", name)
+	}
+}
+
+// buildAgent wires the selected provider through the Trust Kernel. The approve
+// callback (may be nil) handles permission prompts for actions the flags don't
+// pre-authorize.
 func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Config, func(), error) {
 	noop := func() {}
 	cfg, err := config.Load(f.dir)
@@ -72,9 +115,9 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 		model = f.model
 	}
 
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		return nil, cfg, noop, fmt.Errorf("ANTHROPIC_API_KEY is not set — Cliche is BYO-key. Export your key and retry")
+	prov, err := buildProvider(cfg, f, model)
+	if err != nil {
+		return nil, cfg, noop, err
 	}
 
 	bud := buildBudget(cfg, f.maxUSD, f.maxTokens)
@@ -89,7 +132,6 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 		Approve: approve,
 	}
 
-	prov := provider.NewAnthropic(apiKey, model, 4096)
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence."
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
