@@ -75,6 +75,7 @@ type OSExecutor struct {
 	Root    string // project root; "" disables confinement
 	Policy  Policy
 	Approve Approver
+	Journal *EditJournal // optional; records mutations for /diff and /undo (nil = off)
 }
 
 // preauthorized reports whether an action proceeds without prompting (--yolo or
@@ -192,10 +193,16 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err != nil {
 			return Result{Output: "write denied: " + err.Error(), IsEdit: edit, Success: false}
 		}
+		// Read the prior content if we'll show a preview or journal the change.
+		var oldData []byte
+		var oldExisted bool
+		if !e.preauthorized("write") || e.Journal != nil {
+			b, err := os.ReadFile(p)
+			oldData, oldExisted = b, err == nil
+		}
 		detail := "write_file " + args["file"]
 		if !e.preauthorized("write") {
-			old, _ := os.ReadFile(p) // a missing file reads as "" → previewed as a new file
-			detail += "\n  " + changePreview(string(old), args["content"])
+			detail += "\n  " + changePreview(string(oldData), args["content"]) // missing file → previewed as new
 		}
 		if !e.permit("write", detail) {
 			return Result{Output: "permission denied: write to " + args["file"], IsEdit: edit, Success: false}
@@ -206,6 +213,7 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err := os.WriteFile(p, []byte(args["content"]), 0o644); err != nil {
 			return Result{Output: "write error: " + err.Error(), IsEdit: edit, Success: false}
 		}
+		e.Journal.record(p, string(oldData), oldExisted)
 		return Result{Output: "wrote " + args["file"], IsEdit: edit, Success: true}
 
 	case "edit_file":
@@ -237,6 +245,7 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err := os.WriteFile(p, []byte(updated), 0o644); err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
 		}
+		e.Journal.record(p, string(data), true)
 		return Result{Output: "edited " + args["file"], IsEdit: edit, Success: true}
 
 	case "run_command":

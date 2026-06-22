@@ -12,6 +12,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/style"
+	"github.com/mholovetskyi/cliche/internal/tools"
 )
 
 // noColor disables decorative glyphs (and color) for portability and dumb
@@ -43,7 +44,7 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	reader := bufio.NewReader(os.Stdin)
 	app := &approver{r: reader, out: out}
 
-	a, cfg, cleanup, err := buildAgent(f, app.Approve)
+	a, journal, cfg, cleanup, err := buildAgent(f, app.Approve)
 	if err != nil {
 		fmt.Fprintln(errOut, "chat: "+err.Error())
 		return 1
@@ -51,22 +52,23 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	defer cleanup()
 	a.SetObserver(func(e agent.Event) { printEvent(out, e) })
 
-	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify}
+	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal}
 	return s.loop()
 }
 
 type session struct {
-	a      *agent.Agent
-	r      *bufio.Reader
-	out    io.Writer
-	dir    string
-	cfg    config.Config
-	verify bool
+	a       *agent.Agent
+	r       *bufio.Reader
+	out     io.Writer
+	dir     string
+	cfg     config.Config
+	verify  bool
+	journal *tools.EditJournal
 }
 
 func (s *session) loop() int {
 	fmt.Fprint(s.out, banner())
-	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /clear · /context · /verify · /help · /exit"))
+	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /verify · /context · /clear · /help · /exit"))
 	for {
 		fmt.Fprint(s.out, "\n"+style.Red(gl("›", ">"))+" ")
 		line, err := s.r.ReadString('\n')
@@ -147,13 +149,51 @@ func (s *session) slash(line string) bool {
 	case "/verify":
 		v := autoVerify(s.out, s.dir, s.cfg)
 		fmt.Fprintf(s.out, "  verdict: %s\n", v.Status)
+	case "/diff":
+		s.showDiff()
+	case "/undo":
+		s.undo()
 	case "/help":
 		fmt.Fprintln(s.out, "  /cost — spend so far    /context — context usage   /verify — re-run tests")
-		fmt.Fprintln(s.out, "  /clear — reset context  /recover — undo compaction  /exit — quit")
+		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /recover — undo compaction")
+		fmt.Fprintln(s.out, "  /clear — reset context  /exit — quit")
 	default:
 		fmt.Fprintf(s.out, "  unknown command (try /help)\n")
 	}
 	return false
+}
+
+// showDiff prints the cumulative before→after diff of every file the agent has
+// changed this session, so the user can review the whole footprint at a glance.
+func (s *session) showDiff() {
+	changes := s.journal.Changes()
+	if len(changes) == 0 {
+		fmt.Fprintln(s.out, "  no file changes this session.")
+		return
+	}
+	for _, c := range changes {
+		label := c.Path
+		switch {
+		case c.Deleted:
+			label += "  " + style.Gray("(deleted)")
+		case c.WasNew:
+			label += "  " + style.Gray("(new)")
+		}
+		fmt.Fprintf(s.out, "\n  %s\n%s\n", style.White(label), colorizeDiff(tools.PreviewChange(c.Before, c.After)))
+	}
+}
+
+// undo reverts the most recent file mutation made this session.
+func (s *session) undo() {
+	path, did, err := s.journal.Undo()
+	switch {
+	case err != nil:
+		fmt.Fprintln(s.out, "  undo failed: "+err.Error())
+	case !did:
+		fmt.Fprintln(s.out, "  nothing to undo.")
+	default:
+		fmt.Fprintf(s.out, "  reverted %s\n", style.White(path))
+	}
 }
 
 // printEvent renders one live activity event from the agent loop.

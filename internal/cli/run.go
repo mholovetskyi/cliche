@@ -101,14 +101,14 @@ func buildProvider(cfg config.Config, f *runFlags, model string) (provider.Provi
 // buildAgent wires the selected provider through the Trust Kernel. The approve
 // callback (may be nil) handles permission prompts for actions the flags don't
 // pre-authorize.
-func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Config, func(), error) {
+func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, *tools.EditJournal, config.Config, func(), error) {
 	noop := func() {}
 	cfg, err := config.Load(f.dir)
 	if err != nil {
-		return nil, cfg, noop, err
+		return nil, nil, cfg, noop, err
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, cfg, noop, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
+		return nil, nil, cfg, noop, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
 	}
 	model := cfg.Model
 	if f.model != "" {
@@ -117,19 +117,21 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 
 	prov, err := buildProvider(cfg, f, model)
 	if err != nil {
-		return nil, cfg, noop, err
+		return nil, nil, cfg, noop, err
 	}
 
 	bud := buildBudget(cfg, f.maxUSD, f.maxTokens)
 	govLimits := buildGovernorLimits(cfg, f.maxTurns)
 	led, err := ledger.Open(config.Dir(f.dir))
 	if err != nil {
-		return nil, cfg, noop, err
+		return nil, nil, cfg, noop, err
 	}
+	journal := tools.NewEditJournal(f.dir)
 	exec := tools.OSExecutor{
 		Root:    f.dir,
 		Policy:  tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo, AllowOutsideRoot: f.allowOutsideRoot},
 		Approve: approve,
+		Journal: journal,
 	}
 
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence."
@@ -146,12 +148,12 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 
 	mcpSrc, cleanup, err := startMCP(cfg.MCP, f.yolo || f.allowMCP, approve)
 	if err != nil {
-		return nil, cfg, noop, fmt.Errorf("mcp: %w", err)
+		return nil, nil, cfg, noop, fmt.Errorf("mcp: %w", err)
 	}
 	if mcpSrc != nil {
 		a.SetMCP(mcpSrc)
 	}
-	return a, cfg, cleanup, nil
+	return a, journal, cfg, cleanup, nil
 }
 
 // cmdRun is the human-facing run command.
@@ -173,7 +175,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 		approve = (&approver{r: bufio.NewReader(os.Stdin), out: out}).Approve
 	}
 
-	a, cfg, cleanup, err := buildAgent(f, approve)
+	a, journal, cfg, cleanup, err := buildAgent(f, approve)
 	if err != nil {
 		fmt.Fprintln(errOut, "run: "+err.Error())
 		return 1
@@ -185,6 +187,9 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	defer stop()
 	fmt.Fprintln(out, wordmark()+style.Gray("  trust kernel armed — caps + governor on · Ctrl-C to stop"))
 	o, runErr := a.Run(ctx, prompt)
+	if runErr == nil {
+		printChangeSummary(out, journal)
+	}
 	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
 		o.Verdict = autoVerify(out, f.dir, cfg).Status
 	}
@@ -214,7 +219,7 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 
-	a, cfg, cleanup, err := buildAgent(f, nil) // headless: no interactive approver
+	a, _, cfg, cleanup, err := buildAgent(f, nil) // headless: no interactive approver
 	if err != nil {
 		writeJSON(errOut, map[string]any{"error": err.Error()})
 		return 1
@@ -232,6 +237,26 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	return exitCodeFor(o)
+}
+
+// printChangeSummary lists the files a run created/modified/deleted, so a
+// one-shot `run` ends with a visible record of what touched the working tree.
+func printChangeSummary(out io.Writer, j *tools.EditJournal) {
+	changes := j.Changes()
+	if len(changes) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "\n%s\n", style.Gray(fmt.Sprintf("changed %d file(s):", len(changes))))
+	for _, c := range changes {
+		tag := "~"
+		switch {
+		case c.Deleted:
+			tag = "-"
+		case c.WasNew:
+			tag = "+"
+		}
+		fmt.Fprintf(out, "  %s %s\n", style.Red(tag), style.White(c.Path))
+	}
 }
 
 func printOutcome(out io.Writer, o agent.Outcome) {
