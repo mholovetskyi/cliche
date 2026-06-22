@@ -91,6 +91,13 @@ type MCP interface {
 // SetObserver registers a streaming observer for live activity.
 func (a *Agent) SetObserver(obs Observer) { a.obs = obs }
 
+// SetModel changes the model used for subsequent turns (e.g. an in-session
+// /model switch). The budget/governor are unaffected.
+func (a *Agent) SetModel(model string) { a.cfg.Model = model }
+
+// Model returns the model currently in use.
+func (a *Agent) Model() string { return a.cfg.Model }
+
 // SetMCP attaches an MCP tool source (its tools are advertised and routed).
 func (a *Agent) SetMCP(m MCP) { a.mcp = m }
 

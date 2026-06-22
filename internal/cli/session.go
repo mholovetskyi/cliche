@@ -134,7 +134,7 @@ func (s *session) loop() int {
 	if w := keyOverrideWarning(s.cfg.Provider); w != "" {
 		fmt.Fprintln(s.out, "  "+style.Red(gl("⚠", "!"))+" "+style.White(w))
 	}
-	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /verify · /context · /clear · /help · /exit"))
+	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /model · /verify · /context · /clear · /help · /exit"))
 	for {
 		fmt.Fprint(s.out, "\n"+style.Color(gl("❯", ">"), style.Sample(0))+style.Color(gl("❯", ">"), style.Sample(0.5))+style.Color(gl("❯", ">"), style.Sample(1))+" ")
 		line, err := s.r.ReadString('\n')
@@ -247,10 +247,12 @@ func (s *session) slash(line string) bool {
 		s.showDiff()
 	case "/undo":
 		s.undo()
+	case "/model":
+		s.switchModel(line)
 	case "/help":
 		fmt.Fprintln(s.out, "  /cost — spend so far    /context — context usage   /verify — re-run tests")
-		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /recover — undo compaction")
-		fmt.Fprintln(s.out, "  /clear — reset context  /exit — quit")
+		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /model — show/switch model")
+		fmt.Fprintln(s.out, "  /clear — reset context  /recover — undo compaction  /exit — quit")
 	default:
 		fmt.Fprintf(s.out, "  unknown command (try /help)\n")
 	}
@@ -275,6 +277,22 @@ func (s *session) showDiff() {
 		}
 		fmt.Fprintf(s.out, "\n  %s\n%s\n", style.White(label), colorizeDiff(tools.PreviewChange(c.Before, c.After)))
 	}
+}
+
+// switchModel shows or changes the model for the rest of the session. The model
+// is sent to the current provider, so on a multi-model provider (e.g.
+// OpenRouter) you can hop between models mid-chat.
+func (s *session) switchModel(line string) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		fmt.Fprintf(s.out, "  model: %s %s\n", style.White(s.a.Model()), style.Gray("(provider "+s.cfg.Provider+")"))
+		fmt.Fprintln(s.out, "  "+style.Gray("switch with `/model <id>` · `cliche models` lists priced ids"))
+		return
+	}
+	m := fields[1]
+	s.a.SetModel(m)
+	s.cfg.Model = m
+	fmt.Fprintf(s.out, "  model → %s\n", style.White(m))
 }
 
 // undo reverts the most recent file mutation made this session.

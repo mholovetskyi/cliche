@@ -11,11 +11,37 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/budget"
+	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/governor"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/tools"
 )
+
+func TestSessionSwitchModel(t *testing.T) {
+	led, _ := ledger.Open(t.TempDir())
+	a := agent.New(
+		provider.NewMock("mock", provider.NormalScript(), false),
+		budget.New(budget.Limits{MaxTokens: 1_000_000}),
+		governor.DefaultLimits(),
+		led, tools.SimExecutor{}, agent.Config{Model: "claude-sonnet-4-6"},
+	)
+	var out bytes.Buffer
+	s := &session{a: a, out: &out, cfg: config.Config{Provider: "openrouter"}}
+
+	s.switchModel("/model") // no arg → show current
+	if !strings.Contains(out.String(), "claude-sonnet-4-6") {
+		t.Fatalf("/model should show the current model:\n%s", out.String())
+	}
+	out.Reset()
+	s.switchModel("/model anthropic/claude-opus-4.8")
+	if a.Model() != "anthropic/claude-opus-4.8" {
+		t.Fatalf("/model <id> should switch the agent model, got %q", a.Model())
+	}
+	if !strings.Contains(out.String(), "anthropic/claude-opus-4.8") {
+		t.Fatalf("/model switch should be acknowledged:\n%s", out.String())
+	}
+}
 
 func TestSessionDiffAndUndo(t *testing.T) {
 	root := t.TempDir()

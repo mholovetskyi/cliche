@@ -146,8 +146,12 @@ func (a *Anthropic) buildRequestBody(req Request) ([]byte, error) {
 		msgs = append(msgs, wireMessage{Role: m.Role, Content: blocks})
 	}
 
+	model := a.model
+	if req.Model != "" {
+		model = req.Model // honor a per-request / in-session model switch
+	}
 	return json.Marshal(anthRequest{
-		Model:     a.model,
+		Model:     model,
 		MaxTokens: maxTok,
 		System:    req.System,
 		Tools:     tools,

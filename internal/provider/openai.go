@@ -146,7 +146,11 @@ func (o *OpenAICompat) buildRequestBody(req Request) ([]byte, error) {
 	if req.MaxOutputTokens > 0 && req.MaxOutputTokens < maxTok {
 		maxTok = req.MaxOutputTokens
 	}
-	return json.Marshal(oaiRequest{Model: o.model, Messages: msgs, Tools: tools, MaxTokens: maxTok})
+	model := o.model
+	if req.Model != "" {
+		model = req.Model // honor a per-request / in-session model switch
+	}
+	return json.Marshal(oaiRequest{Model: model, Messages: msgs, Tools: tools, MaxTokens: maxTok})
 }
 
 // argString returns the tool-call arguments as the JSON string OpenAI expects.
