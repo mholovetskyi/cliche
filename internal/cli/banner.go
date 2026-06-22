@@ -23,42 +23,40 @@ var clicheLetters = []string{
 	" ╚═════╝╚══════╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝",
 }
 
-// accentCol is the column (0-based) of the é acute accent — centered over the
-// final E block, which spans columns 35-42.
-const accentCol = 39
+// artWidth is the uniform rune width of every wordmark row (8+8+3+8+8+8).
+const artWidth = 43
 
-// heroLogo renders the gradient ANSI-Shadow "CLICHÉ" block (with the é accent),
-// every row padded to a uniform width so the per-row sweep forms one coherent
-// vertical coral band. Each line is prefixed with a two-space indent.
+// accentCol is the column (0-based) where the é acute accent sits — centered
+// over the final E block, which spans columns 35-42.
+const accentCol = 38
+
+// heroLogo renders the ANSI-Shadow "CLICHÉ" block. The letters sweep on a
+// diagonal (Gradient2D) so the stacked rows read as one corner-to-corner coral
+// sheen, and the acute accent over the final E is forced brand-RED — so the
+// wordmark's most distinctive element finally reads as "cliché".
 func heroLogo() string {
-	art := append([]string{strings.Repeat(" ", accentCol) + "╱╱"}, clicheLetters...)
-	width := 0
-	for _, row := range art {
-		if n := utf8.RuneCountInString(row); n > width {
-			width = n
-		}
-	}
 	var b strings.Builder
-	for _, row := range art {
-		if pad := width - utf8.RuneCountInString(row); pad > 0 {
+	b.WriteString("  " + style.Red(strings.Repeat(" ", accentCol)+"╱╱") + "\n")
+	for i, row := range clicheLetters {
+		if pad := artWidth - utf8.RuneCountInString(row); pad > 0 {
 			row += strings.Repeat(" ", pad)
 		}
-		b.WriteString("  " + style.Gradient(row) + "\n")
+		b.WriteString("  " + style.Gradient2D(row, i, len(clicheLetters)) + "\n")
 	}
 	return b.String()
 }
 
 // heroHeader is the shared hero: the block wordmark over the dictionary motif,
-// a gradient rule, and the taglines. Used by both the first-run splash and the
-// interactive session header.
+// a gradient rule, and the taglines. Reserved for the first-run splash / bare
+// `cliche` (an everyday session opens with the compact header instead).
 func heroHeader() string {
 	var b strings.Builder
 	b.WriteByte('\n')
 	b.WriteString(heroLogo())
 	b.WriteString("\n")
 	b.WriteString("  " + style.Color(gl("⬡", "*"), style.Sample(0)) +
-		style.Gray(" cli·ché  /ˈklē-ˌshā/  noun · the ") + style.Red("loop breaker") + "\n")
-	b.WriteString("  " + style.GradientRule(45) + "\n")
+		style.Gray(" cli·ché  noun · the ") + style.Red("loop breaker") + "\n")
+	b.WriteString("  " + style.GradientRule(artWidth) + "\n")
 	b.WriteString("  " + style.White("the AI coding agent you can actually leave running.") + "\n")
 	b.WriteString("  " + style.Gray("trust kernel · on by default · auditable to the token") + "\n")
 	return b.String()

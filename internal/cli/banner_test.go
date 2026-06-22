@@ -43,13 +43,14 @@ func TestSplash(t *testing.T) {
 // padded (8+8+3+8+8+8 = 43 for the letters; the accent row is shorter and gets
 // padded up).
 func TestSplashArtAligned(t *testing.T) {
-	want := 43
 	for i, row := range clicheLetters {
-		if n := utf8.RuneCountInString(row); n != want {
-			t.Errorf("clicheLetters[%d] is %d runes, want %d: %q", i, n, want, row)
+		if n := utf8.RuneCountInString(row); n != artWidth {
+			t.Errorf("clicheLetters[%d] is %d runes, want %d: %q", i, n, artWidth, row)
 		}
 	}
-	if accentCol+2 > want {
-		t.Fatalf("accent at col %d (+2) would exceed art width %d", accentCol, want)
+	// The é acute must sit within the final-E span (columns 35-42), or it reads
+	// as a detached mark rather than the accent on cliché.
+	if accentCol < 35 || accentCol+2 > 43 {
+		t.Fatalf("accent at col %d (+2) is not within the E span 35-42", accentCol)
 	}
 }
