@@ -60,6 +60,31 @@ func ShortStat(dir string) string {
 	return out
 }
 
+// ChangedFiles lists the working-tree's changed paths (porcelain), capped to n
+// (n <= 0 = no cap).
+func ChangedFiles(dir string, n int) []string {
+	out, err := run(dir, "status", "--porcelain")
+	if err != nil || out == "" {
+		return nil
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		// Porcelain v1 is "XY PATH"; parse status as the first token and PATH as
+		// the rest. (We trim first because run() may have stripped the leading
+		// status space on the first/last line.)
+		line = strings.TrimSpace(line)
+		if sp := strings.IndexByte(line, ' '); sp >= 0 {
+			if path := strings.TrimSpace(line[sp+1:]); path != "" {
+				files = append(files, path)
+			}
+		}
+		if n > 0 && len(files) >= n {
+			break
+		}
+	}
+	return files
+}
+
 // Commit stages everything and commits with msg, returning the short hash and a
 // one-line stat. Returns ("", "", nil) when there is nothing to commit.
 func Commit(dir, msg string) (hash, stat string, err error) {

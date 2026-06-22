@@ -59,6 +59,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdDemo(stdout)
 	case "cost":
 		return cmdCost(rest, stdout, stderr)
+	case "report":
+		return cmdReport(rest, stdout, stderr)
 	case "models":
 		return cmdModels(rest, stdout, stderr)
 	case "config":
@@ -110,6 +112,9 @@ COMMANDS:
   demo               Run the Trust Kernel offline against four scenarios
                      (healthy task, runaway loop, budget blowout, reward-hack).
   cost               Summarize the cost ledger for this project.
+  report             Export the ledger as a Markdown verdict (task, cost,
+                     changes, verdict): --out <file>, or --pr <n> to post to a
+                     GitHub PR via gh.
   models             Show the maintained price table behind dollar estimates.
   config             Print and validate the effective configuration.
   version            Print the version.

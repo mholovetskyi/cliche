@@ -54,4 +54,14 @@ func TestGitFlow(t *testing.T) {
 	if CurrentBranch(dir) != "cliche/feature" {
 		t.Fatalf("expected branch cliche/feature, got %q", CurrentBranch(dir))
 	}
+
+	// ChangedFiles must return the full path (regression: the first entry used to
+	// lose its leading character to an over-eager trim).
+	if err := os.WriteFile(filepath.Join(dir, "internal_thing.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := ChangedFiles(dir, 10)
+	if len(files) != 1 || files[0] != "internal_thing.go" {
+		t.Fatalf("ChangedFiles wrong: %#v", files)
+	}
 }
