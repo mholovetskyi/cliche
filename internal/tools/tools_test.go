@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,11 +84,17 @@ func TestAllowOutsideRootEscapeHatch(t *testing.T) {
 }
 
 type spyApprover struct {
-	calls int
-	allow bool
+	calls      int
+	allow      bool
+	lastAction string
+	lastDetail string
 }
 
-func (s *spyApprover) approve(action, detail string) bool { s.calls++; return s.allow }
+func (s *spyApprover) approve(action, detail string) bool {
+	s.calls++
+	s.lastAction, s.lastDetail = action, detail
+	return s.allow
+}
 
 func TestPermissionMatrix(t *testing.T) {
 	root := t.TempDir()
@@ -125,5 +132,49 @@ func TestPermissionMatrix(t *testing.T) {
 	e2 := OSExecutor{Root: root, Approve: allow.approve}
 	if r := e2.Execute(context.Background(), "write_file", map[string]string{"file": f, "content": "a"}); !r.Success {
 		t.Fatalf("an allowing approver should permit the write: %s", r.Output)
+	}
+}
+
+// TestApprovalShowsDiffPreview verifies the executor hands the approver a change
+// preview (so the user sees what they're authorizing) for both write and edit,
+// and that no preview work leaks when the action is pre-authorized.
+func TestApprovalShowsDiffPreview(t *testing.T) {
+	root := t.TempDir()
+	f := filepath.Join(root, "x.txt")
+	if err := os.WriteFile(f, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// edit_file: the approval detail names the file and shows the changed lines.
+	spy := &spyApprover{allow: true}
+	e := OSExecutor{Root: root, Approve: spy.approve}
+	r := e.Execute(context.Background(), "edit_file", map[string]string{
+		"file": f, "old_string": "two", "new_string": "TWO",
+	})
+	if !r.Success {
+		t.Fatalf("edit should apply: %s", r.Output)
+	}
+	if !strings.Contains(spy.lastDetail, "x.txt") || !strings.Contains(spy.lastDetail, "- two") || !strings.Contains(spy.lastDetail, "+ TWO") {
+		t.Fatalf("edit approval detail should carry a diff preview, got:\n%s", spy.lastDetail)
+	}
+
+	// write_file over an existing file previews the overwrite too.
+	spy2 := &spyApprover{allow: true}
+	e2 := OSExecutor{Root: root, Approve: spy2.approve}
+	if r := e2.Execute(context.Background(), "write_file", map[string]string{"file": f, "content": "brand new\n"}); !r.Success {
+		t.Fatalf("write should apply: %s", r.Output)
+	}
+	if !strings.Contains(spy2.lastDetail, "+ brand new") {
+		t.Fatalf("write approval detail should carry a diff preview, got:\n%s", spy2.lastDetail)
+	}
+
+	// Pre-authorized (yolo): the approver is never consulted, so no preview.
+	spy3 := &spyApprover{allow: false}
+	e3 := OSExecutor{Root: root, Policy: Policy{Yolo: true}, Approve: spy3.approve}
+	if r := e3.Execute(context.Background(), "write_file", map[string]string{"file": f, "content": "z\n"}); !r.Success {
+		t.Fatalf("yolo write should apply: %s", r.Output)
+	}
+	if spy3.calls != 0 {
+		t.Fatalf("pre-authorized write must not consult the approver, got %d calls", spy3.calls)
 	}
 }

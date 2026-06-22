@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"sync"
+
+	"github.com/mholovetskyi/cliche/internal/style"
 )
 
 // approver implements interactive y/N/always permission prompts, reading from
@@ -34,7 +36,15 @@ func (a *approver) Approve(action, detail string) bool {
 			return true
 		}
 	}
-	fmt.Fprintf(a.out, "  %s allow %s? (%s) [y/N/a=always] ", gl("⚠", "!"), action, detail)
+	// detail's first line names the action target; any following lines are a
+	// change preview (a diff). Render the preview as its own indented block so
+	// the y/N/a question reads cleanly on its own line.
+	head, preview, hasPreview := strings.Cut(detail, "\n")
+	fmt.Fprintf(a.out, "  %s allow %s: %s\n", gl("⚠", "!"), action, head)
+	if hasPreview {
+		fmt.Fprintln(a.out, colorizeDiff(preview))
+	}
+	fmt.Fprint(a.out, "    [y/N/a=always] ")
 	line, err := a.r.ReadString('\n')
 	if err != nil && line == "" {
 		return false
@@ -52,4 +62,22 @@ func (a *approver) Approve(action, detail string) bool {
 	default:
 		return false
 	}
+}
+
+// colorizeDiff tints a change-preview block with the brand palette: removed
+// lines red, the summary/elision lines gray, added lines left as primary text.
+func colorizeDiff(preview string) string {
+	lines := strings.Split(preview, "\n")
+	for i, ln := range lines {
+		t := strings.TrimSpace(ln)
+		switch {
+		case strings.HasPrefix(t, "-"):
+			lines[i] = style.Red(ln) // removed
+		case strings.HasPrefix(t, "+"):
+			// added — leave as primary text
+		default:
+			lines[i] = style.Gray(ln) // summary / elision note
+		}
+	}
+	return strings.Join(lines, "\n")
 }

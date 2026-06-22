@@ -66,21 +66,27 @@ type OSExecutor struct {
 	Approve Approver
 }
 
-// permit decides whether an action ("write" or "run") may proceed. --yolo and
-// the explicit allow flags pre-authorize; otherwise the Approver is asked.
-func (e OSExecutor) permit(action, detail string) bool {
+// preauthorized reports whether an action proceeds without prompting (--yolo or
+// the matching allow flag). It mirrors the fast path of permit, so callers can
+// skip building an expensive approval detail (e.g. a diff) that won't be shown.
+func (e OSExecutor) preauthorized(action string) bool {
 	if e.Policy.Yolo {
 		return true
 	}
 	switch action {
 	case "write":
-		if e.Policy.AllowWrite {
-			return true
-		}
+		return e.Policy.AllowWrite
 	case "run":
-		if e.Policy.AllowRun {
-			return true
-		}
+		return e.Policy.AllowRun
+	}
+	return false
+}
+
+// permit decides whether an action ("write" or "run") may proceed. --yolo and
+// the explicit allow flags pre-authorize; otherwise the Approver is asked.
+func (e OSExecutor) permit(action, detail string) bool {
+	if e.preauthorized(action) {
+		return true
 	}
 	if e.Approve != nil {
 		return e.Approve(action, detail)
@@ -175,7 +181,12 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err != nil {
 			return Result{Output: "write denied: " + err.Error(), IsEdit: edit, Success: false}
 		}
-		if !e.permit("write", "write_file "+args["file"]) {
+		detail := "write_file " + args["file"]
+		if !e.preauthorized("write") {
+			old, _ := os.ReadFile(p) // a missing file reads as "" → previewed as a new file
+			detail += "\n  " + changePreview(string(old), args["content"])
+		}
+		if !e.permit("write", detail) {
 			return Result{Output: "permission denied: write to " + args["file"], IsEdit: edit, Success: false}
 		}
 		if err := validateSyntax(p, args["content"]); err != nil {
@@ -194,9 +205,6 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err != nil {
 			return Result{Output: "edit denied: " + err.Error(), IsEdit: edit, Success: false}
 		}
-		if !e.permit("write", "edit_file "+args["file"]) {
-			return Result{Output: "permission denied: edit " + args["file"], IsEdit: edit, Success: false}
-		}
 		data, err := os.ReadFile(p)
 		if err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
@@ -204,6 +212,13 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		updated, err := applyEdit(string(data), args["old_string"], args["new_string"], args["replace_all"] == "true")
 		if err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
+		}
+		detail := "edit_file " + args["file"]
+		if !e.preauthorized("write") {
+			detail += "\n  " + changePreview(string(data), updated)
+		}
+		if !e.permit("write", detail) {
+			return Result{Output: "permission denied: edit " + args["file"], IsEdit: edit, Success: false}
 		}
 		if err := validateSyntax(p, updated); err != nil {
 			return Result{Output: "edit rejected (file left unchanged): " + err.Error(), IsEdit: edit, Success: false}
