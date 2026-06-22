@@ -1,11 +1,53 @@
 package cli
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/mholovetskyi/cliche/internal/style"
 )
+
+// TestMdStreamerChunkInvariant proves the streamed renderer produces identical
+// output no matter how the deltas are split — feeding it one rune at a time must
+// match feeding it the whole string — and that markdown is actually rendered.
+func TestMdStreamerChunkInvariant(t *testing.T) {
+	oldE, oldNC := style.Enabled, noColor
+	style.Enabled, noColor = true, false
+	defer func() { style.Enabled, noColor = oldE, oldNC }()
+
+	input := "## Heading\na **bold** line with `code`\n```go\nx := 1\n```\ndone"
+	render := func(chunks []string) string {
+		var b bytes.Buffer
+		m := newMdStreamer(&b)
+		for _, c := range chunks {
+			m.write(c)
+		}
+		m.flush()
+		return b.String()
+	}
+
+	whole := render([]string{input})
+	var perRune []string
+	for _, r := range input {
+		perRune = append(perRune, string(r))
+	}
+	if got := render(perRune); got != whole {
+		t.Fatalf("streamed output must not depend on chunk boundaries:\n--whole--\n%q\n--perRune--\n%q", whole, got)
+	}
+
+	if strings.Contains(whole, "```") {
+		t.Fatalf("fence markers must be hidden:\n%s", whole)
+	}
+	for _, want := range []string{"Heading", "bold", "code", "x := 1", "done"} {
+		if !strings.Contains(whole, want) {
+			t.Fatalf("streamed markdown dropped %q:\n%s", want, whole)
+		}
+	}
+	if strings.Contains(whole, "**") {
+		t.Fatalf("bold markers must be consumed:\n%s", whole)
+	}
+}
 
 func TestRenderMarkdown(t *testing.T) {
 	old := style.Enabled

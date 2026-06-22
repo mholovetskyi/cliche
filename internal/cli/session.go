@@ -121,21 +121,21 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 }
 
 type session struct {
-	a           *agent.Agent
-	r           *bufio.Reader
-	out         io.Writer
-	dir         string
-	cfg         config.Config
-	verify      bool
-	journal     *tools.EditJournal
-	spin        *spinner // active "thinking" indicator during a model wait (main goroutine only)
-	id          string   // session id for on-disk persistence
-	title       string   // first prompt, used as the session title
-	created     time.Time
-	resumed     int       // messages restored from a resumed session (0 if fresh)
-	streaming   bool      // currently mid live-streamed assistant block
-	atLineStart bool      // streamed writer is at the start of a line (needs indent)
-	app         *approver // for /mode (mutates the approver's permission mode)
+	a         *agent.Agent
+	r         *bufio.Reader
+	out       io.Writer
+	dir       string
+	cfg       config.Config
+	verify    bool
+	journal   *tools.EditJournal
+	spin      *spinner // active "thinking" indicator during a model wait (main goroutine only)
+	id        string   // session id for on-disk persistence
+	title     string   // first prompt, used as the session title
+	created   time.Time
+	resumed   int         // messages restored from a resumed session (0 if fresh)
+	streaming bool        // currently mid live-streamed assistant block
+	stream    *mdStreamer // line-buffered markdown renderer for the streamed block
+	app       *approver   // for /mode (mutates the approver's permission mode)
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -166,9 +166,9 @@ func (s *session) onEvent(e agent.Event) {
 		if !s.streaming {
 			fmt.Fprintln(s.out) // start the assistant block on its own line
 			s.streaming = true
-			s.atLineStart = true
+			s.stream = newMdStreamer(s.out)
 		}
-		s.writeStreamed(e.Text)
+		s.stream.write(e.Text)
 		return
 	}
 	s.endStream()
@@ -182,32 +182,15 @@ func (s *session) onEvent(e agent.Event) {
 	}
 }
 
-// writeStreamed prints a chunk of streamed assistant text, indenting each line
-// to align with the activity feed (the deltas used to print flush-left, jumping
-// horizontally away from the indented feed).
-func (s *session) writeStreamed(text string) {
-	for len(text) > 0 {
-		if s.atLineStart {
-			fmt.Fprint(s.out, "  ")
-			s.atLineStart = false
-		}
-		nl := strings.IndexByte(text, '\n')
-		if nl < 0 {
-			fmt.Fprint(s.out, text)
-			return
-		}
-		fmt.Fprint(s.out, text[:nl+1])
-		s.atLineStart = true
-		text = text[nl+1:]
-	}
-}
-
-// endStream closes a live-streamed assistant block with a trailing newline.
+// endStream closes a live-streamed assistant block, flushing any trailing
+// partial line through the markdown streamer.
 func (s *session) endStream() {
 	if s.streaming {
-		fmt.Fprintln(s.out)
+		if s.stream != nil {
+			s.stream.flush()
+			s.stream = nil
+		}
 		s.streaming = false
-		s.atLineStart = false
 	}
 }
 
