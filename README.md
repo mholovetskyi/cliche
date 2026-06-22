@@ -35,6 +35,13 @@ built for the part where you're not watching.
 
 ## Install
 
+Download a pre-built binary from [Releases](https://github.com/mholovetskyi/cliche/releases)
+— each release ships a single static binary per platform, a `checksums.txt`, an
+SBOM, and a cosign (keyless) signature over the checksums, so you can verify the
+supply chain end-to-end.
+
+Or with Go:
+
 ```sh
 go install github.com/mholovetskyi/cliche/cmd/cliche@latest
 ```
@@ -68,6 +75,11 @@ output.
 export ANTHROPIC_API_KEY=sk-...
 cliche chat
 ```
+
+Bring any model — `--provider anthropic` (default), `openrouter`, or `openai`,
+with the matching `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` / `OPENAI_API_KEY`.
+The end-to-end agent loop is currently proven against OpenRouter; the native
+Anthropic path shares the same loop and is unit-tested.
 
 Type a task and Cliche works it end-to-end — reading, editing (`edit_file`),
 running commands, and delegating isolated subtasks to **budget-scoped

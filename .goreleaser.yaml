@@ -1,0 +1,80 @@
+version: 2
+project_name: cliche
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - id: cliche
+    main: ./cmd/cliche
+    binary: cliche
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/mholovetskyi/cliche/internal/cli.Version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+      - ROADMAP.md
+      - SECURITY.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive
+
+signs:
+  - cmd: cosign
+    args:
+      - sign-blob
+      - --bundle=${artifact}.sigstore.json
+      - ${artifact}
+      - --yes
+    artifacts: checksum
+    output: true
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: mholovetskyi
+    name: cliche
+  draft: false
+  prerelease: auto
+  name_template: "cliché {{ .Tag }}"
+  footer: |
+    ---
+    Verify a download against `checksums.txt` (`sha256sum -c checksums.txt`), then
+    verify the checksums file's keyless cosign signature:
+
+        cosign verify-blob --bundle checksums.txt.sigstore.json \
+          --certificate-identity-regexp '^https://github.com/mholovetskyi/cliche/\.github/workflows/release\.yml@' \
+          --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+          checksums.txt
