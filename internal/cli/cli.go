@@ -46,6 +46,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "init":
 		return cmdInit(rest, stdout, stderr)
+	case "auth":
+		return cmdAuth(rest, stdout, stderr)
 	case "chat":
 		return cmdChat(rest, stdout, stderr)
 	case "demo":
@@ -81,6 +83,8 @@ USAGE:
 COMMANDS:
   init               Scaffold .cliche/config.json and an AGENTS.md template
                      (never overwrites existing files).
+  auth               Save a provider API key once (no provider = show status):
+                     cliche auth openrouter --from-file key.txt
   chat               Start an interactive agentic session: type a prompt and it
                      cooks (reads/edits files, runs commands), then ask again.
                      Live activity, ask-before-acting, session-wide budget.

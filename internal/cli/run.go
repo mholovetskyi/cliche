@@ -16,6 +16,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/provider"
+	"github.com/mholovetskyi/cliche/internal/secrets"
 	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/tools"
 	"github.com/mholovetskyi/cliche/internal/verifier"
@@ -64,22 +65,13 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 var supportedProviders = []string{"anthropic", "openrouter", "openai"}
 
 // providerKeyEnv maps a provider to the environment variable holding its key.
-func providerKeyEnv(name string) string {
-	switch name {
-	case "", "anthropic":
-		return "ANTHROPIC_API_KEY"
-	case "openrouter":
-		return "OPENROUTER_API_KEY"
-	case "openai":
-		return "OPENAI_API_KEY"
-	}
-	return ""
-}
+func providerKeyEnv(name string) string { return secrets.EnvVar(name) }
 
-// hasProviderKey reports whether the key for a provider is present in the env.
+// hasProviderKey reports whether a key for a provider is configured (env var or
+// the saved credentials file).
 func hasProviderKey(name string) bool {
-	env := providerKeyEnv(name)
-	return env != "" && os.Getenv(env) != ""
+	key, _ := secrets.Lookup(name)
+	return key != ""
 }
 
 // firstProviderWithKey returns the first supported provider that has a key set,
@@ -132,9 +124,10 @@ func resolveBackend(cfg config.Config, f *runFlags) (prov, model string, err err
 	}
 	if !hasProviderKey(prov) {
 		return "", "", fmt.Errorf(
-			"no API key for provider %q (looked for %s). Cliche is BYO-key — export one of "+
-				"ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY, or pass --provider to pick one",
-			prov, providerKeyEnv(prov))
+			"no API key configured. Cliche is BYO-key — set one up once with:\n" +
+				"    cliche auth openrouter            (then paste your key, or --from-file <path>)\n" +
+				"  or, for this shell only, export ANTHROPIC_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY.\n" +
+				"  (pass --provider to force a specific backend.)")
 	}
 
 	model = f.model
@@ -149,8 +142,9 @@ func resolveBackend(cfg config.Config, f *runFlags) (prov, model string, err err
 	return prov, model, nil
 }
 
-// buildProvider constructs the selected, already-resolved backend (BYO-key).
-func buildProvider(name, model, baseURLOverride string) (provider.Provider, error) {
+// buildProvider constructs the selected, already-resolved backend with the
+// resolved key (BYO-key — from env or the saved credentials file).
+func buildProvider(name, model, key, baseURLOverride string) (provider.Provider, error) {
 	baseURL := func(def string) string {
 		if baseURLOverride != "" {
 			return baseURLOverride
@@ -159,11 +153,11 @@ func buildProvider(name, model, baseURLOverride string) (provider.Provider, erro
 	}
 	switch name {
 	case "", "anthropic":
-		return provider.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"), model, 4096), nil
+		return provider.NewAnthropic(key, model, 4096), nil
 	case "openrouter":
-		return provider.NewOpenAICompat(os.Getenv("OPENROUTER_API_KEY"), model, baseURL("https://openrouter.ai/api/v1/chat/completions"), 4096), nil
+		return provider.NewOpenAICompat(key, model, baseURL("https://openrouter.ai/api/v1/chat/completions"), 4096), nil
 	case "openai":
-		return provider.NewOpenAICompat(os.Getenv("OPENAI_API_KEY"), model, baseURL("https://api.openai.com/v1/chat/completions"), 4096), nil
+		return provider.NewOpenAICompat(key, model, baseURL("https://api.openai.com/v1/chat/completions"), 4096), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q (want anthropic|openrouter|openai)", name)
 	}
@@ -193,7 +187,8 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, *tools.EditJ
 	if baseURLOverride == "" {
 		baseURLOverride = cfg.BaseURL
 	}
-	prov, err := buildProvider(provName, model, baseURLOverride)
+	key, _ := secrets.Lookup(provName) // presence guaranteed by resolveBackend
+	prov, err := buildProvider(provName, model, key, baseURLOverride)
 	if err != nil {
 		return nil, nil, cfg, noop, err
 	}
