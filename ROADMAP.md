@@ -36,8 +36,19 @@ unattended without a runaway, a blown budget, or a silently faked result.
 
 **Extensibility**
 - ✅ Provider-neutral (BYO-key): Anthropic Messages API + an OpenAI-compatible
-  backend (OpenRouter, OpenAI, local servers) selectable via `--provider` /
-  config, both with multi-turn tool calling and retry/backoff.
+  backend reaching **any** provider — a built-in preset registry (OpenRouter,
+  OpenAI, Groq, DeepSeek, Mistral, Together, xAI) plus config-defined custom
+  providers (`providers: [{name, base_url, default_model}]`) for anything else,
+  including local servers (Ollama/LM Studio/vLLM). `cliche login` is a guided,
+  key-verifying setup wizard; `cliche auth` is the scriptable form; keys live in
+  a per-user `0600` credentials file or `<NAME>_API_KEY`. `/model` switches
+  models mid-session.
+- ✅ **Prompt caching** (Anthropic backend): the stable system+tools prefix and
+  the conversation are `cache_control`-marked, so repeat turns read them at
+  ~0.1× — the hard token cap still counts every token, the dollar estimate
+  applies the real discount, and a per-turn breadcrumb shows the saving.
+- ✅ Polished terminal UI: gradient banner/spinner, markdown-rendered responses
+  (code blocks, headings, bold, inline code), styled errors with hints.
 - ✅ MCP client (stdio): connect external Model Context Protocol servers via the
   `mcp` config array; their tools are namespaced (`mcp__<server>__<tool>`),
   permission-gated (`--allow-mcp`/approval), and governed by the same
