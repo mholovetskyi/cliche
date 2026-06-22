@@ -16,10 +16,22 @@ unattended without a runaway, a blown budget, or a silently faked result.
 **AI-first agentic experience**
 - ✅ Interactive session (`cliche chat`): persistent conversation + session-wide
   budget, fresh per-task governor, live activity stream, slash commands.
-- ✅ Ask-before-acting permissions: interactive `y/N/always` in a TTY; `--yolo`
-  and allow-flags still pre-authorize (never bypassing caps/governor).
+- ✅ Ask-before-acting permissions: interactive `y/N/always` in a TTY, showing a
+  **diff preview** of the exact change before you authorize it; `--yolo` and
+  allow-flags still pre-authorize (never bypassing caps/governor).
 - ✅ Robust `edit_file` tool: exact match → whitespace-tolerant line-block
   fallback (targeted edits, not full-file overwrites).
+- ✅ Confined code-search tools — `search_files` (regex grep), `find_files`
+  (glob, `**`-aware), `list_files` — so the agent finds code natively instead of
+  shelling out to grep/find (project-root-confined, like `read_file`).
+- ✅ Budget-protecting I/O bounds: `read_file` pages large files (offset/limit,
+  2000-line default cap) and `run_command` output is capped, so a single tool
+  call can't flood the context window or the token budget.
+- ✅ Session edit journal: `/diff` shows everything changed this session, `/undo`
+  reverts the last edit, and `run` ends with a change summary — in-memory only
+  (never persisted; it holds file contents).
+- ✅ `cliche init` scaffolds `.cliche/config.json` + an `AGENTS.md` template;
+  `cliche models` shows the price table behind dollar estimates.
 - ✅ Auto-verify wired into `run`/`exec`/`chat` (`--verify`, `/verify`).
 
 **Extensibility**
