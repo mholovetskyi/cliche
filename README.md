@@ -72,13 +72,17 @@ output.
 **Cook interactively (AI-first session, BYO key):**
 
 ```sh
-cliche auth openrouter            # save your key once (or export *_API_KEY)
+cliche login                      # pick a provider, paste your key — verified & saved
 cliche chat
 ```
 
-`cliche auth` stores the key in your per-user config dir (`0600`, never in the
-repo); the matching `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` / `OPENAI_API_KEY`
-environment variable still overrides it when set.
+`cliche login` is a one-time guided setup: choose a provider, paste your key
+(hidden input), and Cliche verifies it works before saving it to your per-user
+config dir (`0600`, never in the repo). Running `cliche chat` with no key
+configured drops you straight into the same wizard. For scripts/CI use
+`cliche auth <provider> --from-file <path>` (or `--key`, or stdin); the matching
+`ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` / `OPENAI_API_KEY` environment
+variable always overrides a saved key when set.
 
 Bring any model — Cliche is provider-neutral and **auto-detects the backend**
 from whichever key you export (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or
