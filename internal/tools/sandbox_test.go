@@ -53,12 +53,16 @@ func TestScrubbedEnvRemovesSecrets(t *testing.T) {
 }
 
 func TestIsSecretEnvKey(t *testing.T) {
-	for _, k := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CLICHE_FOO", "AWS_SECRET_ACCESS_KEY", "GH_TOKEN"} {
+	for _, k := range []string{
+		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPENAI_KEY",
+		"CLICHE_FOO", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "GH_TOKEN",
+		"DB_PASSWORD", "GCP_CREDENTIALS",
+	} {
 		if !isSecretEnvKey(k) {
 			t.Errorf("%q should be treated as secret", k)
 		}
 	}
-	for _, k := range []string{"PATH", "HOME", "GOPATH", "LANG"} {
+	for _, k := range []string{"PATH", "HOME", "GOPATH", "LANG", "TERM", "EDITOR"} {
 		if isSecretEnvKey(k) {
 			t.Errorf("%q should NOT be treated as secret", k)
 		}

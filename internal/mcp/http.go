@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// maxResponseBytes caps a single JSON-RPC HTTP response body, so a hostile or
+// buggy server can't exhaust memory with an unbounded reply.
+const maxResponseBytes = 16 << 20 // 16 MiB
+
 // HTTPClient speaks MCP over the Streamable HTTP transport: each JSON-RPC
 // message is POSTed to a single endpoint, and the server replies with either a
 // plain JSON response or a text/event-stream (SSE) carrying the response. A
@@ -121,9 +125,12 @@ func decodeResponse(resp *http.Response, wantID int) (*rpcResponse, error) {
 	if strings.Contains(resp.Header.Get("content-type"), "text/event-stream") {
 		return decodeSSE(resp.Body, wantID)
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return nil, err
+	}
+	if len(data) >= maxResponseBytes {
+		return nil, fmt.Errorf("response exceeded %d bytes", maxResponseBytes)
 	}
 	var out rpcResponse
 	if err := json.Unmarshal(data, &out); err != nil {

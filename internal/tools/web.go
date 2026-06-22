@@ -63,23 +63,40 @@ func (e OSExecutor) webFetch(ctx context.Context, args map[string]string) Result
 	if !e.permitWeb(target) {
 		return Result{Output: "permission denied: web fetch (" + target + ")", Success: false}
 	}
-	text, err := fetchURL(ctx, target)
+	text, err := fetchURL(ctx, target, e.Egress)
 	if err != nil {
 		return Result{Output: "fetch error: " + err.Error(), Success: false}
 	}
 	return Result{Output: text, Success: true}
 }
 
-func fetchURL(ctx context.Context, url string) (string, error) {
+// fetchURL GETs url and returns its text. The egress allowlist is re-checked on
+// EVERY redirect hop, not just the initial URL — otherwise a 302 from an
+// allowlisted host could send the agent to an arbitrary or internal host (SSRF),
+// defeating the boundary. A configured allowlist therefore confines the entire
+// redirect chain; an unconfigured one (allow-all) leaves redirects unrestricted,
+// matching the initial-request behavior.
+func fetchURL(ctx context.Context, url string, egress Egress) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			if !egress.Allowed(req.URL.Hostname()) {
+				return fmt.Errorf("redirect to disallowed host %q blocked by egress allowlist", req.URL.Hostname())
+			}
+			return nil
+		},
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("user-agent", "cliche/web_fetch")
 	req.Header.Set("accept", "text/html,text/plain,application/json,*/*")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}

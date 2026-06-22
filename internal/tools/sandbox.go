@@ -46,17 +46,24 @@ func scrubbedEnv() []string {
 }
 
 // isSecretEnvKey reports whether an environment key holds a credential Cliche
-// should not hand to a model-authored shell command.
+// should not hand to a model-authored shell command. Sandbox is an untrusted
+// posture, so this errs toward over-scrubbing: anything that looks like a key,
+// token, secret, password, or credential is stripped (covers OPENAI_KEY,
+// *_API_KEY, AWS_ACCESS_KEY_ID, *_TOKEN, *SECRET*, etc.).
 func isSecretEnvKey(key string) bool {
 	k := strings.ToUpper(key)
 	switch {
-	case strings.HasSuffix(k, "_API_KEY"):
-		return true
 	case strings.HasPrefix(k, "CLICHE_"):
+		return true
+	case strings.HasSuffix(k, "_KEY") || strings.Contains(k, "_API_KEY") || strings.Contains(k, "ACCESS_KEY"):
+		return true
+	case strings.Contains(k, "TOKEN"):
 		return true
 	case strings.Contains(k, "SECRET"):
 		return true
-	case strings.HasSuffix(k, "_TOKEN") || k == "ANTHROPIC_AUTH_TOKEN":
+	case strings.Contains(k, "PASSWORD") || strings.Contains(k, "PASSWD"):
+		return true
+	case strings.Contains(k, "CREDENTIAL"):
 		return true
 	default:
 		return false
