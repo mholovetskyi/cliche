@@ -93,9 +93,14 @@ func gradientWordmark() string {
 	return style.Color(gl("⬡", "*"), style.Sample(0)) + " " + style.GradientBold("cliché")
 }
 
-// banner is the interactive-session header — the same impressive hero as the
-// first-run splash (the session loop adds the provider/model + slash lines).
-func banner() string { return heroHeader() }
+// compactHeader is the one-line interactive-session identity: the gradient
+// wordmark plus a metadata strip. The full ASCII hero is reserved for the
+// first-run splash / bare `cliche`, so an everyday session opens with the prompt
+// near the top of the screen instead of behind 13 lines of wallpaper.
+func compactHeader(provider, model, mode, keySrc string) string {
+	meta := style.Gray(provider+" · "+model+" · "+mode) + style.Dim(" · key "+keySrc)
+	return "  " + gradientWordmark() + "   " + meta
+}
 
 // verdictStyled colors a verify verdict: verified=white, flagged=red.
 func verdictStyled(status string) string {

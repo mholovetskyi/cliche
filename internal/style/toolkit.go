@@ -166,8 +166,14 @@ func Green(s string) string { return wrap(green, s) }
 // BoldGreen is Green at bold weight.
 func BoldGreen(s string) string { return wrap(bold+green, s) }
 
-// GreenRGB exposes the sage accent for gauges/badges.
-var GreenRGB = RGB{120, 200, 120}
+// Exported palette colors for callers that need an RGB (badges, chevrons, gauges).
+var (
+	GreenRGB = RGB{120, 200, 120} // sage success accent
+	RedRGB   = RGB{229, 72, 77}   // coral-red accent
+	GrayRGB  = RGB{138, 138, 138} // metadata/secondary
+	WhiteRGB = RGB{237, 237, 237} // primary text
+	InkRGB   = RGB{20, 20, 22}    // near-black, for text on a colored badge
+)
 
 // ---- badges ----
 

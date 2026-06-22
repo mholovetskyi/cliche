@@ -198,27 +198,27 @@ func (s *session) stopSpin() {
 
 func (s *session) loop() int {
 	clearScreen(s.out)
-	fmt.Fprint(s.out, banner())
+	defer style.ShowCursor(s.out) // never strand a hidden cursor (panic-safe)
 	_, source := secrets.Lookup(s.cfg.Provider)
 	keySrc := "saved"
 	if strings.HasPrefix(source, "env:") {
 		keySrc = "env"
 	}
-	modeLabel := ""
-	if s.app != nil {
-		modeLabel = "  · mode: " + s.app.mode
-	}
-	fmt.Fprintln(s.out, "  "+style.Gray(s.cfg.Provider+" · "+s.cfg.Model)+style.Dim("  · key: "+keySrc+modeLabel))
+	fmt.Fprintln(s.out)
+	fmt.Fprintln(s.out, compactHeader(s.cfg.Provider, s.cfg.Model, s.modeName(), keySrc))
 	if w := keyOverrideWarning(s.cfg.Provider); w != "" {
 		fmt.Fprintln(s.out, "  "+style.Red(gl("⚠", "!"))+" "+style.White(w))
 	}
 	if s.resumed > 0 {
 		u := s.a.Usage()
-		fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("resumed session %s · %d messages · ~$%.4f spent so far", s.id, s.resumed, u.USD)))
+		fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("resumed %s · %d messages · ~$%.4f so far", s.id, s.resumed, u.USD)))
 	}
-	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /rewind · /commit · /model · /mode · /verify · /help · /exit"))
+	fmt.Fprintln(s.out, "  "+style.Dim("/cost · /diff · /undo · /model · /mode · /verify · /help · /exit"))
 	for {
-		fmt.Fprint(s.out, "\n"+style.Color(gl("❯", ">"), style.Sample(0))+style.Color(gl("❯", ">"), style.Sample(0.5))+style.Color(gl("❯", ">"), style.Sample(1))+" ")
+		// A fresh status strip at each prompt keeps trust state (mode, model,
+		// spend, context use) glanceable at the point of input.
+		fmt.Fprintln(s.out, "\n  "+s.statusStrip())
+		fmt.Fprint(s.out, "  "+s.prompt())
 		line, err := s.r.ReadString('\n')
 		if err != nil { // EOF (Ctrl-D)
 			fmt.Fprintln(s.out)
@@ -255,6 +255,63 @@ func (s *session) loop() int {
 		}
 		s.afterTask(o)
 	}
+}
+
+// modeName is the current permission mode (defaults to suggest).
+func (s *session) modeName() string {
+	if s.app != nil && s.app.mode != "" {
+		return s.app.mode
+	}
+	return modeSuggest
+}
+
+// statusStrip is the dim one-liner above the prompt: the trust-critical state at
+// a glance — mode, model, spend, and how full the context is.
+func (s *session) statusStrip() string {
+	u := s.a.Usage()
+	parts := s.modeName() + " · " + shortModel(s.a.Model()) + fmt.Sprintf(" · $%.4f", u.USD)
+	if est, _ := s.a.ContextStats(); s.cfg.Context.LimitTokens > 0 {
+		parts += fmt.Sprintf(" · ctx %d%%", pctOf(est, s.cfg.Context.LimitTokens))
+	}
+	return style.Gray(parts)
+}
+
+// prompt is a single chevron whose color encodes permission risk: gray when the
+// agent must ask (plan/suggest), coral when it auto-edits, red when it auto-runs
+// everything (full) — so the prompt itself signals how much rope is out.
+func (s *session) prompt() string {
+	c := style.GrayRGB
+	switch s.modeName() {
+	case modeAutoEdit:
+		c = style.Sample(0.5)
+	case modeFull:
+		c = style.RedRGB
+	}
+	return style.Color(gl("❯", ">"), c) + " "
+}
+
+// shortModel drops a provider prefix for the status strip (openai/gpt-4o-mini →
+// gpt-4o-mini, anthropic/claude-sonnet-4-6 → claude-sonnet-4-6).
+func shortModel(m string) string {
+	if i := strings.LastIndexByte(m, '/'); i >= 0 && i+1 < len(m) {
+		return m[i+1:]
+	}
+	return m
+}
+
+// pctOf returns 100*part/whole clamped to [0,100].
+func pctOf(part, whole int) int {
+	if whole <= 0 {
+		return 0
+	}
+	p := (part*100 + whole/2) / whole
+	if p < 0 {
+		return 0
+	}
+	if p > 100 {
+		return 100
+	}
+	return p
 }
 
 // renderError prints a run/provider error as a styled block with an actionable

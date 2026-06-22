@@ -33,6 +33,37 @@ func TestFeedColumnAlignment(t *testing.T) {
 	}
 }
 
+func TestShortModelAndPct(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"openai/gpt-4o-mini", "gpt-4o-mini"},
+		{"anthropic/claude-sonnet-4-6", "claude-sonnet-4-6"},
+		{"llama3.1", "llama3.1"},
+	} {
+		if got := shortModel(tc.in); got != tc.want {
+			t.Errorf("shortModel(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		part, whole, want int
+	}{{0, 100, 0}, {50, 100, 50}, {1, 3, 33}, {200, 100, 100}, {5, 0, 0}} {
+		if got := pctOf(tc.part, tc.whole); got != tc.want {
+			t.Errorf("pctOf(%d,%d) = %d, want %d", tc.part, tc.whole, got, tc.want)
+		}
+	}
+}
+
+func TestCompactHeaderContent(t *testing.T) {
+	oldE, oldNC := style.Enabled, noColor
+	style.Enabled, noColor = false, true // plain mode: assert the text survives
+	defer func() { style.Enabled, noColor = oldE, oldNC }()
+	h := compactHeader("openrouter", "gpt-4o-mini", "suggest", "env")
+	for _, want := range []string{"cliché", "openrouter", "gpt-4o-mini", "suggest", "key env"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("compact header missing %q: %q", want, h)
+		}
+	}
+}
+
 func TestFeedResultMarkers(t *testing.T) {
 	oldE, oldNC := style.Enabled, noColor
 	style.Enabled, noColor = true, false
