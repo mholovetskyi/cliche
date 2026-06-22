@@ -261,7 +261,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	fmt.Fprintln(out, wordmark()+style.Gray(fmt.Sprintf("  %s · %s — caps + governor on · Ctrl-C to stop", cfg.Provider, cfg.Model)))
+	fmt.Fprintln(out, gradientWordmark()+style.Gray(fmt.Sprintf("  %s · %s — caps + governor on · Ctrl-C to stop", cfg.Provider, cfg.Model)))
 	o, runErr := a.Run(ctx, prompt)
 	if runErr == nil {
 		printChangeSummary(out, journal)

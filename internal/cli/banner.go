@@ -12,14 +12,28 @@ func wordmark() string {
 	return style.Red(gl("⬡", "*")) + " " + style.BoldWhite("clich") + style.BoldRed("é")
 }
 
-// banner is the interactive-session header, echoing the landing page's
-// dictionary-entry motif in red/black/white.
+// gradientWordmark renders the hexagon + "cliché" with the brand gradient sweep.
+func gradientWordmark() string {
+	return style.Color(gl("⬡", "*"), style.Sample(0)) + " " + style.GradientBold("cliché")
+}
+
+// banner is the interactive-session header: a gradient wordmark and rule over
+// the dictionary-entry motif, with a coral gradient ribbon down the left.
 func banner() string {
+	lines := []string{
+		gradientWordmark(),
+		style.GradientRule(44),
+		style.Gray("cli·ché  /ˈklē-ˌshā/  noun · the ") + style.Red("loop breaker"),
+		style.White("the AI coding agent you can actually leave running."),
+		style.Gray("trust kernel · on by default · auditable to the token"),
+	}
 	var b strings.Builder
-	b.WriteString("\n  " + wordmark() + "\n")
-	b.WriteString("  " + style.Gray("cli·ché  /ˈklē-ˌshā/  noun · the ") + style.Red("loop breaker") + "\n")
-	b.WriteString("  " + style.White("the AI coding agent you can actually leave running.") + "\n")
-	b.WriteString("  " + style.Gray("trust kernel · on by default · auditable to the token") + "\n")
+	b.WriteByte('\n')
+	last := len(lines) - 1
+	for i, ln := range lines {
+		ribbon := style.Color(gl("▌", " "), style.Sample(float64(i)/float64(last)))
+		b.WriteString("  " + ribbon + "  " + ln + "\n")
+	}
 	return b.String()
 }
 

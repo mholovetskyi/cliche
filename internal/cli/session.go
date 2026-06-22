@@ -58,9 +58,9 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	defer cleanup()
-	a.SetObserver(func(e agent.Event) { printEvent(out, e) })
 
 	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal}
+	a.SetObserver(s.onEvent)
 	return s.loop()
 }
 
@@ -72,6 +72,30 @@ type session struct {
 	cfg     config.Config
 	verify  bool
 	journal *tools.EditJournal
+	spin    *spinner // active "thinking" indicator during a model wait (main goroutine only)
+}
+
+// onEvent renders a live activity event, coordinating with the thinking
+// spinner: any event stops the spinner first (so frames never race output),
+// and after tool results the model will think again, so it's restarted.
+func (s *session) onEvent(e agent.Event) {
+	s.stopSpin()
+	printEvent(s.out, e)
+	if e.Kind == "tool_result" {
+		s.startSpin()
+	}
+}
+
+func (s *session) startSpin() {
+	s.spin = newSpinner(s.out, "thinking…")
+	s.spin.Start()
+}
+
+func (s *session) stopSpin() {
+	if s.spin != nil {
+		s.spin.Stop()
+		s.spin = nil
+	}
 }
 
 func (s *session) loop() int {
@@ -79,7 +103,7 @@ func (s *session) loop() int {
 	fmt.Fprintln(s.out, "  "+style.Gray(s.cfg.Provider+" · "+s.cfg.Model))
 	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /verify · /context · /clear · /help · /exit"))
 	for {
-		fmt.Fprint(s.out, "\n"+style.Red(gl("›", ">"))+" ")
+		fmt.Fprint(s.out, "\n"+style.Color(gl("❯", ">"), style.Sample(0))+style.Color(gl("❯", ">"), style.Sample(0.5))+style.Color(gl("❯", ">"), style.Sample(1))+" ")
 		line, err := s.r.ReadString('\n')
 		if err != nil { // EOF (Ctrl-D)
 			fmt.Fprintln(s.out)
@@ -99,14 +123,42 @@ func (s *session) loop() int {
 		// current task (gracefully, structured) but leaves the session alive;
 		// Ctrl-C at the idle prompt uses the default behavior (quit).
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		s.startSpin() // shimmer while we wait on the first model response
 		o, runErr := s.a.Run(ctx, line)
+		s.stopSpin()
 		stop()
 		if runErr != nil {
-			fmt.Fprintln(s.out, "error: "+runErr.Error())
+			s.renderError(runErr.Error())
 			continue
 		}
 		s.afterTask(o)
 	}
+}
+
+// renderError prints a run/provider error as a styled block with an actionable
+// hint for the common cases (bad key, no credits, rate limit, wrong model).
+func (s *session) renderError(msg string) {
+	fmt.Fprintf(s.out, "\n  %s %s\n", style.BoldRed(gl("■", "x")), style.BoldRed("error"))
+	fmt.Fprintln(s.out, "  "+style.Gray(msg))
+	if hint := providerHint(msg); hint != "" {
+		fmt.Fprintln(s.out, "  "+style.Color(gl("→", ">"), style.Sample(0))+" "+style.White(hint))
+	}
+}
+
+// providerHint maps a raw provider error to a one-line, actionable suggestion.
+func providerHint(msg string) string {
+	m := strings.ToLower(msg)
+	switch {
+	case strings.Contains(m, "credit") || strings.Contains(m, "afford") || strings.Contains(m, "quota") || strings.Contains(m, "billing"):
+		return "your provider account is low on credits — add credits, or try a cheaper model (e.g. --model openai/gpt-4o-mini)."
+	case strings.Contains(m, "rate") && strings.Contains(m, "limit"), strings.Contains(m, "429"):
+		return "rate limited — wait a moment and retry; adding credits often raises the limit."
+	case strings.Contains(m, "user not found"), strings.Contains(m, "401"), strings.Contains(m, "unauthor"), strings.Contains(m, "invalid api key"), strings.Contains(m, "invalid_api_key"), strings.Contains(m, "no auth"):
+		return "the provider rejected the request — re-check your key with `cliche login`, or your account's balance."
+	case strings.Contains(m, "model") && (strings.Contains(m, "not found") || strings.Contains(m, "invalid") || strings.Contains(m, "does not exist")):
+		return "that model id may be wrong for this provider — list options with `cliche models`, or pass --model."
+	}
+	return ""
 }
 
 func (s *session) afterTask(o agent.Outcome) {
@@ -213,11 +265,11 @@ func printEvent(out io.Writer, e agent.Event) {
 			fmt.Fprintf(out, "\n%s\n", t)
 		}
 	case "tool_call":
-		bullet := style.Red(gl("●", "*"))
+		bullet := style.Color(gl("◆", "*"), style.Sample(0.35))
 		if e.Detail != "" {
-			fmt.Fprintf(out, "  %s %s  %s\n", bullet, style.White(e.Tool), style.Gray(e.Detail))
+			fmt.Fprintf(out, "  %s %s  %s\n", bullet, style.White(toolGlyph(e.Tool)), style.Gray(e.Detail))
 		} else {
-			fmt.Fprintf(out, "  %s %s\n", bullet, style.White(e.Tool))
+			fmt.Fprintf(out, "  %s %s\n", bullet, style.White(toolGlyph(e.Tool)))
 		}
 	case "tool_result":
 		if !e.OK { // only surface failures to keep the feed readable
@@ -232,4 +284,20 @@ func printEvent(out io.Writer, e agent.Event) {
 	case "warn":
 		fmt.Fprintf(out, "  %s\n", style.Red("! "+e.Detail))
 	}
+}
+
+// toolGlyph prefixes a tool name with a small icon for the activity feed.
+func toolGlyph(tool string) string {
+	if noColor {
+		return tool
+	}
+	icons := map[string]string{
+		"read_file": "📖", "write_file": "✎", "edit_file": "✎",
+		"run_command": "⌘", "search_files": "🔎", "find_files": "🔎",
+		"list_files": "📂", "spawn_subagent": "⛬", "spawn_subagents": "⛬",
+	}
+	if ic, ok := icons[tool]; ok {
+		return ic + " " + tool
+	}
+	return tool
 }

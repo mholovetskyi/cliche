@@ -74,7 +74,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "\n  "+wordmark()+style.Gray("  the AI coding agent you can actually leave running"))
+	fmt.Fprintln(w, "\n  "+gradientWordmark()+style.Gray("  the AI coding agent you can actually leave running"))
+	fmt.Fprintln(w, "  "+style.GradientRule(58))
 	fmt.Fprint(w, `
 Hard spend caps. A loop circuit-breaker. A verifier that catches the agent
 faking it. On by default, open, and auditable.
