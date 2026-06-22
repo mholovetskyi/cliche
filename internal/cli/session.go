@@ -454,15 +454,31 @@ func printEvent(out io.Writer, e agent.Event) {
 			fmt.Fprintf(out, "\n%s\n", renderMarkdown(t))
 		}
 	case "tool_call":
-		bullet := style.Color(gl("◆", "*"), style.Sample(0.35))
+		// <bullet> <fixed-width verb> <target>. The bullet hue encodes the action
+		// category (reads coral → edits mid → commands peach); the verb column is
+		// Pad'd to display cells so the target column is dead-straight every row.
+		bullet := style.Color(gl("◇", "*"), style.Sample(verbHue(e.Tool)))
+		verb := style.White(style.Pad(verbLabel(e.Tool), 6))
 		if e.Detail != "" {
-			fmt.Fprintf(out, "  %s %s  %s\n", bullet, style.White(toolGlyph(e.Tool)), style.Gray(e.Detail))
+			fmt.Fprintf(out, "  %s %s %s\n", bullet, verb, style.Gray(e.Detail))
 		} else {
-			fmt.Fprintf(out, "  %s %s\n", bullet, style.White(toolGlyph(e.Tool)))
+			fmt.Fprintf(out, "  %s %s\n", bullet, verb)
 		}
 	case "tool_result":
-		if !e.OK { // only surface failures to keep the feed readable
-			fmt.Fprintf(out, "    %s %s\n", style.Red(gl("✗", "x")), style.Gray(e.Detail))
+		// Every result is surfaced now (silence used to read as a hang): a quiet
+		// green tick for success, a loud red cross for failure, under a connector.
+		if e.OK {
+			if noColor {
+				fmt.Fprintf(out, "      %s\n", e.Detail) // quiet: just the metric
+			} else {
+				fmt.Fprintf(out, "    %s %s %s\n", style.Gray("└"), style.Green("✓"), style.Gray(e.Detail))
+			}
+		} else {
+			if noColor {
+				fmt.Fprintf(out, "      FAIL %s\n", e.Detail)
+			} else {
+				fmt.Fprintf(out, "    %s %s %s\n", style.Gray("└"), style.Red("✗"), style.White(e.Detail))
+			}
 		}
 	case "halt":
 		fmt.Fprintf(out, "  %s\n", style.Red(gl("■", "!")+" halted: "+e.Detail))
@@ -477,18 +493,42 @@ func printEvent(out io.Writer, e agent.Event) {
 	}
 }
 
-// toolGlyph prefixes a tool name with a small icon for the activity feed.
-func toolGlyph(tool string) string {
-	if noColor {
+// verbLabel maps a tool name to a short human verb for the activity feed. A
+// fixed vocabulary keeps the verb column narrow and the targets aligned. (No
+// double-width emoji — those misalign the column on most terminals.)
+func verbLabel(tool string) string {
+	switch tool {
+	case "read_file":
+		return "Read"
+	case "write_file":
+		return "Write"
+	case "edit_file", "apply_diff":
+		return "Edit"
+	case "run_command":
+		return "Run"
+	case "search_files", "find_files":
+		return "Search"
+	case "list_files":
+		return "List"
+	case "web_fetch":
+		return "Fetch"
+	case "spawn_subagent", "spawn_subagents":
+		return "Spawn"
+	default:
 		return tool
 	}
-	icons := map[string]string{
-		"read_file": "📖", "write_file": "✎", "edit_file": "✎",
-		"run_command": "⌘", "search_files": "🔎", "find_files": "🔎",
-		"list_files": "📂", "spawn_subagent": "⛬", "spawn_subagents": "⛬",
+}
+
+// verbHue places a tool on the brand gradient by action category, so the bullet
+// color carries information: reads/searches at the coral start, edits in the
+// middle, commands/spawns at the peach end (escalating "weight").
+func verbHue(tool string) float64 {
+	switch tool {
+	case "edit_file", "write_file", "apply_diff":
+		return 0.5
+	case "run_command", "spawn_subagent", "spawn_subagents":
+		return 1
+	default:
+		return 0
 	}
-	if ic, ok := icons[tool]; ok {
-		return ic + " " + tool
-	}
-	return tool
 }

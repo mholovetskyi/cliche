@@ -323,7 +323,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 				Turn: turn, Event: ledger.EventTool,
 				Detail: fmt.Sprintf("%s success=%t %s", call.Name, res.Success, target),
 			})
-			a.emit(Event{Kind: "tool_result", Turn: turn, Tool: call.Name, OK: res.Success, Detail: truncate(res.Output, 100)})
+			resDetail := resultSummary(res.Output)
+			if !res.Success {
+				resDetail = truncate(res.Output, 200) // failures: show more of the error
+			}
+			a.emit(Event{Kind: "tool_result", Turn: turn, Tool: call.Name, OK: res.Success, Detail: resDetail})
 			// Any successful tool call (not just an edit) counts as progress, so
 			// legitimately read-only/exploratory work is not falsely halted.
 			if res.Success {
@@ -388,23 +392,42 @@ func (a *Agent) logf(turn int, event, detail string) {
 	a.rec(ledger.Entry{Turn: turn, Event: event, Detail: detail})
 }
 
-// argSummary renders tool args compactly for the activity feed (no big blobs).
+// argSummary renders the primary target of a tool call for the activity feed:
+// the file path, command, or URL — no key= prefixes and no big blobs (the verb
+// column already names the action; a diff is shown at approval time).
 func argSummary(args map[string]string) string {
-	var parts []string
-	for _, k := range []string{"file", "command", "url", "old_string"} {
-		if v, ok := args[k]; ok {
-			parts = append(parts, k+"="+truncate(v, 48))
+	for _, k := range []string{"file", "command", "url"} {
+		if v := strings.TrimSpace(args[k]); v != "" {
+			return truncate(v, 64)
 		}
 	}
-	return strings.Join(parts, " ")
+	return ""
 }
 
+// truncate clips to n runes (never mid-rune, so the live feed can't emit a
+// replacement char), appending an ellipsis when it cuts.
 func truncate(s string, n int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= n {
+	rs := []rune(s)
+	if len(rs) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(rs[:n]) + "…"
+}
+
+// resultSummary turns a tool's raw output into a quiet, quantified confirmation
+// for the feed: a short single-line result is shown as-is (e.g. "wrote foo.go"),
+// multi-line output is reduced to a line count, empty output reads "ok".
+func resultSummary(out string) string {
+	out = strings.TrimSpace(out)
+	switch {
+	case out == "":
+		return "ok"
+	case !strings.Contains(out, "\n"):
+		return truncate(out, 72)
+	default:
+		return fmt.Sprintf("%d lines", strings.Count(out, "\n")+1)
+	}
 }
 
 // DefaultToolSpecs are the tools advertised to the model. The executor still

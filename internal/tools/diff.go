@@ -126,8 +126,9 @@ func renderDiff(ops []op) string {
 
 func clipPreview(s string) string {
 	s = strings.TrimRight(s, "\r")
-	if len(s) > previewLineLen {
-		return s[:previewLineLen] + "…"
+	rs := []rune(s)
+	if len(rs) > previewLineLen {
+		return string(rs[:previewLineLen]) + "…" // rune-safe: never cut mid-UTF-8
 	}
 	return s
 }
