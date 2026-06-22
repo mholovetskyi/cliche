@@ -373,11 +373,15 @@ func DefaultToolSpecs() []provider.ToolSpec {
 	return []provider.ToolSpec{
 		{
 			Name:        "read_file",
-			Description: "Read a UTF-8 text file and return its contents.",
+			Description: "Read a UTF-8 text file. Returns the whole file, or a line range via offset/limit. Large files are truncated to the first 2000 lines unless you pass a limit — page through the rest with offset.",
 			Schema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"file": strProp("path to the file to read")},
-				"required":   []string{"file"},
+				"type": "object",
+				"properties": map[string]any{
+					"file":   strProp("path to the file to read"),
+					"offset": map[string]any{"type": "integer", "description": "1-based line to start reading from (optional)"},
+					"limit":  map[string]any{"type": "integer", "description": "maximum number of lines to read (optional)"},
+				},
+				"required": []string{"file"},
 			},
 		},
 		{

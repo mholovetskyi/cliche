@@ -19,10 +19,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mholovetskyi/cliche/internal/shell"
 )
+
+// defaultReadLines bounds a read_file with no explicit limit, so reading a huge
+// file can't dump megabytes into the next model request (a budget protection,
+// not just an ergonomic one). The model can page the rest with offset/limit.
+const defaultReadLines = 2000
+
+// runOutputLimit bounds the bytes of a command's combined output fed back to the
+// model. A noisy build or an accidental `cat` of a large file must not be able
+// to flood the context window (and the token budget) in a single turn.
+const runOutputLimit = 60_000
 
 // Result is the outcome of executing one tool call.
 type Result struct {
@@ -162,7 +173,7 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err != nil {
 			return Result{Output: "read error: " + err.Error(), Success: false}
 		}
-		return Result{Output: string(data), Success: true}
+		return Result{Output: readView(string(data), args["offset"], args["limit"]), Success: true}
 
 	case "search_files":
 		return e.searchFiles(args)
@@ -236,11 +247,71 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 			return Result{Output: "permission denied: run command", Success: false}
 		}
 		out, err := shell.Command(ctx, e.Root, args["command"]).CombinedOutput()
-		return Result{Output: string(out), Success: err == nil}
+		return Result{Output: boundOutput(string(out), runOutputLimit), Success: err == nil}
 
 	default:
 		return Result{Output: "unknown tool: " + name, IsEdit: edit, Success: false}
 	}
+}
+
+// boundOutput caps a command's output to limit bytes by keeping the head and
+// tail (errors usually surface at the end) with a note in the middle, so the
+// model still sees how a long run started and finished without the whole flood.
+func boundOutput(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	head := limit * 2 / 3
+	tail := limit - head
+	return s[:head] +
+		fmt.Sprintf("\n\n… [%d bytes truncated by cliche to protect the budget] …\n\n", len(s)-limit) +
+		s[len(s)-tail:]
+}
+
+// readView returns a line-bounded view of file content for read_file. With no
+// offset/limit it returns the whole file, unless the file exceeds
+// defaultReadLines — then it returns the head and a note pointing at
+// offset/limit, so a huge file can't blow the token budget in one read. Any
+// partial view is annotated so the model knows it isn't seeing the whole file.
+// A full read round-trips the bytes exactly (including a trailing newline).
+func readView(content, offsetArg, limitArg string) string {
+	if content == "" {
+		return ""
+	}
+	trailingNL := strings.HasSuffix(content, "\n")
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	total := len(lines)
+
+	start := 0
+	if v, err := strconv.Atoi(strings.TrimSpace(offsetArg)); err == nil && v > 1 {
+		start = v - 1
+	}
+	if start > total {
+		start = total
+	}
+	limit, explicit := defaultReadLines, false
+	if v, err := strconv.Atoi(strings.TrimSpace(limitArg)); err == nil && v > 0 {
+		limit, explicit = v, true
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+
+	view := strings.Join(lines[start:end], "\n")
+	if end == total && trailingNL {
+		view += "\n"
+	}
+	if start == 0 && end == total {
+		return view // whole file
+	}
+	note := fmt.Sprintf("\n\n[read_file: showing lines %d-%d of %d", start+1, end, total)
+	if end < total && !explicit {
+		note += "; file is large — pass offset/limit to read the rest"
+	} else if end < total {
+		note += "; pass offset to continue"
+	}
+	return view + note + "]"
 }
 
 // SimExecutor returns deterministic outcomes without side effects. When
