@@ -40,7 +40,8 @@ type Context struct {
 
 // Subagents configures subagent delegation.
 type Subagents struct {
-	MaxDepth int `json:"max_depth"` // 0 disables subagents
+	MaxDepth int    `json:"max_depth"`       // 0 disables subagents
+	Model    string `json:"model,omitempty"` // route delegated work to this model (same provider; empty = parent's model)
 }
 
 // Permissions holds fine-grained allow/deny rules (deterministic policy-as-code).

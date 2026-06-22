@@ -46,6 +46,10 @@ type Config struct {
 	// MaxSubagentDepth caps subagent nesting (0 disables subagents). A depth-d
 	// agent may spawn children up to depth MaxSubagentDepth.
 	MaxSubagentDepth int
+	// SubagentModel, when set, routes delegated subagents to a different (e.g.
+	// cheaper) model on the same provider — the strong model plans and delegates
+	// grunt work down. Empty means subagents use the same model as the parent.
+	SubagentModel string
 }
 
 // Agent ties the Trust Kernel around a provider and tool executor.
@@ -596,6 +600,11 @@ func (a *Agent) newChild(sub budget.Limits) *Agent {
 	c.obs = a.obs
 	c.emitMu = a.emitMu // share so concurrent siblings serialize their output
 	c.mcp = a.mcp       // subagents inherit the same MCP tools
+	// Model routing: delegated work runs on the configured subagent model (same
+	// provider). The override is inherited, so deeper descendants stay on it too.
+	if a.cfg.SubagentModel != "" {
+		c.cfg.Model = a.cfg.SubagentModel
+	}
 	return c
 }
 

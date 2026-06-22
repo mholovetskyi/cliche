@@ -228,6 +228,7 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		ContextLimitTokens: cfg.Context.LimitTokens,
 		ContextKeepRecent:  cfg.Context.KeepRecent,
 		MaxSubagentDepth:   cfg.Subagents.MaxDepth,
+		SubagentModel:      cfg.Subagents.Model,
 	}
 	a := agent.New(prov, bud, govLimits, led, exec, acfg)
 

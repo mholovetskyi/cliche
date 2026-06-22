@@ -209,6 +209,42 @@ func newTestAgent(t *testing.T, prov provider.Provider, govLimits governor.Limit
 	return New(prov, budget.New(lim), govLimits, led, sim, Config{Model: prov.Model()})
 }
 
+func TestSubagentModelRouting(t *testing.T) {
+	a := newTestAgent(t,
+		provider.NewMock("mock", provider.NormalScript(), false),
+		governor.DefaultLimits(),
+		budget.Limits{MaxTokens: 1_000_000, MaxUSD: 100},
+		tools.SimExecutor{})
+	a.cfg.MaxSubagentDepth = 2
+	a.cfg.SubagentModel = "cheap-model"
+
+	child := a.newChild(budget.Limits{MaxTokens: 1000, MaxUSD: 1})
+	if child.Model() != "cheap-model" {
+		t.Fatalf("subagent should route to the configured model, got %q", child.Model())
+	}
+	if a.Model() == "cheap-model" {
+		t.Fatal("the parent model must be unchanged by routing")
+	}
+	// A nested subagent inherits the routed model too.
+	grand := child.newChild(budget.Limits{MaxTokens: 100, MaxUSD: 1})
+	if grand.Model() != "cheap-model" {
+		t.Fatalf("nested subagent should stay on the routed model, got %q", grand.Model())
+	}
+}
+
+func TestSubagentNoRoutingByDefault(t *testing.T) {
+	a := newTestAgent(t,
+		provider.NewMock("mock", provider.NormalScript(), false),
+		governor.DefaultLimits(),
+		budget.Limits{MaxTokens: 1_000_000, MaxUSD: 100},
+		tools.SimExecutor{})
+	a.cfg.MaxSubagentDepth = 2
+	child := a.newChild(budget.Limits{MaxTokens: 1000, MaxUSD: 1})
+	if child.Model() != a.Model() {
+		t.Fatalf("without SubagentModel, a child should share the parent model: %q vs %q", child.Model(), a.Model())
+	}
+}
+
 func TestNormalTaskCompletes(t *testing.T) {
 	a := newTestAgent(t,
 		provider.NewMock("mock", provider.NormalScript(), false),
