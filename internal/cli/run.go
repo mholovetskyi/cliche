@@ -208,12 +208,13 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		pol = applyMode(pol, f.mode) // headless: bake the mode into the policy
 	}
 	exec := tools.OSExecutor{
-		Root:    f.dir,
-		Policy:  pol,
-		Approve: approve,
-		Journal: journal,
-		Rules:   rules,
-		Egress:  tools.ParseEgress(cfg.Egress.Allow),
+		Root:        f.dir,
+		Policy:      pol,
+		Approve:     approve,
+		Journal:     journal,
+		Rules:       rules,
+		Egress:      tools.ParseEgress(cfg.Egress.Allow),
+		PreToolHook: buildPreToolHook(f.dir, cfg.Hooks.PreToolUse),
 	}
 
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)
@@ -263,7 +264,25 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	defer cleanup()
-	a.SetObserver(func(e agent.Event) { printEvent(out, e) })
+	// Streamed deltas are printed raw (no trailing newline); track an open block
+	// so the next feed line (or the post-run summary) starts on a fresh line.
+	streamOpen := false
+	a.SetObserver(func(e agent.Event) {
+		if e.Kind != "delta" && streamOpen {
+			fmt.Fprintln(out)
+			streamOpen = false
+		}
+		if e.Kind == "delta" {
+			streamOpen = true
+		}
+		printEvent(out, e)
+	})
+	closeStream := func() {
+		if streamOpen {
+			fmt.Fprintln(out)
+			streamOpen = false
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -272,6 +291,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 		startBranch(out, f.dir, "run-"+time.Now().UTC().Format("20060102-150405"))
 	}
 	o, runErr := a.Run(ctx, prompt)
+	closeStream()
 	if runErr == nil {
 		printChangeSummary(out, journal)
 	}
@@ -280,6 +300,9 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	}
 	if runErr == nil && f.commit && o.Stop == agent.StopCompleted {
 		commitChanges(out, f.dir, prompt, cfg.Model, o.Usage.USD)
+	}
+	if runErr == nil {
+		runStopHook(out, f.dir, cfg.Hooks.Stop, o.Stop, o.Verdict)
 	}
 	printOutcome(out, o)
 	if runErr != nil {

@@ -51,6 +51,17 @@ type Permissions struct {
 	Deny  []string `json:"deny,omitempty"`
 }
 
+// Hooks are operator commands run at lifecycle points. PreToolUse runs before
+// every tool call: a non-zero exit BLOCKS the call (its stdout becomes the
+// reason), making policy enforceable by an external program. Stop runs when the
+// agent halts (observe/notify). The tool context is passed via environment:
+// CLICHE_TOOL, CLICHE_TOOL_FILE, CLICHE_TOOL_COMMAND, CLICHE_TOOL_URL; Stop also
+// gets CLICHE_STOP_REASON and CLICHE_VERDICT.
+type Hooks struct {
+	PreToolUse string `json:"pre_tool_use,omitempty"`
+	Stop       string `json:"stop,omitempty"`
+}
+
 // Egress is the network host allowlist for agent-initiated fetches (web_fetch).
 // Empty means unrestricted (the --allow-web gate still applies); when set, only
 // matching hosts are reachable. Patterns: "api.github.com", "*.github.com", "*".
@@ -92,6 +103,7 @@ type Config struct {
 	Providers   []ProviderDef `json:"providers,omitempty"`
 	Permissions Permissions   `json:"permissions,omitempty"`
 	Egress      Egress        `json:"egress,omitempty"`
+	Hooks       Hooks         `json:"hooks,omitempty"`
 }
 
 // Default returns conservative, trust-first defaults.

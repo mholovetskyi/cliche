@@ -80,6 +80,10 @@ type OSExecutor struct {
 	Journal *EditJournal // optional; records mutations for /diff and /undo (nil = off)
 	Rules   Rules        // optional allow/deny rules evaluated before the Policy/approver
 	Egress  Egress       // optional host allowlist for web_fetch (empty = unrestricted)
+
+	// PreToolHook, if set, runs before every tool as the outermost gate.
+	// Returning allow=false blocks the call; reason (the hook's output) is shown.
+	PreToolHook func(name string, args map[string]string) (allow bool, reason string)
 }
 
 // preauthorized reports whether an action proceeds without prompting (--yolo or
@@ -179,6 +183,18 @@ func resolveExisting(p string) string {
 // Execute runs a tool call against the real filesystem/shell.
 func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]string) Result {
 	edit := isEditTool(name)
+	// PreToolHook is the outermost, programmable gate: an operator-supplied
+	// command decides (via exit code) whether any tool call may proceed, before
+	// rules/permission/confinement. It runs deterministically on every call.
+	if e.PreToolHook != nil {
+		if allow, reason := e.PreToolHook(name, args); !allow {
+			msg := "blocked by pre-tool-use hook"
+			if reason != "" {
+				msg += ": " + reason
+			}
+			return Result{Output: msg, IsEdit: edit, Success: false}
+		}
+	}
 	// Plan mode is a hard read-only boundary: mutations and commands are blocked
 	// outright (even under --yolo), so the agent proposes instead of acting.
 	if e.Policy.ReadOnly && (edit || name == "run_command") {
