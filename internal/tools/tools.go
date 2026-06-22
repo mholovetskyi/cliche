@@ -64,6 +64,7 @@ type Policy struct {
 	AllowOutsideRoot bool // permit file access outside the project root (escape hatch)
 	ReadOnly         bool // plan mode: hard-deny all mutations/commands (overrides everything)
 	AllowWeb         bool // pre-authorize web_fetch network egress
+	Sandbox          bool // strict posture: force confinement, deny network by default, scrub run env
 }
 
 // Approver is consulted when a Policy does not pre-authorize an action. It
@@ -133,7 +134,8 @@ func (e OSExecutor) ruleDecision(category, target string) ruleAction {
 // target, so an in-root symlink that points outside the root is also rejected.
 // It returns the absolute path to use for the operation.
 func (e OSExecutor) resolve(path string) (string, error) {
-	if e.Root == "" || e.Policy.AllowOutsideRoot {
+	// Sandbox forces confinement: --allow-outside-root is ignored in sandbox mode.
+	if e.Root == "" || (e.Policy.AllowOutsideRoot && !e.Policy.Sandbox) {
 		return path, nil
 	}
 	root, err := filepath.Abs(e.Root)
@@ -320,7 +322,11 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if !e.permit("run", args["command"], "run", args["command"]) {
 			return Result{Output: "permission denied: run command", Success: false}
 		}
-		out, err := shell.Command(ctx, e.Root, args["command"]).CombinedOutput()
+		cmd := shell.Command(ctx, e.Root, args["command"])
+		if e.Policy.Sandbox {
+			cmd.Env = scrubbedEnv() // don't leak the operator's provider keys to model commands
+		}
+		out, err := cmd.CombinedOutput()
 		return Result{Output: boundOutput(string(out), runOutputLimit), Success: err == nil}
 
 	default:

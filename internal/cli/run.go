@@ -33,6 +33,7 @@ type runFlags struct {
 	allowWrite       bool
 	allowRun         bool
 	allowWeb         bool
+	sandbox          bool
 	yolo             bool
 	verify           bool
 	allowOutsideRoot bool
@@ -58,6 +59,7 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.BoolVar(&f.allowWrite, "allow-write", false, "permit file writes")
 	fs.BoolVar(&f.allowRun, "allow-run", false, "permit shell commands")
 	fs.BoolVar(&f.allowWeb, "allow-web", false, "permit web_fetch network access")
+	fs.BoolVar(&f.sandbox, "sandbox", false, "strict posture: confine to root, deny network unless allowlisted, scrub secrets from shell commands")
 	fs.BoolVar(&f.yolo, "yolo", false, "skip approvals (never the budget cap or governor)")
 	fs.BoolVar(&f.verify, "verify", false, "after completion, re-run tests and report a verdict")
 	fs.BoolVar(&f.allowOutsideRoot, "allow-outside-root", false, "permit file access outside the project root")
@@ -203,7 +205,7 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		return nil, nil, cfg, noop, fmt.Errorf("invalid permission rule in .cliche/config.json: %w", err)
 	}
 	journal := tools.NewEditJournal(f.dir)
-	pol := tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, AllowWeb: f.allowWeb, Yolo: f.yolo, AllowOutsideRoot: f.allowOutsideRoot}
+	pol := tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, AllowWeb: f.allowWeb, Yolo: f.yolo, AllowOutsideRoot: f.allowOutsideRoot, Sandbox: f.sandbox}
 	if staticMode {
 		pol = applyMode(pol, f.mode) // headless: bake the mode into the policy
 	}

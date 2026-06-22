@@ -50,6 +50,11 @@ func (e OSExecutor) webFetch(ctx context.Context, args map[string]string) Result
 	if err != nil {
 		return Result{Output: "fetch error: invalid url: " + err.Error(), Success: false}
 	}
+	// Sandbox denies network by default: without an egress allowlist there is no
+	// host the agent may reach.
+	if e.Policy.Sandbox && !e.Egress.Configured() {
+		return Result{Output: "blocked: sandbox mode disables network (configure an egress allowlist to permit specific hosts)", Success: false}
+	}
 	// Egress allowlist is a hard boundary: it is checked before the --allow-web /
 	// --yolo gate, so a configured allowlist constrains even an unattended run.
 	if !e.Egress.Allowed(u.Hostname()) {

@@ -119,6 +119,9 @@ CHAT/RUN/EXEC FLAGS:
   --allow-write       Permit file writes without asking.
   --allow-run         Permit shell commands without asking.
   --allow-web         Permit web_fetch network access without asking.
+  --sandbox           Strict posture: confine to root (overrides
+                      --allow-outside-root), deny network unless an egress
+                      allowlist is set, and scrub provider keys from commands.
   --mode <m>          Permission mode: plan (read-only) | suggest (ask) |
                       auto-edit (auto edits, ask commands) | full (auto all).
   --yolo              Skip approvals — but NEVER the budget cap or the governor.
