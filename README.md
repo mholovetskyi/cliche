@@ -13,7 +13,7 @@ Auditable to the token.
 > they're code wrapped around the loop, not a prompt the model can ignore.
 
 This is **v0**: the deterministic core is real, tested, and runnable today. The
-real-model path does **multi-turn tool use** (read/write files, run commands)
+real-model path does **multi-turn tool use** (read/write files, search code, run commands)
 via Anthropic, and the **Verifier independently re-runs your tests**. See
 [ROADMAP.md](ROADMAP.md) for what's next and [why it exists](docs/landing.md).
 
@@ -228,8 +228,9 @@ rather than a hard kill.
 - The **Verifier catches documented patterns** and honest mistakes, and can
   independently re-run your tests. It is **not** a security boundary against an
   adversary who knows the rules.
-- The real-model loop does **multi-turn tool use** (read/edit/write/run, gated
-  by permissions). `edit_file` matches exact → whitespace-tolerant → a
+- The real-model loop does **multi-turn tool use** (read/edit/write/run plus
+  confined code search — `search_files` grep, `find_files` glob, `list_files` —
+  gated by permissions). `edit_file` matches exact → whitespace-tolerant → a
   confidence-scored fuzzy anchor (which refuses single-line or anchor-less
   matches, because false edits are worse than no edit), and edits are
   **syntax-validated before writing** (Go via go/parser, JSON via encoding/json;

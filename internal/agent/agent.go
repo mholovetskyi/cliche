@@ -381,6 +381,40 @@ func DefaultToolSpecs() []provider.ToolSpec {
 			},
 		},
 		{
+			Name:        "search_files",
+			Description: "Search file contents for a regular expression (like grep), returning matching lines as 'path:line: text'. Confined to the project; skips .git/node_modules and binary files. Prefer this over running grep via run_command.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern":     strProp("RE2 regular expression to search for"),
+					"path":        strProp("optional file or directory to search under (default: project root)"),
+					"glob":        strProp("optional glob to limit which files are searched, e.g. '*.go' or 'internal/**/*.go'"),
+					"ignore_case": map[string]any{"type": "boolean", "description": "case-insensitive match (default false)"},
+				},
+				"required": []string{"pattern"},
+			},
+		},
+		{
+			Name:        "find_files",
+			Description: "Find files by glob pattern, returning matching paths. '**' spans directories; a pattern without a slash (e.g. '*.go') matches by base name at any depth. Confined to the project; skips .git/node_modules. Prefer this over running find via run_command.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern": strProp("glob pattern, e.g. '*.go', '**/*_test.go', 'internal/**/*.json'"),
+					"path":    strProp("optional directory to search under (default: project root)"),
+				},
+				"required": []string{"pattern"},
+			},
+		},
+		{
+			Name:        "list_files",
+			Description: "List the immediate entries of a directory (non-recursive); directories end with '/'. Confined to the project root.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"path": strProp("directory to list (default: project root)")},
+			},
+		},
+		{
 			Name:        "edit_file",
 			Description: "Replace an exact snippet in a file. Prefer this over write_file for edits. old_string must match a unique block; whitespace-only differences are tolerated.",
 			Schema: map[string]any{

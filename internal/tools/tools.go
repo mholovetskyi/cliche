@@ -158,6 +158,15 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		}
 		return Result{Output: string(data), Success: true}
 
+	case "search_files":
+		return e.searchFiles(args)
+
+	case "find_files":
+		return e.findFiles(args)
+
+	case "list_files":
+		return e.listFiles(args)
+
 	case "write_file":
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "write error: no file specified", IsEdit: edit, Success: false}
