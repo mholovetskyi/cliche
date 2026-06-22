@@ -43,6 +43,14 @@ type Subagents struct {
 	MaxDepth int `json:"max_depth"` // 0 disables subagents
 }
 
+// Permissions holds fine-grained allow/deny rules (deterministic policy-as-code).
+// Rule syntax: Tool(pattern) — Read/Write/Edit(path glob, ** spans dirs) or
+// Bash(command glob, * = any). Deny wins over allow and overrides --yolo.
+type Permissions struct {
+	Allow []string `json:"allow,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
+}
+
 // ProviderDef defines (or overrides) a model provider, so Cliche can connect to
 // literally any OpenAI-compatible API — a hosted service or a local server
 // (Ollama, LM Studio, vLLM). The key is read from <NAME>_API_KEY in the
@@ -63,16 +71,17 @@ type MCPServer struct {
 
 // Config is the full run configuration.
 type Config struct {
-	Model     string        `json:"model"`
-	Provider  string        `json:"provider"` // anthropic | openrouter | openai
-	BaseURL   string        `json:"base_url"` // override the provider's API endpoint
-	Budget    Budget        `json:"budget"`
-	Governor  Governor      `json:"governor"`
-	Verify    Verify        `json:"verify"`
-	Context   Context       `json:"context"`
-	Subagents Subagents     `json:"subagents"`
-	MCP       []MCPServer   `json:"mcp,omitempty"`
-	Providers []ProviderDef `json:"providers,omitempty"`
+	Model       string        `json:"model"`
+	Provider    string        `json:"provider"` // anthropic | openrouter | openai
+	BaseURL     string        `json:"base_url"` // override the provider's API endpoint
+	Budget      Budget        `json:"budget"`
+	Governor    Governor      `json:"governor"`
+	Verify      Verify        `json:"verify"`
+	Context     Context       `json:"context"`
+	Subagents   Subagents     `json:"subagents"`
+	MCP         []MCPServer   `json:"mcp,omitempty"`
+	Providers   []ProviderDef `json:"providers,omitempty"`
+	Permissions Permissions   `json:"permissions,omitempty"`
 }
 
 // Default returns conservative, trust-first defaults.

@@ -192,6 +192,10 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	if !validMode(f.mode) {
 		return nil, nil, cfg, noop, fmt.Errorf("unknown --mode %q (want plan | suggest | auto-edit | full)", f.mode)
 	}
+	rules, err := tools.ParseRules(cfg.Permissions.Allow, cfg.Permissions.Deny)
+	if err != nil {
+		return nil, nil, cfg, noop, fmt.Errorf("invalid permission rule in .cliche/config.json: %w", err)
+	}
 	journal := tools.NewEditJournal(f.dir)
 	pol := tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo, AllowOutsideRoot: f.allowOutsideRoot}
 	if staticMode {
@@ -202,6 +206,7 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		Policy:  pol,
 		Approve: approve,
 		Journal: journal,
+		Rules:   rules,
 	}
 
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)

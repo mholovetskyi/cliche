@@ -77,6 +77,7 @@ type OSExecutor struct {
 	Policy  Policy
 	Approve Approver
 	Journal *EditJournal // optional; records mutations for /diff and /undo (nil = off)
+	Rules   Rules        // optional allow/deny rules evaluated before the Policy/approver
 }
 
 // preauthorized reports whether an action proceeds without prompting (--yolo or
@@ -95,9 +96,15 @@ func (e OSExecutor) preauthorized(action string) bool {
 	return false
 }
 
-// permit decides whether an action ("write" or "run") may proceed. --yolo and
-// the explicit allow flags pre-authorize; otherwise the Approver is asked.
-func (e OSExecutor) permit(action, detail string) bool {
+// permit decides whether an action may proceed. category is the rule category
+// ("write"/"edit"/"run"); action is the coarse approver label ("write"/"run");
+// target is the file path or command for rule matching. A matching ALLOW rule
+// pre-authorizes; otherwise --yolo / the allow flags pre-authorize; otherwise
+// the Approver is asked. (DENY rules are handled before this, in Execute.)
+func (e OSExecutor) permit(category, target, action, detail string) bool {
+	if e.ruleDecision(category, target) == ruleAllow {
+		return true
+	}
 	if e.preauthorized(action) {
 		return true
 	}
@@ -105,6 +112,14 @@ func (e OSExecutor) permit(action, detail string) bool {
 		return e.Approve(action, detail)
 	}
 	return false
+}
+
+// ruleDecision evaluates the allow/deny rules (none when no rules configured).
+func (e OSExecutor) ruleDecision(category, target string) ruleAction {
+	if e.Rules.Empty() {
+		return ruleNone
+	}
+	return e.Rules.Decision(category, target)
 }
 
 // resolve confines a path to the project root unless confinement is disabled.
@@ -172,6 +187,9 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "read error: no file specified", Success: false}
 		}
+		if e.ruleDecision("read", args["file"]) == ruleDeny {
+			return Result{Output: "blocked by deny rule: read " + args["file"], Success: false}
+		}
 		p, err := e.resolve(args["file"])
 		if err != nil {
 			return Result{Output: "read denied: " + err.Error(), Success: false}
@@ -195,6 +213,9 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "write error: no file specified", IsEdit: edit, Success: false}
 		}
+		if e.ruleDecision("write", args["file"]) == ruleDeny {
+			return Result{Output: "blocked by deny rule: write " + args["file"], IsEdit: edit, Success: false}
+		}
 		p, err := e.resolve(args["file"])
 		if err != nil {
 			return Result{Output: "write denied: " + err.Error(), IsEdit: edit, Success: false}
@@ -210,7 +231,7 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if !e.preauthorized("write") {
 			detail += "\n  " + changePreview(string(oldData), args["content"]) // missing file → previewed as new
 		}
-		if !e.permit("write", detail) {
+		if !e.permit("write", args["file"], "write", detail) {
 			return Result{Output: "permission denied: write to " + args["file"], IsEdit: edit, Success: false}
 		}
 		if err := validateSyntax(p, args["content"]); err != nil {
@@ -233,6 +254,9 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "edit error: no file specified", IsEdit: edit, Success: false}
 		}
+		if e.ruleDecision("edit", args["file"]) == ruleDeny {
+			return Result{Output: "blocked by deny rule: edit " + args["file"], IsEdit: edit, Success: false}
+		}
 		p, err := e.resolve(args["file"])
 		if err != nil {
 			return Result{Output: "edit denied: " + err.Error(), IsEdit: edit, Success: false}
@@ -249,7 +273,7 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if !e.preauthorized("write") {
 			detail += "\n  " + changePreview(string(data), updated)
 		}
-		if !e.permit("write", detail) {
+		if !e.permit("edit", args["file"], "write", detail) {
 			return Result{Output: "permission denied: edit " + args["file"], IsEdit: edit, Success: false}
 		}
 		if err := validateSyntax(p, updated); err != nil {
@@ -265,7 +289,14 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if strings.TrimSpace(args["command"]) == "" {
 			return Result{Output: "run error: empty command", Success: false}
 		}
-		if !e.permit("run", args["command"]) {
+		if e.ruleDecision("run", args["command"]) == ruleDeny {
+			cmd := args["command"]
+			if len(cmd) > 80 {
+				cmd = cmd[:80] + "…"
+			}
+			return Result{Output: "blocked by deny rule: " + cmd, Success: false}
+		}
+		if !e.permit("run", args["command"], "run", args["command"]) {
 			return Result{Output: "permission denied: run command", Success: false}
 		}
 		out, err := shell.Command(ctx, e.Root, args["command"]).CombinedOutput()
