@@ -313,7 +313,7 @@ func printEvent(out io.Writer, e agent.Event) {
 	switch e.Kind {
 	case "text":
 		if t := strings.TrimSpace(e.Text); t != "" {
-			fmt.Fprintf(out, "\n%s\n", t)
+			fmt.Fprintf(out, "\n%s\n", renderMarkdown(t))
 		}
 	case "tool_call":
 		bullet := style.Color(gl("◆", "*"), style.Sample(0.35))
