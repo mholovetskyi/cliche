@@ -49,6 +49,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdDemo(stdout)
 	case "cost":
 		return cmdCost(rest, stdout, stderr)
+	case "config":
+		return cmdConfig(rest, stdout, stderr)
 	case "verify":
 		return cmdVerify(rest, stdout, stderr)
 	case "run":
@@ -83,6 +85,7 @@ COMMANDS:
   demo               Run the Trust Kernel offline against four scenarios
                      (healthy task, runaway loop, budget blowout, reward-hack).
   cost               Summarize the cost ledger for this project.
+  config             Print and validate the effective configuration.
   version            Print the version.
   help               Show this help.
 

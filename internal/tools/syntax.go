@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -19,6 +20,10 @@ func validateSyntax(path, content string) error {
 		fset := token.NewFileSet()
 		if _, err := parser.ParseFile(fset, path, content, parser.SkipObjectResolution); err != nil {
 			return fmt.Errorf("resulting Go file does not parse: %v", err)
+		}
+	case ".json":
+		if !json.Valid([]byte(content)) {
+			return fmt.Errorf("resulting JSON is not valid")
 		}
 	}
 	return nil

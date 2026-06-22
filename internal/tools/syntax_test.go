@@ -20,6 +20,15 @@ func TestValidateSyntaxGo(t *testing.T) {
 	}
 }
 
+func TestValidateSyntaxJSON(t *testing.T) {
+	if err := validateSyntax("c.json", `{"a":1,"b":[2,3]}`); err != nil {
+		t.Fatalf("valid JSON should pass: %v", err)
+	}
+	if err := validateSyntax("c.json", `{"a":1,}`); err == nil {
+		t.Fatal("invalid JSON should fail validation")
+	}
+}
+
 func TestEditFileRejectsBrokenGoAndLeavesFileIntact(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.go")

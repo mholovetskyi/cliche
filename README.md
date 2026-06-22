@@ -211,7 +211,8 @@ rather than a hard kill.
   by permissions). `edit_file` matches exact → whitespace-tolerant → a
   confidence-scored fuzzy anchor (which refuses single-line or anchor-less
   matches, because false edits are worse than no edit), and edits are
-  **AST-validated for Go** before writing (other languages: no-op for now).
+  **syntax-validated before writing** (Go via go/parser, JSON via encoding/json;
+  other languages: no-op for now).
 - The **Context Ledger** keeps the transcript bounded and recoverable; it
   compacts only at safe task boundaries (within one long task the budget cap
   governs) and never silently — every compaction is logged and undoable.

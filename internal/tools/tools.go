@@ -89,7 +89,9 @@ func (e OSExecutor) permit(action, detail string) bool {
 }
 
 // resolve confines a path to the project root unless confinement is disabled.
-// It returns the absolute path to use.
+// It resolves symlinks on the root and on the longest existing prefix of the
+// target, so an in-root symlink that points outside the root is also rejected.
+// It returns the absolute path to use for the operation.
 func (e OSExecutor) resolve(path string) (string, error) {
 	if e.Root == "" || e.Policy.AllowOutsideRoot {
 		return path, nil
@@ -98,11 +100,16 @@ func (e OSExecutor) resolve(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if rp, err := filepath.EvalSymlinks(root); err == nil {
+		root = rp
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	rel, err := filepath.Rel(root, abs)
+	// Check the symlink-resolved real location, but operate on abs (the OS
+	// follows the same symlinks). This catches symlink escapes.
+	rel, err := filepath.Rel(root, resolveExisting(abs))
 	if err != nil {
 		return "", err
 	}
@@ -110,6 +117,23 @@ func (e OSExecutor) resolve(path string) (string, error) {
 		return "", fmt.Errorf("path %q is outside the project root (use --allow-outside-root to permit)", path)
 	}
 	return abs, nil
+}
+
+// resolveExisting resolves symlinks on the longest existing ancestor of p and
+// re-appends the non-existent tail (so a not-yet-created file still resolves
+// through real, symlink-followed parent directories).
+func resolveExisting(p string) string {
+	cur := p
+	for {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(r, strings.TrimPrefix(p, cur))
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p // nothing along the path exists
+		}
+		cur = parent
+	}
 }
 
 // Execute runs a tool call against the real filesystem/shell.

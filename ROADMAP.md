@@ -23,7 +23,10 @@ unattended without a runaway, a blown budget, or a silently faked result.
 - ✅ Auto-verify wired into `run`/`exec`/`chat` (`--verify`, `/verify`).
 
 **Hardening (audit pass)**
-- ✅ Project-root confinement for all file tools (+ `--allow-outside-root` hatch).
+- ✅ Project-root confinement for all file tools (+ `--allow-outside-root` hatch),
+  symlink-aware (an in-root symlink pointing outside is rejected).
+- ✅ Pre-write syntax validation for Go (go/parser) and JSON (encoding/json).
+- ✅ `cliche config` prints and validates the effective configuration.
 - ✅ POSIX-shell-preferring command execution with correct exit-code propagation
   on Windows (no more false `verified` from a mis-read pipeline).
 - ✅ CRLF-preserving edits; config validation; AGENTS.md parser hardening.

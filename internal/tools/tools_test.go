@@ -33,6 +33,25 @@ func TestConfinementBlocksOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestConfinementBlocksSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outsideDir := t.TempDir()
+	secret := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(secret, []byte("top secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// An in-root symlink pointing OUTSIDE the root must not be a read primitive.
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(outsideDir, link); err != nil {
+		t.Skipf("cannot create symlinks on this host: %v", err)
+	}
+	e := OSExecutor{Root: root}
+	r := e.Execute(context.Background(), "read_file", map[string]string{"file": filepath.Join(link, "secret.txt")})
+	if r.Success {
+		t.Fatal("reading through an out-of-root symlink must be denied")
+	}
+}
+
 func TestAllowOutsideRootEscapeHatch(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "ok.txt")
