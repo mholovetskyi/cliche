@@ -216,7 +216,7 @@ func (s *session) loop() int {
 		u := s.a.Usage()
 		fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("resumed session %s · %d messages · ~$%.4f spent so far", s.id, s.resumed, u.USD)))
 	}
-	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /model · /mode · /verify · /context · /clear · /help · /exit"))
+	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /rewind · /commit · /model · /mode · /verify · /help · /exit"))
 	for {
 		fmt.Fprint(s.out, "\n"+style.Color(gl("❯", ">"), style.Sample(0))+style.Color(gl("❯", ">"), style.Sample(0.5))+style.Color(gl("❯", ">"), style.Sample(1))+" ")
 		line, err := s.r.ReadString('\n')
@@ -336,6 +336,8 @@ func (s *session) slash(line string) bool {
 		s.showDiff()
 	case "/undo":
 		s.undo()
+	case "/rewind":
+		s.rewind()
 	case "/model":
 		s.switchModel(line)
 	case "/mode":
@@ -348,9 +350,9 @@ func (s *session) slash(line string) bool {
 		commitChanges(s.out, s.dir, subject, s.a.Model(), s.a.Usage().USD)
 	case "/help":
 		fmt.Fprintln(s.out, "  /cost — spend so far    /context — context usage   /verify — re-run tests")
-		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /model — show/switch model")
-		fmt.Fprintln(s.out, "  /mode — permission mode /commit — git commit       /recover — undo compaction")
-		fmt.Fprintln(s.out, "  /clear — reset context  /exit — quit")
+		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /rewind — undo all edits")
+		fmt.Fprintln(s.out, "  /model — switch model   /mode — permission mode    /commit — git commit")
+		fmt.Fprintln(s.out, "  /recover — undo compaction  /clear — reset context  /exit — quit")
 	default:
 		fmt.Fprintf(s.out, "  unknown command (try /help)\n")
 	}
@@ -411,6 +413,20 @@ func (s *session) switchModel(line string) {
 	s.a.SetModel(m)
 	s.cfg.Model = m
 	fmt.Fprintf(s.out, "  model → %s\n", style.White(m))
+}
+
+// rewind reverts every file change made this session (undo the agent).
+func (s *session) rewind() {
+	reverted, err := s.journal.RewindAll()
+	if err != nil {
+		fmt.Fprintln(s.out, "  rewind failed: "+err.Error())
+		return
+	}
+	if len(reverted) == 0 {
+		fmt.Fprintln(s.out, "  nothing to rewind.")
+		return
+	}
+	fmt.Fprintf(s.out, "  rewound %d file(s): %s\n", len(reverted), style.Gray(strings.Join(reverted, ", ")))
 }
 
 // undo reverts the most recent file mutation made this session.

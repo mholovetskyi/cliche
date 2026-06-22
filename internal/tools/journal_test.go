@@ -113,6 +113,36 @@ func TestJournalRelPathDefaultRoot(t *testing.T) {
 	}
 }
 
+func TestRewindAllRevertsEverything(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(existing, []byte("orig\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	j := NewEditJournal(root)
+	e := OSExecutor{Root: root, Policy: Policy{Yolo: true}, Journal: j}
+	e.Execute(context.Background(), "edit_file", map[string]string{"file": "a.txt", "old_string": "orig", "new_string": "changed"})
+	e.Execute(context.Background(), "write_file", map[string]string{"file": "new/b.txt", "content": "created\n"})
+
+	reverted, err := j.RewindAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reverted) != 2 {
+		t.Fatalf("expected 2 reverted files, got %v", reverted)
+	}
+	if got, _ := os.ReadFile(existing); string(got) != "orig\n" {
+		t.Fatalf("edited file should be restored to origin, got %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(root, "new", "b.txt")); !os.IsNotExist(err) {
+		t.Fatal("created file should be removed by rewind")
+	}
+	// After a rewind the journal is empty.
+	if c := j.Changes(); len(c) != 0 {
+		t.Fatalf("journal should be empty after rewind, got %v", c)
+	}
+}
+
 func TestNilJournalIsNoOp(t *testing.T) {
 	// An executor with no journal must work exactly as before.
 	root := t.TempDir()

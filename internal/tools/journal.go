@@ -125,6 +125,42 @@ func (j *EditJournal) Undo() (path string, did bool, err error) {
 // root is normalized the same way before relativizing — otherwise a journal
 // built with the default root "." would fail to relativize and leak the user's
 // absolute filesystem layout into /diff, /undo, and the run summary.
+// RewindAll reverts every file the session touched back to its state when the
+// session first touched it (deleting files the agent created), then clears the
+// journal — a one-shot "undo everything the agent did". Returns the reverted
+// display paths. Stops at the first IO error, returning what was reverted so far.
+func (j *EditJournal) RewindAll() ([]string, error) {
+	if j == nil {
+		return nil, nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	firstAt := map[string]int{}
+	var order []string
+	for i, c := range j.stack {
+		if _, seen := firstAt[c.path]; !seen {
+			firstAt[c.path] = i
+			order = append(order, c.path)
+		}
+	}
+	var reverted []string
+	for _, p := range order {
+		origin := j.stack[firstAt[p]]
+		var err error
+		if origin.existed {
+			err = os.WriteFile(p, []byte(origin.before), 0o644)
+		} else if rmErr := os.Remove(p); rmErr != nil && !os.IsNotExist(rmErr) {
+			err = rmErr
+		}
+		if err != nil {
+			return reverted, err
+		}
+		reverted = append(reverted, j.relPath(p))
+	}
+	j.stack = nil
+	return reverted, nil
+}
+
 func (j *EditJournal) relPath(p string) string {
 	root := j.root
 	if abs, err := filepath.Abs(root); err == nil {
