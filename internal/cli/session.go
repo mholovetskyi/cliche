@@ -241,7 +241,7 @@ func (s *session) loop() int {
 		u := s.a.Usage()
 		fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("resumed %s · %d messages · ~$%.4f so far", s.id, s.resumed, u.USD)))
 	}
-	fmt.Fprintln(s.out, "  "+style.Dim("/cost · /diff · /undo · /model · /mode · /verify · /help · /exit"))
+	fmt.Fprintln(s.out, "  "+style.Dim(slashHint()))
 	for {
 		// A fresh status strip at each prompt keeps trust state (mode, model,
 		// spend, context use) glanceable at the point of input.
@@ -387,17 +387,25 @@ func (s *session) slash(line string) bool {
 	case "/cost":
 		u := s.a.Usage()
 		lim := s.a.Limits()
-		fmt.Fprintf(s.out, "  session: %d tokens, ~$%.4f", u.TotalTokens(), u.USD)
 		if lim.MaxUSD > 0 {
-			fmt.Fprintf(s.out, " of ~$%.2f cap", lim.MaxUSD)
+			frac := u.USD / lim.MaxUSD
+			fmt.Fprintf(s.out, "  %s%s\n", gaugePrefix(frac, 8),
+				style.Gray(fmt.Sprintf("%d%% · $%.4f of $%.2f cap · %s tokens", pctFloat(frac), u.USD, lim.MaxUSD, humanTokens(u.TotalTokens()))))
+		} else {
+			fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("$%.4f · %s tokens (no cap)", u.USD, humanTokens(u.TotalTokens()))))
 		}
-		fmt.Fprintln(s.out)
 	case "/clear":
 		s.a.Reset()
 		fmt.Fprintln(s.out, "  context cleared (budget preserved).")
 	case "/context":
 		est, compactions := s.a.ContextStats()
-		fmt.Fprintf(s.out, "  context: ~%d tokens, %d compaction(s) this session\n", est, compactions)
+		if lim := s.cfg.Context.LimitTokens; lim > 0 {
+			frac := float64(est) / float64(lim)
+			fmt.Fprintf(s.out, "  %s%s\n", gaugePrefix(frac, 8),
+				style.Gray(fmt.Sprintf("%d%% · ~%s of %s tokens · %d compaction(s)", pctOf(est, lim), humanTokens(est), humanTokens(lim), compactions)))
+		} else {
+			fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("~%s tokens · %d compaction(s)", humanTokens(est), compactions)))
+		}
 	case "/recover":
 		if s.a.RecoverContext() {
 			fmt.Fprintln(s.out, "  restored the pre-compaction context.")
@@ -424,15 +432,28 @@ func (s *session) slash(line string) bool {
 		}
 		commitChanges(s.out, s.dir, subject, s.a.Model(), s.a.Usage().USD)
 	case "/help":
-		fmt.Fprintln(s.out, "  /cost — spend so far    /context — context usage   /verify — re-run tests")
-		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /rewind — undo all edits")
-		fmt.Fprintln(s.out, "  /model — switch model   /mode — permission mode    /commit — git commit")
-		fmt.Fprintln(s.out, "  /recover — undo compaction  /clear — reset context  /exit — quit")
+		s.help()
 	default:
-		fmt.Fprintf(s.out, "  unknown command (try /help)\n")
+		cmd := strings.Fields(line)[0]
+		if guess := closestCommand(cmd); guess != "" {
+			fmt.Fprintf(s.out, "  unknown command %s — did you mean %s?\n", style.White(cmd), style.White(guess))
+		} else {
+			fmt.Fprintf(s.out, "  unknown command %s (try /help)\n", style.White(cmd))
+		}
 	}
 	return false
 }
+
+// gaugePrefix returns a Gauge plus a trailing space when styling is on, or ""
+// when off (so the numeric % that follows carries the meaning).
+func gaugePrefix(frac float64, width int) string {
+	if g := style.Gauge(frac, width); g != "" {
+		return g + " "
+	}
+	return ""
+}
+
+func pctFloat(frac float64) int { return pctOf(int(frac*1000), 1000) }
 
 // setMode shows or switches the permission mode for the rest of the session.
 // Fully effective when the session started in the default mode; legacy

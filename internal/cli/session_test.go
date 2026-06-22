@@ -141,7 +141,7 @@ func TestSessionLoop(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, want := range []string{"done", "session:", "bye."} {
+	for _, want := range []string{"done", "tokens", "bye."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("session output missing %q:\n%s", want, got)
 		}
