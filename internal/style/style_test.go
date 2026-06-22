@@ -44,10 +44,10 @@ func TestColorAt(t *testing.T) {
 }
 
 func TestGradientEnabledAndDisabled(t *testing.T) {
-	old := Enabled
-	defer func() { Enabled = old }()
+	old, oldTier := Enabled, tier
+	defer func() { Enabled, tier = old, oldTier }()
 
-	Enabled = true
+	Enabled, tier = true, TierTruecolor
 	got := Gradient("abc")
 	if !strings.Contains(got, "\x1b[38;2;") || !strings.HasSuffix(got, "\x1b[0m") {
 		t.Fatalf("enabled gradient should emit truecolor escapes, got %q", got)

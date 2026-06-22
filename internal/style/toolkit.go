@@ -1,7 +1,6 @@
 package style
 
 import (
-	"fmt"
 	"io"
 	"strings"
 )
@@ -158,13 +157,11 @@ func Indent(body string) string {
 
 // ---- the success accent ----
 
-const green = "\x1b[38;2;120;200;120m" // sage: warm, legible, complements coral
-
 // Green is the success / added accent that sits beside coral-red.
-func Green(s string) string { return wrap(green, s) }
+func Green(s string) string { return Color(s, GreenRGB) }
 
 // BoldGreen is Green at bold weight.
-func BoldGreen(s string) string { return wrap(bold+green, s) }
+func BoldGreen(s string) string { return boldColor(s, GreenRGB) }
 
 // Exported palette colors for callers that need an RGB (badges, chevrons, gauges).
 var (
@@ -176,8 +173,6 @@ var (
 )
 
 // ---- badges ----
-
-func (c RGB) bgSeq() string { return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", c.R, c.G, c.B) }
 
 // Badge renders text as a small pill (fg on a bg fill), used sparingly for the
 // mode chip at the prompt and the verdict chip at the outcome. Degrades to a

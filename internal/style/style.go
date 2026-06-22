@@ -4,7 +4,6 @@
 package style
 
 import (
-	"fmt"
 	"os"
 	"strings"
 )
@@ -31,10 +30,6 @@ const (
 	reset = "\x1b[0m"
 	bold  = "\x1b[1m"
 	dim   = "\x1b[2m"
-	// Brand palette (truecolor): coral-red, near-white, mid-gray.
-	red   = "\x1b[38;2;229;72;77m"
-	white = "\x1b[38;2;237;237;237m"
-	gray  = "\x1b[38;2;138;138;138m"
 )
 
 func wrap(seq, s string) string {
@@ -44,14 +39,26 @@ func wrap(seq, s string) string {
 	return seq + s + reset
 }
 
+// boldColor wraps s in bold + a tier-quantized color.
+func boldColor(s string, c RGB) string {
+	if !Enabled || s == "" {
+		return s
+	}
+	return bold + c.seq() + s + reset
+}
+
+// The brand palette routes through RGB.seq(), so every accent quantizes to the
+// terminal's color tier (truecolor → 256 → 16) rather than emitting a fixed
+// truecolor escape that a limited terminal would ignore.
+
 // Red is the accent color (halts, the é, flagged verdicts, the prompt).
-func Red(s string) string { return wrap(red, s) }
+func Red(s string) string { return Color(s, RedRGB) }
 
 // White is primary text.
-func White(s string) string { return wrap(white, s) }
+func White(s string) string { return Color(s, WhiteRGB) }
 
 // Gray is secondary/label text.
-func Gray(s string) string { return wrap(gray, s) }
+func Gray(s string) string { return Color(s, GrayRGB) }
 
 // Dim is de-emphasized text.
 func Dim(s string) string { return wrap(dim, s) }
@@ -60,8 +67,8 @@ func Dim(s string) string { return wrap(dim, s) }
 func Bold(s string) string { return wrap(bold, s) }
 
 // BoldWhite / BoldRed are the wordmark weights.
-func BoldWhite(s string) string { return wrap(bold+white, s) }
-func BoldRed(s string) string   { return wrap(bold+red, s) }
+func BoldWhite(s string) string { return boldColor(s, WhiteRGB) }
+func BoldRed(s string) string   { return boldColor(s, RedRGB) }
 
 // RGB is a 24-bit color used for gradients.
 type RGB struct{ R, G, B int }
@@ -69,8 +76,6 @@ type RGB struct{ R, G, B int }
 // BrandGradient is the signature coral sweep (deep red → coral → warm peach)
 // used for the wordmark and rules. Cohesive with the red accent, but alive.
 var BrandGradient = []RGB{{229, 72, 77}, {255, 121, 99}, {255, 179, 128}}
-
-func (c RGB) seq() string { return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", c.R, c.G, c.B) }
 
 func lerp(a, b RGB, t float64) RGB {
 	return RGB{

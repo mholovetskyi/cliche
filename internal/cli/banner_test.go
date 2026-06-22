@@ -12,11 +12,12 @@ func TestSplash(t *testing.T) {
 	old := style.Enabled
 	defer func() { style.Enabled = old }()
 
-	// Rendered (styling on): emits ANSI and the block wordmark.
+	// Rendered (styling on): emits ANSI escapes (the exact form depends on the
+	// terminal's color tier, so just assert color is present).
 	style.Enabled = true
 	s := splash()
-	if !strings.Contains(s, "\x1b[38;2;") {
-		t.Fatal("styled splash should contain truecolor escapes")
+	if !strings.Contains(s, "\x1b[") {
+		t.Fatal("styled splash should contain ANSI color escapes")
 	}
 
 	// The content (provider-agnostic checks; works styled or plain).
