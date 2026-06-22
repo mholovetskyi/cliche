@@ -1,0 +1,17 @@
+# Build output
+/cliche
+/cliche.exe
+/dist/
+*.exe
+
+# Go test artifacts
+*.test
+*.out
+
+# Cliche's own per-project state
+.cliche/
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
