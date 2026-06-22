@@ -11,11 +11,12 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
+	"github.com/mholovetskyi/cliche/internal/style"
 )
 
-// noColor disables decorative glyphs (NO_COLOR convention) for portability and
-// dumb terminals.
-var noColor = os.Getenv("NO_COLOR") != ""
+// noColor disables decorative glyphs (and color) for portability and dumb
+// terminals — aligned with the style package's enablement.
+var noColor = !style.Enabled
 
 // gl returns the fancy glyph normally, or an ASCII fallback under NO_COLOR.
 func gl(fancy, plain string) string {
@@ -64,10 +65,10 @@ type session struct {
 }
 
 func (s *session) loop() int {
-	fmt.Fprintln(s.out, "cliche — interactive agent. Trust kernel on (hard caps + governor).")
-	fmt.Fprintln(s.out, "Type a task. Slash commands: /cost  /clear  /context  /verify  /help  /exit")
+	fmt.Fprint(s.out, banner())
+	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /clear · /context · /verify · /help · /exit"))
 	for {
-		fmt.Fprint(s.out, "\n"+gl("› ", "> "))
+		fmt.Fprint(s.out, "\n"+style.Red(gl("›", ">"))+" ")
 		line, err := s.r.ReadString('\n')
 		if err != nil { // EOF (Ctrl-D)
 			fmt.Fprintln(s.out)
@@ -100,19 +101,20 @@ func (s *session) loop() int {
 func (s *session) afterTask(o agent.Outcome) {
 	switch o.Stop {
 	case agent.StopCompleted:
-		fmt.Fprintf(s.out, "\n%s done (%d turns)\n", gl("✔", "[done]"), o.Turns)
+		fmt.Fprintf(s.out, "\n%s %s%s\n", style.BoldWhite(gl("✔", "[done]")), style.BoldWhite("done"),
+			style.Gray(fmt.Sprintf(" · %d turns", o.Turns)))
 	case agent.StopCancelled:
-		fmt.Fprintf(s.out, "\n%s interrupted\n", gl("■", "[x]"))
+		fmt.Fprintf(s.out, "\n%s\n", style.Red(gl("■", "[x]")+" interrupted"))
 	case agent.StopBudget:
-		fmt.Fprintf(s.out, "\n%s stopped: budget — %s\n", gl("■", "[x]"), o.Reason)
+		fmt.Fprintf(s.out, "\n%s\n", style.Red(gl("■", "[x]")+" stopped: budget — "+o.Reason))
 	default:
-		fmt.Fprintf(s.out, "\n%s stopped: %s — %s\n", gl("■", "[x]"), o.Stop, o.Reason)
+		fmt.Fprintf(s.out, "\n%s\n", style.Red(gl("■", "[x]")+" stopped: "+o.Stop+" — "+o.Reason))
 	}
 	u := s.a.Usage()
-	fmt.Fprintf(s.out, "  session so far: %d tokens, ~$%.4f\n", u.TotalTokens(), u.USD)
+	fmt.Fprintln(s.out, "  "+style.Gray(fmt.Sprintf("session so far: %d tokens, ~$%.4f", u.TotalTokens(), u.USD)))
 	if s.verify && o.Stop == agent.StopCompleted {
 		v := autoVerify(s.out, s.dir, s.cfg)
-		fmt.Fprintf(s.out, "  verdict: %s\n", v.Status)
+		fmt.Fprintln(s.out, "  "+verdictStyled(v.Status))
 	}
 }
 
@@ -162,23 +164,23 @@ func printEvent(out io.Writer, e agent.Event) {
 			fmt.Fprintf(out, "\n%s\n", t)
 		}
 	case "tool_call":
-		bullet := gl("●", "*")
+		bullet := style.Red(gl("●", "*"))
 		if e.Detail != "" {
-			fmt.Fprintf(out, "  %s %s  %s\n", bullet, e.Tool, e.Detail)
+			fmt.Fprintf(out, "  %s %s  %s\n", bullet, style.White(e.Tool), style.Gray(e.Detail))
 		} else {
-			fmt.Fprintf(out, "  %s %s\n", bullet, e.Tool)
+			fmt.Fprintf(out, "  %s %s\n", bullet, style.White(e.Tool))
 		}
 	case "tool_result":
 		if !e.OK { // only surface failures to keep the feed readable
-			fmt.Fprintf(out, "    %s %s\n", gl("✗", "x"), e.Detail)
+			fmt.Fprintf(out, "    %s %s\n", style.Red(gl("✗", "x")), style.Gray(e.Detail))
 		}
 	case "halt":
-		fmt.Fprintf(out, "  %s halted: %s\n", gl("■", "!"), e.Detail)
+		fmt.Fprintf(out, "  %s\n", style.Red(gl("■", "!")+" halted: "+e.Detail))
 	case "budget":
-		fmt.Fprintf(out, "  %s budget: %s\n", gl("■", "!"), e.Detail)
+		fmt.Fprintf(out, "  %s\n", style.Red(gl("■", "!")+" budget: "+e.Detail))
 	case "context":
-		fmt.Fprintf(out, "  %s context compacted: %s\n", gl("◆", "~"), e.Detail)
+		fmt.Fprintf(out, "  %s\n", style.Gray(gl("◆", "~")+" context compacted: "+e.Detail))
 	case "warn":
-		fmt.Fprintf(out, "  ! %s\n", e.Detail)
+		fmt.Fprintf(out, "  %s\n", style.Red("! "+e.Detail))
 	}
 }

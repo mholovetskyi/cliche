@@ -16,6 +16,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/provider"
+	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/tools"
 	"github.com/mholovetskyi/cliche/internal/verifier"
 )
@@ -140,7 +141,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	fmt.Fprintln(out, "cliche: trust kernel armed (caps + governor on). Running… (Ctrl-C to stop)")
+	fmt.Fprintln(out, wordmark()+style.Gray("  trust kernel armed — caps + governor on · Ctrl-C to stop"))
 	o, runErr := a.Run(ctx, prompt)
 	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
 		o.Verdict = autoVerify(out, f.dir, cfg).Status
@@ -192,14 +193,18 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 }
 
 func printOutcome(out io.Writer, o agent.Outcome) {
-	fmt.Fprintf(out, "\nstop:   %s\n", o.Stop)
-	if o.Reason != "" {
-		fmt.Fprintf(out, "reason: %s\n", o.Reason)
+	stop := style.BoldWhite(o.Stop)
+	if o.Stop != agent.StopCompleted {
+		stop = style.BoldRed(o.Stop)
 	}
-	fmt.Fprintf(out, "turns:  %d\n", o.Turns)
-	fmt.Fprintf(out, "usage:  %d tokens, ~$%.4f (estimated)\n", o.Usage.TotalTokens(), o.Usage.USD)
+	fmt.Fprintf(out, "\n%s %s\n", style.Gray("stop:  "), stop)
+	if o.Reason != "" {
+		fmt.Fprintf(out, "%s %s\n", style.Gray("reason:"), o.Reason)
+	}
+	fmt.Fprintf(out, "%s %d\n", style.Gray("turns: "), o.Turns)
+	fmt.Fprintf(out, "%s %s\n", style.Gray("usage: "), style.White(fmt.Sprintf("%d tokens, ~$%.4f (estimated)", o.Usage.TotalTokens(), o.Usage.USD)))
 	if o.Verdict != "" {
-		fmt.Fprintf(out, "verify: %s\n", o.Verdict)
+		fmt.Fprintln(out, verdictStyled(o.Verdict))
 	}
 }
 

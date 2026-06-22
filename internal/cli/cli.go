@@ -12,6 +12,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/budget"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/governor"
+	"github.com/mholovetskyi/cliche/internal/style"
 )
 
 // Version is the build version, overridable via -ldflags.
@@ -65,8 +66,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `cliche — the AI coding agent you can actually leave running.
-
+	fmt.Fprintln(w, "\n  "+wordmark()+style.Gray("  the AI coding agent you can actually leave running"))
+	fmt.Fprint(w, `
 Hard spend caps. A loop circuit-breaker. A verifier that catches the agent
 faking it. On by default, open, and auditable.
 

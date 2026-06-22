@@ -10,6 +10,7 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
+	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/verifier"
 )
 
@@ -79,15 +80,15 @@ func cmdVerify(args []string, out, errOut io.Writer) int {
 	v := verifier.VerifyClaim(diff, *claimPass, tr)
 
 	if tr.Ran {
-		status := "FAILED"
+		status := style.Red("FAILED")
 		if tr.Passed {
-			status = "passed"
+			status = style.White("passed")
 		}
-		fmt.Fprintf(out, "tests: %s\n", status)
+		fmt.Fprintf(out, "%s %s\n", style.Gray("tests:"), status)
 	}
-	fmt.Fprintf(out, "verdict: %s\n", v.Status)
+	fmt.Fprintln(out, verdictStyled(v.Status))
 	for _, f := range v.Findings {
-		fmt.Fprintf(out, "  • [%s] %s\n", f.Rule, f.Detail)
+		fmt.Fprintf(out, "  %s %s\n", style.Red(gl("•", "-")), style.Gray(fmt.Sprintf("[%s] %s", f.Rule, f.Detail)))
 	}
 
 	if led, err := ledger.Open(config.Dir(*dir)); err == nil {
