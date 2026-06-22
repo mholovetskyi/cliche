@@ -1,9 +1,38 @@
 package tools
 
 import (
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/mholovetskyi/cliche/internal/style"
 )
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func TestRenderDiffColorsAtGeneration(t *testing.T) {
+	old := style.Enabled
+	style.Enabled = true
+	defer func() { style.Enabled = old }()
+
+	got := changePreview("one\ntwo\n", "one\nTWO\n")
+	if !strings.Contains(got, "\x1b[") {
+		t.Fatalf("the diff should be colored at generation: %q", got)
+	}
+	// Removed and added lines must carry DIFFERENT color escapes (red vs green) —
+	// additions used to be uncolored (invisible).
+	var removedSeq, addedSeq string
+	for _, ln := range strings.Split(got, "\n") {
+		if plain := ansiRe.ReplaceAllString(ln, ""); strings.Contains(plain, "- two") {
+			removedSeq = ansiRe.FindString(ln)
+		} else if strings.Contains(plain, "+ TWO") {
+			addedSeq = ansiRe.FindString(ln)
+		}
+	}
+	if removedSeq == "" || addedSeq == "" || removedSeq == addedSeq {
+		t.Fatalf("removed (%q) and added (%q) lines should be colored differently", removedSeq, addedSeq)
+	}
+}
 
 func TestChangePreviewNewAndCleared(t *testing.T) {
 	if got := changePreview("", "a\nb\nc\n"); !strings.Contains(got, "new file") || !strings.Contains(got, "+4") {

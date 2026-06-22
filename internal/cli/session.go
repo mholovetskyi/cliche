@@ -491,7 +491,7 @@ func (s *session) showDiff() {
 		case c.WasNew:
 			label += "  " + style.Gray("(new)")
 		}
-		fmt.Fprintf(s.out, "\n  %s\n%s\n", style.White(label), colorizeDiff(tools.PreviewChange(c.Before, c.After)))
+		fmt.Fprintf(s.out, "\n  %s\n%s\n", style.White(label), tools.PreviewChange(c.Before, c.After))
 	}
 }
 

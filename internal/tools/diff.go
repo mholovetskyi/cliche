@@ -3,6 +3,8 @@ package tools
 import (
 	"fmt"
 	"strings"
+
+	"github.com/mholovetskyi/cliche/internal/style"
 )
 
 // changePreview renders a compact, bounded preview of replacing oldText with
@@ -100,7 +102,10 @@ func renderDiff(ops []op) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d removed / %d added", removed, added)
+	// Color is applied HERE, where the op kind is known — not by re-parsing the
+	// rendered string for a leading -/+ (which mis-tints content that legitimately
+	// starts with - or +, e.g. a YAML "- item" or a "--force" flag).
+	b.WriteString(style.Gray(fmt.Sprintf("%d removed / %d added", removed, added)))
 	shown := 0
 	var shownRem, shownAdd int
 	for _, o := range ops {
@@ -110,7 +115,13 @@ func renderDiff(ops []op) string {
 		if shown >= maxPreviewLines {
 			break
 		}
-		fmt.Fprintf(&b, "\n    %c %s", o.kind, clipPreview(o.text))
+		line := fmt.Sprintf("    %c %s", o.kind, clipPreview(o.text))
+		switch o.kind {
+		case '-':
+			b.WriteString("\n" + style.Red(line))
+		case '+':
+			b.WriteString("\n" + style.Green(line)) // additions are now visible, not blank
+		}
 		shown++
 		if o.kind == '-' {
 			shownRem++
@@ -119,7 +130,7 @@ func renderDiff(ops []op) string {
 		}
 	}
 	if rem := (removed - shownRem) + (added - shownAdd); rem > 0 {
-		fmt.Fprintf(&b, "\n    … %d more changed line(s)", rem)
+		b.WriteString("\n" + style.Gray(fmt.Sprintf("    … %d more changed line(s)", rem)))
 	}
 	return b.String()
 }

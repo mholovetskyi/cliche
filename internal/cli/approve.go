@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -66,14 +67,18 @@ func (a *approver) Approve(action, detail string) bool {
 		}
 	}
 	// detail's first line names the action target; any following lines are a
-	// change preview (a diff). Render the preview as its own indented block so
-	// the y/N/a question reads cleanly on its own line.
+	// change preview (a diff, already colored at generation). Frame it as a
+	// permission card: a header, the body, then a scoped choice row.
 	head, preview, hasPreview := strings.Cut(detail, "\n")
-	fmt.Fprintf(a.out, "  %s allow %s: %s\n", gl("⚠", "!"), action, head)
+	verb, target := approvalHeader(action, head)
+	fmt.Fprintf(a.out, "\n  %s %s %s\n", style.BoldRed(gl("⚠", "!")), style.BoldRed(verb), style.White(target))
 	if hasPreview {
-		fmt.Fprintln(a.out, colorizeDiff(preview))
+		fmt.Fprintln(a.out, preview)
 	}
-	fmt.Fprint(a.out, "    [y/N/a=always] ")
+	if reason := riskyReason(action, head); reason != "" {
+		fmt.Fprintf(a.out, "  %s\n", style.Red(gl("⚠", "!")+" "+reason))
+	}
+	fmt.Fprint(a.out, "  "+style.Dim(choiceRow(action))+" ")
 	line, err := a.r.ReadString('\n')
 	if err != nil && line == "" {
 		return false
@@ -96,20 +101,73 @@ func (a *approver) Approve(action, detail string) bool {
 	}
 }
 
-// colorizeDiff tints a change-preview block with the brand palette: removed
-// lines red, the summary/elision lines gray, added lines left as primary text.
-func colorizeDiff(preview string) string {
-	lines := strings.Split(preview, "\n")
-	for i, ln := range lines {
-		t := strings.TrimSpace(ln)
-		switch {
-		case strings.HasPrefix(t, "-"):
-			lines[i] = style.Red(ln) // removed
-		case strings.HasPrefix(t, "+"):
-			// added — leave as primary text
-		default:
-			lines[i] = style.Gray(ln) // summary / elision note
+// approvalHeader turns the raw action + detail head into a card title (the verb)
+// and a target (the file / command / url).
+func approvalHeader(action, head string) (verb, target string) {
+	switch action {
+	case "write":
+		fields := strings.Fields(head)
+		verb = "EDIT"
+		target = head
+		if len(fields) >= 2 {
+			if strings.HasPrefix(fields[0], "write") {
+				verb = "WRITE"
+			}
+			target = fields[len(fields)-1]
+		}
+		return verb, target
+	case "run":
+		return "RUN", head
+	case "fetch":
+		return "FETCH", head
+	default:
+		return strings.ToUpper(action), head
+	}
+}
+
+// choiceRow spells out the y/N/a choices with the scope of "always" per action,
+// so the user knows exactly what an 'a' grants.
+func choiceRow(action string) string {
+	switch action {
+	case "write":
+		return "(y) approve · (N) reject · (a) always allow edits"
+	case "run":
+		return "(y) run · (N) reject · (a) always allow commands"
+	case "fetch":
+		return "(y) fetch · (N) reject · (a) always allow fetches"
+	default:
+		return "(y) yes · (N) no · (a) always"
+	}
+}
+
+// riskyPatterns flag shell commands whose blast radius warrants a second look.
+// Ordered most-specific-first: the first match wins, so "wget … | sudo bash"
+// is flagged as a pipe-to-shell (the salient risk) rather than just "sudo".
+var riskyPatterns = []struct {
+	re  *regexp.Regexp
+	why string
+}{
+	{regexp.MustCompile(`(curl|wget)[^|]*\|\s*(sudo\s+)?(sh|bash|zsh)`), "pipes a download straight into a shell"},
+	{regexp.MustCompile(`:\s*\(\s*\)\s*\{.*\|.*&\s*\}`), "fork bomb"},
+	{regexp.MustCompile(`\bmkfs\b`), "formats a filesystem (mkfs)"},
+	{regexp.MustCompile(`\bdd\b[^\n]*\bof=`), "raw disk write (dd of=)"},
+	{regexp.MustCompile(`>\s*/dev/sd`), "writes to a raw disk device"},
+	{regexp.MustCompile(`rm\s+-[a-z]*r[a-z]*f|rm\s+-[a-z]*f[a-z]*r`), "deletes files recursively (rm -rf)"},
+	{regexp.MustCompile(`chmod\s+-?R?\s*0?777`), "makes files world-writable (chmod 777)"},
+	{regexp.MustCompile(`\bgit\b[^\n]*\bpush\b[^\n]*(--force|-f)\b`), "force-pushes (rewrites remote history)"},
+	{regexp.MustCompile(`\bsudo\b`), "runs with elevated privileges (sudo)"},
+}
+
+// riskyReason returns a caution string when a run command matches a dangerous
+// pattern (empty otherwise, and for non-run actions).
+func riskyReason(action, target string) string {
+	if action != "run" {
+		return ""
+	}
+	for _, p := range riskyPatterns {
+		if p.re.MatchString(target) {
+			return p.why
 		}
 	}
-	return strings.Join(lines, "\n")
+	return ""
 }
