@@ -194,10 +194,16 @@ Cliche reads `AGENTS.md` (and falls back to `CLAUDE.md` / `GEMINI.md`) for
 project context — the cross-tool standard, including an optional `## verify` /
 `test:` line that sets the Verifier's test command.
 
+**MCP servers:** list Model Context Protocol servers under the `mcp` config
+array (`{name, command, args}`); their tools appear to the agent as
+`mcp__<server>__<tool>`, are permission-gated (`--allow-mcp` or approval), and
+are governed by the same caps, governor, and ledger as built-in tools.
+
 **Safety defaults:** file tools are confined to the `--dir` project root (no
-reading/writing outside it without `--allow-outside-root`); writes and commands
-are off until allowed or approved; transient API errors (429/5xx) are retried
-with backoff; and `Ctrl-C` cancels the current task with a structured outcome
+reading/writing outside it without `--allow-outside-root`); writes, commands,
+and MCP calls are off until allowed or approved; transient API errors (429/5xx)
+are retried with backoff; a stalled MCP server can't hang a run (calls respect
+cancellation); and `Ctrl-C` cancels the current task with a structured outcome
 rather than a hard kill.
 
 ---

@@ -31,6 +31,7 @@ type runFlags struct {
 	yolo             bool
 	verify           bool
 	allowOutsideRoot bool
+	allowMCP         bool
 	dir              string
 	prompt           string // -p, used by exec
 }
@@ -47,6 +48,7 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.BoolVar(&f.yolo, "yolo", false, "skip approvals (never the budget cap or governor)")
 	fs.BoolVar(&f.verify, "verify", false, "after completion, re-run tests and report a verdict")
 	fs.BoolVar(&f.allowOutsideRoot, "allow-outside-root", false, "permit file access outside the project root")
+	fs.BoolVar(&f.allowMCP, "allow-mcp", false, "permit MCP tool calls without asking")
 	fs.StringVar(&f.dir, "dir", ".", "project root")
 	fs.StringVar(&f.prompt, "p", "", "prompt (headless)")
 	return f, fs
@@ -55,13 +57,14 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 // buildAgent wires a real (Anthropic) provider through the Trust Kernel. The
 // approve callback (may be nil) handles permission prompts for actions the
 // flags don't pre-authorize.
-func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Config, error) {
+func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Config, func(), error) {
+	noop := func() {}
 	cfg, err := config.Load(f.dir)
 	if err != nil {
-		return nil, cfg, err
+		return nil, cfg, noop, err
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, cfg, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
+		return nil, cfg, noop, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
 	}
 	model := cfg.Model
 	if f.model != "" {
@@ -70,14 +73,14 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		return nil, cfg, fmt.Errorf("ANTHROPIC_API_KEY is not set — Cliche is BYO-key. Export your key and retry")
+		return nil, cfg, noop, fmt.Errorf("ANTHROPIC_API_KEY is not set — Cliche is BYO-key. Export your key and retry")
 	}
 
 	bud := buildBudget(cfg, f.maxUSD, f.maxTokens)
 	govLimits := buildGovernorLimits(cfg, f.maxTurns)
 	led, err := ledger.Open(config.Dir(f.dir))
 	if err != nil {
-		return nil, cfg, err
+		return nil, cfg, noop, err
 	}
 	exec := tools.OSExecutor{
 		Root:    f.dir,
@@ -96,7 +99,16 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 		ContextKeepRecent:  cfg.Context.KeepRecent,
 		MaxSubagentDepth:   cfg.Subagents.MaxDepth,
 	}
-	return agent.New(prov, bud, govLimits, led, exec, acfg), cfg, nil
+	a := agent.New(prov, bud, govLimits, led, exec, acfg)
+
+	mcpSrc, cleanup, err := startMCP(cfg.MCP, f.yolo || f.allowMCP, approve)
+	if err != nil {
+		return nil, cfg, noop, fmt.Errorf("mcp: %w", err)
+	}
+	if mcpSrc != nil {
+		a.SetMCP(mcpSrc)
+	}
+	return a, cfg, cleanup, nil
 }
 
 // cmdRun is the human-facing run command.
@@ -118,11 +130,12 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 		approve = (&approver{r: bufio.NewReader(os.Stdin), out: out}).Approve
 	}
 
-	a, cfg, err := buildAgent(f, approve)
+	a, cfg, cleanup, err := buildAgent(f, approve)
 	if err != nil {
 		fmt.Fprintln(errOut, "run: "+err.Error())
 		return 1
 	}
+	defer cleanup()
 	a.SetObserver(func(e agent.Event) { printEvent(out, e) })
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -158,11 +171,12 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 
-	a, cfg, err := buildAgent(f, nil) // headless: no interactive approver
+	a, cfg, cleanup, err := buildAgent(f, nil) // headless: no interactive approver
 	if err != nil {
 		writeJSON(errOut, map[string]any{"error": err.Error()})
 		return 1
 	}
+	defer cleanup()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

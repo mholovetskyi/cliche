@@ -21,5 +21,12 @@
   },
   "subagents": {
     "max_depth": 2
-  }
+  },
+  "mcp": [
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    }
+  ]
 }

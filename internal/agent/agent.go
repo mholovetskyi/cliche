@@ -61,6 +61,7 @@ type Agent struct {
 	ledgerWarned bool               // emit at most one warning if audit writes fail
 	depth        int                // subagent nesting depth (0 = top-level)
 	emitMu       *sync.Mutex        // serializes observer output across parallel subagents
+	mcp          MCP                // optional external MCP tools (nil if none)
 }
 
 // New builds an Agent. EstInputTokens/EstOutputTokens default to conservative
@@ -79,8 +80,18 @@ func New(p provider.Provider, b *budget.Kernel, govLimits governor.Limits, l *le
 	return a
 }
 
+// MCP is an optional source of external Model Context Protocol tools, already
+// namespaced ("mcp__<server>__<tool>") and permission-gated by the caller.
+type MCP interface {
+	Tools() []provider.ToolSpec
+	Call(ctx context.Context, name string, raw json.RawMessage) tools.Result
+}
+
 // SetObserver registers a streaming observer for live activity.
 func (a *Agent) SetObserver(obs Observer) { a.obs = obs }
+
+// SetMCP attaches an MCP tool source (its tools are advertised and routed).
+func (a *Agent) SetMCP(m MCP) { a.mcp = m }
 
 // Usage returns the session-cumulative budget usage.
 func (a *Agent) Usage() budget.Usage { return a.bud.Usage() }
@@ -252,7 +263,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			case "spawn_subagents":
 				res = a.spawnSubagents(ctx, call.Args)
 			default:
-				res = a.exec.Execute(ctx, call.Name, call.Args)
+				if a.mcp != nil && strings.HasPrefix(call.Name, "mcp__") {
+					res = a.mcp.Call(ctx, call.Name, call.Raw)
+				} else {
+					res = a.exec.Execute(ctx, call.Name, call.Args)
+				}
 			}
 			// Record an attributable target (path or truncated command) — but
 			// never file contents or old_string (which could carry secrets).
@@ -409,6 +424,9 @@ func (a *Agent) toolSpecs() []provider.ToolSpec {
 	if a.depth < a.cfg.MaxSubagentDepth {
 		specs = append(specs, spawnSubagentSpec(), spawnSubagentsSpec())
 	}
+	if a.mcp != nil {
+		specs = append(specs, a.mcp.Tools()...)
+	}
 	return specs
 }
 
@@ -490,6 +508,7 @@ func (a *Agent) newChild(sub budget.Limits) *Agent {
 	c.depth = a.depth + 1
 	c.obs = a.obs
 	c.emitMu = a.emitMu // share so concurrent siblings serialize their output
+	c.mcp = a.mcp       // subagents inherit the same MCP tools
 	return c
 }
 

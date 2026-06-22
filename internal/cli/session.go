@@ -42,11 +42,12 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	reader := bufio.NewReader(os.Stdin)
 	app := &approver{r: reader, out: out}
 
-	a, cfg, err := buildAgent(f, app.Approve)
+	a, cfg, cleanup, err := buildAgent(f, app.Approve)
 	if err != nil {
 		fmt.Fprintln(errOut, "chat: "+err.Error())
 		return 1
 	}
+	defer cleanup()
 	a.SetObserver(func(e agent.Event) { printEvent(out, e) })
 
 	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify}

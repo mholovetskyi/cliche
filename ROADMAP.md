@@ -22,6 +22,12 @@ unattended without a runaway, a blown budget, or a silently faked result.
   fallback (targeted edits, not full-file overwrites).
 - ✅ Auto-verify wired into `run`/`exec`/`chat` (`--verify`, `/verify`).
 
+**Extensibility**
+- ✅ MCP client (stdio): connect external Model Context Protocol servers via the
+  `mcp` config array; their tools are namespaced (`mcp__<server>__<tool>`),
+  permission-gated (`--allow-mcp`/approval), and governed by the same
+  caps/governor/ledger. Still ⬜: HTTP-MCP transport and per-subagent scoped MCP.
+
 **Hardening (audit pass)**
 - ✅ Project-root confinement for all file tools (+ `--allow-outside-root` hatch),
   symlink-aware (an in-root symlink pointing outside is rejected).

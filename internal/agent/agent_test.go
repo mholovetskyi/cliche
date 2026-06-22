@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -128,6 +129,59 @@ func TestSubagentDepthLimit(t *testing.T) {
 	}
 	if res := a.spawnSubagent(context.Background(), map[string]string{"prompt": "x"}); res.Success {
 		t.Fatal("spawnSubagent must refuse when depth limit is 0")
+	}
+}
+
+type stubMCP struct{ called string }
+
+func (s *stubMCP) Tools() []provider.ToolSpec {
+	return []provider.ToolSpec{{Name: "mcp__stub__hello", Description: "say hi", Schema: map[string]any{"type": "object"}}}
+}
+func (s *stubMCP) Call(_ context.Context, name string, _ json.RawMessage) tools.Result {
+	s.called = name
+	return tools.Result{Output: "hello from " + name, Success: true}
+}
+
+type mcpRoutingMock struct{}
+
+func (mcpRoutingMock) Name() string  { return "mcprouting" }
+func (mcpRoutingMock) Model() string { return "mock" }
+func (mcpRoutingMock) Complete(_ context.Context, req provider.Request) (provider.Response, error) {
+	if hasToolResult(req.Messages) {
+		return provider.Response{Text: "done", Done: true, Usage: provider.Usage{InputTokens: 10, OutputTokens: 5}}, nil
+	}
+	return provider.Response{
+		ToolCalls: []provider.ToolCall{{ID: "m1", Name: "mcp__stub__hello", Raw: json.RawMessage(`{"x":1}`), Signature: "mcp:hello"}},
+		Usage:     provider.Usage{InputTokens: 20, OutputTokens: 5},
+	}, nil
+}
+
+func TestMCPToolAdvertisedAndRouted(t *testing.T) {
+	led, _ := ledger.Open(t.TempDir())
+	stub := &stubMCP{}
+	a := New(mcpRoutingMock{}, budget.New(budget.Limits{MaxTokens: 1_000_000}),
+		governor.DefaultLimits(), led, tools.SimExecutor{}, Config{Model: "mock"})
+	a.SetMCP(stub)
+
+	found := false
+	for _, s := range a.toolSpecs() {
+		if s.Name == "mcp__stub__hello" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("MCP tool was not advertised in the tool specs")
+	}
+
+	o, err := a.Run(context.Background(), "use the mcp tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Stop != StopCompleted {
+		t.Fatalf("want completed, got %s", o.Stop)
+	}
+	if stub.called != "mcp__stub__hello" {
+		t.Fatalf("MCP call was not routed to the adapter, called=%q", stub.called)
 	}
 }
 

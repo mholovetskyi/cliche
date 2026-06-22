@@ -43,14 +43,23 @@ type Subagents struct {
 	MaxDepth int `json:"max_depth"` // 0 disables subagents
 }
 
+// MCPServer configures one Model Context Protocol server (stdio transport).
+type MCPServer struct {
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
+	Env     []string `json:"env,omitempty"`
+}
+
 // Config is the full run configuration.
 type Config struct {
-	Model     string    `json:"model"`
-	Budget    Budget    `json:"budget"`
-	Governor  Governor  `json:"governor"`
-	Verify    Verify    `json:"verify"`
-	Context   Context   `json:"context"`
-	Subagents Subagents `json:"subagents"`
+	Model     string      `json:"model"`
+	Budget    Budget      `json:"budget"`
+	Governor  Governor    `json:"governor"`
+	Verify    Verify      `json:"verify"`
+	Context   Context     `json:"context"`
+	Subagents Subagents   `json:"subagents"`
+	MCP       []MCPServer `json:"mcp,omitempty"`
 }
 
 // Default returns conservative, trust-first defaults.
@@ -100,6 +109,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("governor.repetition_window (%d) must be >= repetition_threshold (%d) or the breaker never trips", g.RepetitionWindow, g.RepetitionThreshold)
 	case c.Subagents.MaxDepth < 0:
 		return fmt.Errorf("subagents.max_depth must be >= 0 (got %d)", c.Subagents.MaxDepth)
+	}
+	for i, s := range c.MCP {
+		if s.Name == "" || s.Command == "" {
+			return fmt.Errorf("mcp[%d]: both name and command are required", i)
+		}
 	}
 	return nil
 }
