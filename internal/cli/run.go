@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -21,16 +22,17 @@ import (
 
 // runFlags are shared by `run` and `exec`.
 type runFlags struct {
-	model      string
-	maxUSD     float64
-	maxTokens  int
-	maxTurns   int
-	allowWrite bool
-	allowRun   bool
-	yolo       bool
-	verify     bool
-	dir        string
-	prompt     string // -p, used by exec
+	model            string
+	maxUSD           float64
+	maxTokens        int
+	maxTurns         int
+	allowWrite       bool
+	allowRun         bool
+	yolo             bool
+	verify           bool
+	allowOutsideRoot bool
+	dir              string
+	prompt           string // -p, used by exec
 }
 
 func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
@@ -44,6 +46,7 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.BoolVar(&f.allowRun, "allow-run", false, "permit shell commands")
 	fs.BoolVar(&f.yolo, "yolo", false, "skip approvals (never the budget cap or governor)")
 	fs.BoolVar(&f.verify, "verify", false, "after completion, re-run tests and report a verdict")
+	fs.BoolVar(&f.allowOutsideRoot, "allow-outside-root", false, "permit file access outside the project root")
 	fs.StringVar(&f.dir, "dir", ".", "project root")
 	fs.StringVar(&f.prompt, "p", "", "prompt (headless)")
 	return f, fs
@@ -56,6 +59,9 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 	cfg, err := config.Load(f.dir)
 	if err != nil {
 		return nil, cfg, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, cfg, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
 	}
 	model := cfg.Model
 	if f.model != "" {
@@ -74,7 +80,8 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 		return nil, cfg, err
 	}
 	exec := tools.OSExecutor{
-		Policy:  tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo},
+		Root:    f.dir,
+		Policy:  tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo, AllowOutsideRoot: f.allowOutsideRoot},
 		Approve: approve,
 	}
 
@@ -97,10 +104,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	prompt := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if prompt == "" {
-		prompt = f.prompt
-	}
+	prompt := resolvePrompt(f, fs)
 	if prompt == "" {
 		fmt.Fprintln(errOut, "run: a prompt is required, e.g. cliche run \"fix the build\"")
 		return 2
@@ -120,8 +124,10 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	}
 	a.SetObserver(func(e agent.Event) { printEvent(out, e) })
 
-	fmt.Fprintln(out, "cliche: trust kernel armed (caps + governor on). Running…")
-	o, runErr := a.Run(context.Background(), prompt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	fmt.Fprintln(out, "cliche: trust kernel armed (caps + governor on). Running… (Ctrl-C to stop)")
+	o, runErr := a.Run(ctx, prompt)
 	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
 		o.Verdict = autoVerify(out, f.dir, cfg).Status
 	}
@@ -138,10 +144,7 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	prompt := f.prompt
-	if prompt == "" {
-		prompt = strings.TrimSpace(strings.Join(fs.Args(), " "))
-	}
+	prompt := resolvePrompt(f, fs)
 	if prompt == "" && stdinIsPiped() {
 		// Read prompt from stdin (supports: git diff | cliche exec ...). Guarded
 		// so an interactive TTY with no input does not hang waiting on EOF.
@@ -160,7 +163,9 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 
-	o, runErr := a.Run(context.Background(), prompt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	o, runErr := a.Run(ctx, prompt)
 	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
 		o.Verdict = autoVerify(io.Discard, f.dir, cfg).Status // keep stdout clean JSON
 	}
@@ -181,6 +186,15 @@ func printOutcome(out io.Writer, o agent.Outcome) {
 	if o.Verdict != "" {
 		fmt.Fprintf(out, "verify: %s\n", o.Verdict)
 	}
+}
+
+// resolvePrompt resolves the prompt with a consistent precedence for both run
+// and exec: an explicit -p wins, then positional args.
+func resolvePrompt(f *runFlags, fs *flag.FlagSet) string {
+	if strings.TrimSpace(f.prompt) != "" {
+		return strings.TrimSpace(f.prompt)
+	}
+	return strings.TrimSpace(strings.Join(fs.Args(), " "))
 }
 
 // stdinIsPiped reports whether stdin is a pipe or redirected file (not a TTY).
@@ -204,6 +218,8 @@ func exitCodeFor(o agent.Outcome) int {
 		return 1 // provider/runtime error
 	case agent.StopBudget:
 		return 3 // budget cap reached
+	case agent.StopCancelled:
+		return 130 // interrupted (SIGINT convention)
 	default:
 		return 4 // a governor breaker tripped
 	}

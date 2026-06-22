@@ -8,18 +8,25 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
+const maxBodyBytes = 16 << 20 // 16 MiB cap on response bodies
+
 // Anthropic is the first real BYO-key backend. It supports a full multi-turn
 // tool-use loop against the Messages API: it advertises tools, emits tool_use
-// blocks, and consumes tool_result blocks fed back by the agent.
+// blocks, and consumes tool_result blocks fed back by the agent. Transient
+// failures (429/5xx/network) are retried with backoff.
 type Anthropic struct {
-	apiKey string
-	model  string
-	client *http.Client
-	maxTok int
+	apiKey     string
+	model      string
+	client     *http.Client
+	maxTok     int
+	baseURL    string
+	maxRetries int
+	retryBase  time.Duration
 }
 
 // NewAnthropic returns an Anthropic provider. maxTokens bounds the response
@@ -29,10 +36,13 @@ func NewAnthropic(apiKey, model string, maxTokens int) *Anthropic {
 		maxTokens = 4096
 	}
 	return &Anthropic{
-		apiKey: apiKey,
-		model:  model,
-		client: &http.Client{Timeout: 120 * time.Second},
-		maxTok: maxTokens,
+		apiKey:     apiKey,
+		model:      model,
+		client:     &http.Client{Timeout: 120 * time.Second},
+		maxTok:     maxTokens,
+		baseURL:    "https://api.anthropic.com/v1/messages",
+		maxRetries: 4,
+		retryBase:  500 * time.Millisecond,
 	}
 }
 
@@ -46,9 +56,9 @@ type contentBlock struct {
 	// text
 	Text string `json:"text,omitempty"`
 	// tool_use
-	ID    string            `json:"id,omitempty"`
-	Name  string            `json:"name,omitempty"`
-	Input map[string]string `json:"input,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
 	// tool_result
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   string `json:"content,omitempty"`
@@ -115,7 +125,7 @@ func (a *Anthropic) buildRequestBody(req Request) ([]byte, error) {
 				blocks = append(blocks, contentBlock{Type: "text", Text: m.Text})
 			}
 			for _, tc := range m.ToolCalls {
-				blocks = append(blocks, contentBlock{Type: "tool_use", ID: tc.ID, Name: tc.Name, Input: tc.Args})
+				blocks = append(blocks, contentBlock{Type: "tool_use", ID: tc.ID, Name: tc.Name, Input: toolInputJSON(tc)})
 			}
 		default: // user
 			if len(m.ToolResults) > 0 {
@@ -167,6 +177,7 @@ func parseResponse(raw []byte) (Response, error) {
 				ID:        c.ID,
 				Name:      c.Name,
 				Args:      args,
+				Raw:       append(json.RawMessage(nil), c.Input...),
 				Signature: signature(c.Name, args),
 			})
 		}
@@ -178,6 +189,22 @@ func parseResponse(raw []byte) (Response, error) {
 		Usage:     Usage{InputTokens: parsed.Usage.InputTokens, OutputTokens: parsed.Usage.OutputTokens},
 		Done:      parsed.StopReason != "tool_use",
 	}, nil
+}
+
+// toolInputJSON returns the tool_use input to send back: the model's original
+// JSON if preserved, else the string args (defaulting to an empty object, which
+// the API requires for a no-arg call).
+func toolInputJSON(tc ToolCall) json.RawMessage {
+	if len(tc.Raw) > 0 {
+		return tc.Raw
+	}
+	if len(tc.Args) == 0 {
+		return json.RawMessage("{}")
+	}
+	if b, err := json.Marshal(tc.Args); err == nil {
+		return b
+	}
+	return json.RawMessage("{}")
 }
 
 // decodeInput converts an arbitrary JSON tool input object into string args.
@@ -220,16 +247,58 @@ func signature(name string, args map[string]string) string {
 	return b.String()
 }
 
-// Complete performs one multi-turn step against the Anthropic Messages API.
+// Complete performs one multi-turn step against the Anthropic Messages API,
+// retrying transient failures (429/5xx/network) with backoff, honoring
+// Retry-After, and respecting context cancellation between attempts.
 func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error) {
 	body, err := a.buildRequestBody(req)
 	if err != nil {
 		return Response{}, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	var lastErr error
+	var delay time.Duration
+	for attempt := 0; ; attempt++ {
+		if delay > 0 {
+			t := time.NewTimer(delay)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return Response{}, ctx.Err()
+			}
+		}
+
+		raw, status, retryAfter, derr := a.doOnce(ctx, body)
+		switch {
+		case derr != nil:
+			if ctx.Err() != nil {
+				return Response{}, ctx.Err()
+			}
+			lastErr = derr
+		case status >= 400:
+			if !isRetryable(status) {
+				if _, perr := parseResponse(raw); perr != nil {
+					return Response{}, perr // structured API error
+				}
+				return Response{}, fmt.Errorf("anthropic api returned status %d", status)
+			}
+			lastErr = fmt.Errorf("anthropic api returned retryable status %d", status)
+		default:
+			return parseResponse(raw)
+		}
+
+		if attempt >= a.maxRetries {
+			return Response{}, lastErr
+		}
+		delay = a.backoff(attempt, retryAfter)
+	}
+}
+
+func (a *Anthropic) doOnce(ctx context.Context, body []byte) (raw []byte, status int, retryAfter time.Duration, err error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL, bytes.NewReader(body))
 	if err != nil {
-		return Response{}, err
+		return nil, 0, 0, err
 	}
 	httpReq.Header.Set("content-type", "application/json")
 	httpReq.Header.Set("x-api-key", a.apiKey)
@@ -237,17 +306,47 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 
 	resp, err := a.client.Do(httpReq)
 	if err != nil {
-		return Response{}, err
+		return nil, 0, 0, err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode >= 400 {
-		// Prefer the structured API error in the body; fall back to status.
-		if _, perr := parseResponse(raw); perr != nil {
-			return Response{}, perr
-		}
-		return Response{}, fmt.Errorf("anthropic api returned status %d", resp.StatusCode)
+	raw, rerr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
+	if rerr != nil {
+		return nil, resp.StatusCode, retryAfter, rerr
 	}
-	return parseResponse(raw)
+	return raw, resp.StatusCode, retryAfter, nil
+}
+
+func isRetryable(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests,
+		http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, 529:
+		return true
+	default:
+		return false
+	}
+}
+
+// backoff returns the delay before the next attempt: Retry-After if present,
+// else capped exponential backoff.
+func (a *Anthropic) backoff(attempt int, retryAfter time.Duration) time.Duration {
+	if retryAfter > 0 {
+		return retryAfter
+	}
+	d := a.retryBase * time.Duration(int64(1)<<uint(attempt))
+	if max := 30 * time.Second; d > max {
+		d = max
+	}
+	return d
+}
+
+func parseRetryAfter(h string) time.Duration {
+	if h == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return 0
 }

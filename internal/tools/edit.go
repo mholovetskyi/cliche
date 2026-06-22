@@ -62,8 +62,9 @@ const (
 // surrounding context, a "similar" single line is just a wrong-location edit
 // waiting to happen (false edits are catastrophic for this product).
 func editByFuzzyAnchor(content, oldStr, newStr string) (string, bool) {
-	contentLines := strings.Split(content, "\n")
-	oldTrimmed := trimAll(strings.Split(strings.Trim(oldStr, "\n"), "\n"))
+	eol := detectEOL(content)
+	contentLines := splitLinesNoCR(content)
+	oldTrimmed := trimAll(splitLinesNoCR(strings.Trim(oldStr, "\r\n")))
 	n := len(oldTrimmed)
 	if n < 2 || n > len(contentLines) {
 		return "", false
@@ -88,12 +89,12 @@ func editByFuzzyAnchor(content, oldStr, newStr string) (string, bool) {
 		return "", false
 	}
 
-	newLines := strings.Split(newStr, "\n")
+	newLines := splitLinesNoCR(newStr)
 	out := make([]string, 0, len(contentLines)-n+len(newLines))
 	out = append(out, contentLines[:bestIdx]...)
 	out = append(out, newLines...)
 	out = append(out, contentLines[bestIdx+n:]...)
-	return strings.Join(out, "\n"), true
+	return strings.Join(out, eol), true
 }
 
 // hasExactAnchor reports whether any non-empty line in the window matches the
@@ -171,11 +172,31 @@ func min3(a, b, c int) int {
 	return a
 }
 
+// detectEOL returns the dominant line ending of s.
+func detectEOL(s string) string {
+	if strings.Contains(s, "\r\n") {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// splitLinesNoCR splits on "\n" and strips a trailing "\r" from each line, so
+// matching and rebuilding are EOL-agnostic.
+func splitLinesNoCR(s string) []string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSuffix(lines[i], "\r")
+	}
+	return lines
+}
+
 // editByTrimmedLines finds a contiguous run of lines whose trimmed forms equal
-// the trimmed lines of oldStr, and replaces that run with newStr.
+// the trimmed lines of oldStr, and replaces that run with newStr. It preserves
+// the file's dominant EOL so a CRLF file is never left with mixed endings.
 func editByTrimmedLines(content, oldStr, newStr string, replaceAll bool) (string, bool) {
-	contentLines := strings.Split(content, "\n")
-	oldLines := trimAll(strings.Split(strings.Trim(oldStr, "\n"), "\n"))
+	eol := detectEOL(content)
+	contentLines := splitLinesNoCR(content)
+	oldLines := trimAll(splitLinesNoCR(strings.Trim(oldStr, "\r\n")))
 	if len(oldLines) == 0 {
 		return "", false
 	}
@@ -188,7 +209,7 @@ func editByTrimmedLines(content, oldStr, newStr string, replaceAll bool) (string
 		return "", false // ambiguous under normalization -> treat as no safe match
 	}
 
-	newLines := strings.Split(newStr, "\n")
+	newLines := splitLinesNoCR(newStr)
 	// Replace from the last match backwards so earlier indices stay valid.
 	for i := len(matches) - 1; i >= 0; i-- {
 		start := matches[i]
@@ -202,7 +223,7 @@ func editByTrimmedLines(content, oldStr, newStr string, replaceAll bool) (string
 			break
 		}
 	}
-	return strings.Join(contentLines, "\n"), true
+	return strings.Join(contentLines, eol), true
 }
 
 func findBlockMatches(contentLines, oldTrimmed []string) []int {

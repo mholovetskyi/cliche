@@ -43,6 +43,29 @@ func TestDiscoverTestCommandFromAgents(t *testing.T) {
 	}
 }
 
+func TestParserIgnoresLatestSubstring(t *testing.T) {
+	dir := t.TempDir()
+	agents := "## verify\n\nlatest: build-only\ntest: go test ./...\n"
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(agents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd, ok := DiscoverTestCommand(dir)
+	if !ok || cmd != "go test ./..." {
+		t.Fatalf("'latest:' must not be parsed as 'test:', got %q ok=%v", cmd, ok)
+	}
+}
+
+func TestProseVerifyHeadingIsNotVerifySection(t *testing.T) {
+	dir := t.TempDir()
+	agents := "## Verifying the build\n\ntest: should-not-run\n"
+	_ = os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(agents), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644)
+	cmd, ok := DiscoverTestCommand(dir)
+	if !ok || cmd != "go test ./..." {
+		t.Fatalf("a prose 'verifying' heading must not define the test cmd, got %q", cmd)
+	}
+}
+
 func TestDiscoverTestCommandNone(t *testing.T) {
 	if _, ok := DiscoverTestCommand(t.TempDir()); ok {
 		t.Fatal("expected no command for an empty dir")

@@ -63,8 +63,17 @@ func (l *Ledger) Append(e Entry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return json.NewEncoder(f).Encode(e)
+	if err := json.NewEncoder(f).Encode(e); err != nil {
+		f.Close()
+		return err
+	}
+	// fsync before close so an acknowledged audit record survives a crash, and
+	// surface a Close error rather than dropping it.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // Summary aggregates a ledger file.

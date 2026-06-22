@@ -125,6 +125,22 @@ func TestApplyEditFuzzyRequiresExactAnchor(t *testing.T) {
 	}
 }
 
+func TestApplyEditPreservesCRLF(t *testing.T) {
+	// A CRLF file edited via the whitespace-tolerant (non-exact) path must not
+	// end up with mixed line endings.
+	content := "a\r\nb\r\nc\r\n"
+	out, err := applyEdit(content, "a\nb", "X", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "X\r\nc\r\n" {
+		t.Fatalf("CRLF not preserved: %q", out)
+	}
+	if strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\n") {
+		t.Fatalf("output has a lone LF (mixed endings): %q", out)
+	}
+}
+
 func TestApplyEditMultiLineBlock(t *testing.T) {
 	content := "line0\n    if x {\n        do()\n    }\nline4\n"
 	old := "if x {\ndo()\n}"

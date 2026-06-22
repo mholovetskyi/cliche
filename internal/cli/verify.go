@@ -34,6 +34,10 @@ func cmdVerify(args []string, out, errOut io.Writer) int {
 	diff := ""
 	switch {
 	case *diffPath == "-":
+		if !stdinIsPiped() {
+			fmt.Fprintln(errOut, "verify: --diff - expects a diff piped on stdin (none detected)")
+			return 2
+		}
 		if data, _ := io.ReadAll(os.Stdin); len(data) > 0 {
 			diff = string(data)
 		}

@@ -183,8 +183,19 @@ override per-run):
 }
 ```
 
+Config is validated on load — a 0/negative cap or a window smaller than the
+repetition threshold fails loudly rather than silently disarming a guardrail.
+See [docs/config.example.json](docs/config.example.json) for the full shape.
+
 Cliche reads `AGENTS.md` (and falls back to `CLAUDE.md` / `GEMINI.md`) for
-project context — the cross-tool standard.
+project context — the cross-tool standard, including an optional `## verify` /
+`test:` line that sets the Verifier's test command.
+
+**Safety defaults:** file tools are confined to the `--dir` project root (no
+reading/writing outside it without `--allow-outside-root`); writes and commands
+are off until allowed or approved; transient API errors (429/5xx) are retried
+with backoff; and `Ctrl-C` cancels the current task with a structured outcome
+rather than a hard kill.
 
 ---
 

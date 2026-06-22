@@ -1,23 +1,27 @@
-// Package tools executes the agent's tool calls behind a permission gate.
+// Package tools executes the agent's tool calls behind a permission gate and a
+// project-root confinement boundary.
 //
 // v0 ships two executors:
 //
-//   - OSExecutor: real file/command tools, gated by a permission Policy.
+//   - OSExecutor: real file/command tools, gated by a permission Policy and
+//     confined to a project Root (no reading/writing outside it by default).
 //   - SimExecutor: deterministic, side-effect-free outcomes for the demo and
 //     tests.
 //
-// The permission model is graduated: read is always allowed; writes and shell
-// commands are denied by default unless explicitly allowed (or --yolo). Note
-// that --yolo bypasses APPROVALS only — it never bypasses the Budget Kernel
-// or the Governor. That is the brand.
+// The permission model is graduated: read is confined but otherwise allowed;
+// writes and shell commands are denied by default unless explicitly allowed (or
+// --yolo, or interactively approved). Note that --yolo bypasses APPROVALS only
+// — it never bypasses the Budget Kernel or the Governor. That is the brand.
 package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
+	"path/filepath"
 	"strings"
+
+	"github.com/mholovetskyi/cliche/internal/shell"
 )
 
 // Result is the outcome of executing one tool call.
@@ -43,9 +47,10 @@ func isEditTool(name string) bool {
 
 // Policy controls what the OSExecutor is allowed to do without asking.
 type Policy struct {
-	AllowWrite bool
-	AllowRun   bool
-	Yolo       bool
+	AllowWrite       bool
+	AllowRun         bool
+	Yolo             bool
+	AllowOutsideRoot bool // permit file access outside the project root (escape hatch)
 }
 
 // Approver is consulted when a Policy does not pre-authorize an action. It
@@ -53,9 +58,10 @@ type Policy struct {
 // Approver means "deny if not pre-authorized".
 type Approver func(action, detail string) bool
 
-// OSExecutor performs real file and command operations under a Policy, asking
-// the Approver for anything the Policy doesn't already allow.
+// OSExecutor performs real file and command operations under a Policy, confined
+// to Root, asking the Approver for anything the Policy doesn't already allow.
 type OSExecutor struct {
+	Root    string // project root; "" disables confinement
 	Policy  Policy
 	Approve Approver
 }
@@ -82,6 +88,30 @@ func (e OSExecutor) permit(action, detail string) bool {
 	return false
 }
 
+// resolve confines a path to the project root unless confinement is disabled.
+// It returns the absolute path to use.
+func (e OSExecutor) resolve(path string) (string, error) {
+	if e.Root == "" || e.Policy.AllowOutsideRoot {
+		return path, nil
+	}
+	root, err := filepath.Abs(e.Root)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q is outside the project root (use --allow-outside-root to permit)", path)
+	}
+	return abs, nil
+}
+
 // Execute runs a tool call against the real filesystem/shell.
 func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]string) Result {
 	edit := isEditTool(name)
@@ -90,7 +120,11 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "read error: no file specified", Success: false}
 		}
-		data, err := os.ReadFile(args["file"])
+		p, err := e.resolve(args["file"])
+		if err != nil {
+			return Result{Output: "read denied: " + err.Error(), Success: false}
+		}
+		data, err := os.ReadFile(p)
 		if err != nil {
 			return Result{Output: "read error: " + err.Error(), Success: false}
 		}
@@ -100,13 +134,17 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "write error: no file specified", IsEdit: edit, Success: false}
 		}
+		p, err := e.resolve(args["file"])
+		if err != nil {
+			return Result{Output: "write denied: " + err.Error(), IsEdit: edit, Success: false}
+		}
 		if !e.permit("write", "write_file "+args["file"]) {
 			return Result{Output: "permission denied: write to " + args["file"], IsEdit: edit, Success: false}
 		}
-		if err := validateSyntax(args["file"], args["content"]); err != nil {
+		if err := validateSyntax(p, args["content"]); err != nil {
 			return Result{Output: "write rejected: " + err.Error(), IsEdit: edit, Success: false}
 		}
-		if err := os.WriteFile(args["file"], []byte(args["content"]), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(args["content"]), 0o644); err != nil {
 			return Result{Output: "write error: " + err.Error(), IsEdit: edit, Success: false}
 		}
 		return Result{Output: "wrote " + args["file"], IsEdit: edit, Success: true}
@@ -115,10 +153,14 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "edit error: no file specified", IsEdit: edit, Success: false}
 		}
+		p, err := e.resolve(args["file"])
+		if err != nil {
+			return Result{Output: "edit denied: " + err.Error(), IsEdit: edit, Success: false}
+		}
 		if !e.permit("write", "edit_file "+args["file"]) {
 			return Result{Output: "permission denied: edit " + args["file"], IsEdit: edit, Success: false}
 		}
-		data, err := os.ReadFile(args["file"])
+		data, err := os.ReadFile(p)
 		if err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
 		}
@@ -126,10 +168,10 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
 		}
-		if err := validateSyntax(args["file"], updated); err != nil {
+		if err := validateSyntax(p, updated); err != nil {
 			return Result{Output: "edit rejected (file left unchanged): " + err.Error(), IsEdit: edit, Success: false}
 		}
-		if err := os.WriteFile(args["file"], []byte(updated), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte(updated), 0o644); err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
 		}
 		return Result{Output: "edited " + args["file"], IsEdit: edit, Success: true}
@@ -141,13 +183,7 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if !e.permit("run", args["command"]) {
 			return Result{Output: "permission denied: run command", Success: false}
 		}
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", args["command"])
-		} else {
-			cmd = exec.CommandContext(ctx, "sh", "-c", args["command"])
-		}
-		out, err := cmd.CombinedOutput()
+		out, err := shell.Command(ctx, e.Root, args["command"]).CombinedOutput()
 		return Result{Output: string(out), Success: err == nil}
 
 	default:

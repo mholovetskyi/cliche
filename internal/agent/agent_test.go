@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/mholovetskyi/cliche/internal/budget"
@@ -10,6 +11,29 @@ import (
 	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/tools"
 )
+
+type errProvider struct{}
+
+func (errProvider) Name() string  { return "err" }
+func (errProvider) Model() string { return "mock" }
+func (errProvider) Complete(context.Context, provider.Request) (provider.Response, error) {
+	return provider.Response{}, errors.New("boom")
+}
+
+func TestProviderErrorRollsBackPrompt(t *testing.T) {
+	a := newTestAgent(t, errProvider{}, governor.DefaultLimits(),
+		budget.Limits{MaxTokens: 1_000_000}, tools.SimExecutor{})
+	o, err := a.Run(context.Background(), "do it")
+	if err == nil {
+		t.Fatal("expected the provider error to propagate")
+	}
+	if o.Stop != StopError {
+		t.Fatalf("want StopError, got %s", o.Stop)
+	}
+	if len(a.messages) != 0 {
+		t.Fatalf("the dangling user prompt should be rolled back, got %d messages", len(a.messages))
+	}
+}
 
 func newTestAgent(t *testing.T, prov provider.Provider, govLimits governor.Limits, lim budget.Limits, sim tools.SimExecutor) *Agent {
 	t.Helper()

@@ -5,7 +5,10 @@
 // supports a full multi-turn tool-use loop.
 package provider
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // ToolSpec describes a tool the model may call. Schema is a JSON Schema object
 // for the tool's input.
@@ -20,6 +23,10 @@ type ToolCall struct {
 	ID   string            `json:"id"`
 	Name string            `json:"name"`
 	Args map[string]string `json:"args"`
+	// Raw is the model's original tool input JSON, preserved verbatim so the
+	// echoed assistant turn round-trips non-string args (numbers, booleans,
+	// nested objects) without lossy stringification.
+	Raw json.RawMessage `json:"-"`
 	// Signature is a stable description of the call used by the Governor for
 	// repetition detection. Two semantically-identical calls must share a
 	// signature.

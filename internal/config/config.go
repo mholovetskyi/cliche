@@ -5,6 +5,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -67,6 +68,29 @@ func Default() Config {
 			KeepRecent:  12,
 		},
 	}
+}
+
+// Validate rejects configurations that would silently disarm a guardrail — the
+// worst-case failure for a trust tool. It fails loudly, naming the field.
+func (c Config) Validate() error {
+	b, g := c.Budget, c.Governor
+	switch {
+	case b.MaxTokens < 0:
+		return fmt.Errorf("budget.max_tokens must be >= 0 (got %d)", b.MaxTokens)
+	case b.MaxUSD < 0:
+		return fmt.Errorf("budget.max_usd must be >= 0 (got %v)", b.MaxUSD)
+	case b.MaxTokens == 0 && b.MaxUSD == 0:
+		return fmt.Errorf("at least one of budget.max_tokens or budget.max_usd must be set (both 0 disarms the spend cap)")
+	case g.MaxTurns <= 0:
+		return fmt.Errorf("governor.max_turns must be > 0 (got %d; 0 disarms the loop breaker)", g.MaxTurns)
+	case g.MaxWallClockSeconds < 0:
+		return fmt.Errorf("governor.max_wallclock_seconds must be >= 0 (got %d)", g.MaxWallClockSeconds)
+	case g.MaxConsecutiveFailedEdits < 0 || g.RepetitionWindow < 0 || g.RepetitionThreshold < 0 || g.NoProgressTurns < 0:
+		return fmt.Errorf("governor limits must be >= 0")
+	case g.RepetitionThreshold > 0 && g.RepetitionWindow > 0 && g.RepetitionWindow < g.RepetitionThreshold:
+		return fmt.Errorf("governor.repetition_window (%d) must be >= repetition_threshold (%d) or the breaker never trips", g.RepetitionWindow, g.RepetitionThreshold)
+	}
+	return nil
 }
 
 // Dir returns the .cliche directory under root.

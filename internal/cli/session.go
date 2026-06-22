@@ -6,11 +6,24 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
 )
+
+// noColor disables decorative glyphs (NO_COLOR convention) for portability and
+// dumb terminals.
+var noColor = os.Getenv("NO_COLOR") != ""
+
+// gl returns the fancy glyph normally, or an ASCII fallback under NO_COLOR.
+func gl(fancy, plain string) string {
+	if noColor {
+		return plain
+	}
+	return fancy
+}
 
 // cmdChat starts an interactive agentic session: type a task, the agent cooks
 // (reads/edits files, runs commands) with live activity, then you ask again.
@@ -19,6 +32,10 @@ import (
 func cmdChat(args []string, out, errOut io.Writer) int {
 	f, fs := parseRunFlags("chat", args)
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if stdinIsPiped() {
+		fmt.Fprintln(errOut, "chat is interactive and needs a terminal; use `run`/`exec` for piped input.")
 		return 2
 	}
 
@@ -47,9 +64,9 @@ type session struct {
 
 func (s *session) loop() int {
 	fmt.Fprintln(s.out, "cliche — interactive agent. Trust kernel on (hard caps + governor).")
-	fmt.Fprintln(s.out, "Type a task. Slash commands: /cost  /clear  /verify  /help  /exit")
+	fmt.Fprintln(s.out, "Type a task. Slash commands: /cost  /clear  /context  /verify  /help  /exit")
 	for {
-		fmt.Fprint(s.out, "\n› ")
+		fmt.Fprint(s.out, "\n"+gl("› ", "> "))
 		line, err := s.r.ReadString('\n')
 		if err != nil { // EOF (Ctrl-D)
 			fmt.Fprintln(s.out)
@@ -65,7 +82,12 @@ func (s *session) loop() int {
 			}
 			continue
 		}
-		o, runErr := s.a.Run(context.Background(), line)
+		// Install a SIGINT handler only while a task runs, so Ctrl-C aborts the
+		// current task (gracefully, structured) but leaves the session alive;
+		// Ctrl-C at the idle prompt uses the default behavior (quit).
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		o, runErr := s.a.Run(ctx, line)
+		stop()
 		if runErr != nil {
 			fmt.Fprintln(s.out, "error: "+runErr.Error())
 			continue
@@ -77,11 +99,13 @@ func (s *session) loop() int {
 func (s *session) afterTask(o agent.Outcome) {
 	switch o.Stop {
 	case agent.StopCompleted:
-		fmt.Fprintf(s.out, "\n✔ done (%d turns)\n", o.Turns)
+		fmt.Fprintf(s.out, "\n%s done (%d turns)\n", gl("✔", "[done]"), o.Turns)
+	case agent.StopCancelled:
+		fmt.Fprintf(s.out, "\n%s interrupted\n", gl("■", "[x]"))
 	case agent.StopBudget:
-		fmt.Fprintf(s.out, "\n■ stopped: budget — %s\n", o.Reason)
+		fmt.Fprintf(s.out, "\n%s stopped: budget — %s\n", gl("■", "[x]"), o.Reason)
 	default:
-		fmt.Fprintf(s.out, "\n■ stopped: %s — %s\n", o.Stop, o.Reason)
+		fmt.Fprintf(s.out, "\n%s stopped: %s — %s\n", gl("■", "[x]"), o.Stop, o.Reason)
 	}
 	u := s.a.Usage()
 	fmt.Fprintf(s.out, "  session so far: %d tokens, ~$%.4f\n", u.TotalTokens(), u.USD)
@@ -137,20 +161,23 @@ func printEvent(out io.Writer, e agent.Event) {
 			fmt.Fprintf(out, "\n%s\n", t)
 		}
 	case "tool_call":
+		bullet := gl("●", "*")
 		if e.Detail != "" {
-			fmt.Fprintf(out, "  ● %s  %s\n", e.Tool, e.Detail)
+			fmt.Fprintf(out, "  %s %s  %s\n", bullet, e.Tool, e.Detail)
 		} else {
-			fmt.Fprintf(out, "  ● %s\n", e.Tool)
+			fmt.Fprintf(out, "  %s %s\n", bullet, e.Tool)
 		}
 	case "tool_result":
 		if !e.OK { // only surface failures to keep the feed readable
-			fmt.Fprintf(out, "    ✗ %s\n", e.Detail)
+			fmt.Fprintf(out, "    %s %s\n", gl("✗", "x"), e.Detail)
 		}
 	case "halt":
-		fmt.Fprintf(out, "  ■ halted: %s\n", e.Detail)
+		fmt.Fprintf(out, "  %s halted: %s\n", gl("■", "!"), e.Detail)
 	case "budget":
-		fmt.Fprintf(out, "  ■ budget: %s\n", e.Detail)
+		fmt.Fprintf(out, "  %s budget: %s\n", gl("■", "!"), e.Detail)
 	case "context":
-		fmt.Fprintf(out, "  ◆ context compacted: %s\n", e.Detail)
+		fmt.Fprintf(out, "  %s context compacted: %s\n", gl("◆", "~"), e.Detail)
+	case "warn":
+		fmt.Fprintf(out, "  ! %s\n", e.Detail)
 	}
 }

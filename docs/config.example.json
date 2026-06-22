@@ -1,0 +1,22 @@
+{
+  "model": "claude-sonnet-4-6",
+  "budget": {
+    "max_tokens": 2000000,
+    "max_usd": 5.0
+  },
+  "governor": {
+    "max_turns": 50,
+    "max_wallclock_seconds": 1800,
+    "max_consecutive_failed_edits": 5,
+    "repetition_window": 8,
+    "repetition_threshold": 3,
+    "no_progress_turns": 12
+  },
+  "context": {
+    "limit_tokens": 120000,
+    "keep_recent": 12
+  },
+  "verify": {
+    "test_command": "go test ./..."
+  }
+}

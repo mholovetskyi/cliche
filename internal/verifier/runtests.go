@@ -3,10 +3,10 @@ package verifier
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
+
+	"github.com/mholovetskyi/cliche/internal/shell"
 )
 
 // TestResult is the outcome of an independent test re-run.
@@ -18,19 +18,11 @@ type TestResult struct {
 	Err     string `json:"err,omitempty"`
 }
 
-// RunTests executes command in dir via the platform shell and reports whether
-// it passed (exit code 0). The provided context bounds the run; the caller is
-// responsible for setting a timeout (and, for model-driven verification, a
-// budget).
+// RunTests executes command in dir via the best available shell and reports
+// whether it passed (exit code 0). The provided context bounds the run; the
+// caller is responsible for setting a timeout.
 func RunTests(ctx context.Context, dir, command string) TestResult {
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
-	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
-	}
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	out, err := shell.Command(ctx, dir, command).CombinedOutput()
 	tr := TestResult{Ran: true, Command: command, Passed: err == nil, Output: string(out)}
 	if err != nil {
 		tr.Err = err.Error()
@@ -63,7 +55,10 @@ func DiscoverTestCommand(dir string) (string, bool) {
 }
 
 // testCmdFromAgents reads AGENTS.md and returns a "test:" command found under a
-// "## verify" heading (the planned verify-rules extension to AGENTS.md).
+// "## verify" heading (the planned verify-rules extension to AGENTS.md). The
+// heading and the key are matched as whole tokens, not substrings, so "latest:"
+// is not mistaken for "test:" and a prose "## verifying X" heading is not a
+// verify section.
 func testCmdFromAgents(dir string) (string, bool) {
 	data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil {
@@ -73,16 +68,18 @@ func testCmdFromAgents(dir string) (string, bool) {
 	for _, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimSpace(raw)
 		if strings.HasPrefix(line, "## ") {
-			inVerify = strings.Contains(strings.ToLower(line), "verify")
+			heading := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "## ")))
+			inVerify = heading == "verify" || strings.HasPrefix(heading, "verify ") || strings.HasPrefix(heading, "verification")
 			continue
 		}
 		if !inVerify {
 			continue
 		}
-		low := strings.ToLower(line)
-		if idx := strings.Index(low, "test:"); idx >= 0 {
-			cmd := strings.TrimSpace(line[idx+len("test:"):])
-			cmd = strings.TrimSpace(strings.Trim(cmd, "`"))
+		// Strip a leading list marker and backticks, then require the line to
+		// START with "test:" (not merely contain it).
+		cand := strings.TrimSpace(strings.TrimLeft(line, "-*` \t"))
+		if low := strings.ToLower(cand); strings.HasPrefix(low, "test:") {
+			cmd := strings.TrimSpace(strings.Trim(cand[len("test:"):], "` "))
 			if cmd != "" {
 				return cmd, true
 			}

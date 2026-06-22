@@ -29,7 +29,7 @@ func (a *approver) Approve(action, detail string) bool {
 			return true
 		}
 	}
-	fmt.Fprintf(a.out, "  ⚠ allow %s? (%s) [y/N/a=always] ", action, detail)
+	fmt.Fprintf(a.out, "  %s allow %s? (%s) [y/N/a=always] ", gl("⚠", "!"), action, detail)
 	line, err := a.r.ReadString('\n')
 	if err != nil && line == "" {
 		return false

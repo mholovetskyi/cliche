@@ -22,6 +22,17 @@ unattended without a runaway, a blown budget, or a silently faked result.
   fallback (targeted edits, not full-file overwrites).
 - ✅ Auto-verify wired into `run`/`exec`/`chat` (`--verify`, `/verify`).
 
+**Hardening (audit pass)**
+- ✅ Project-root confinement for all file tools (+ `--allow-outside-root` hatch).
+- ✅ POSIX-shell-preferring command execution with correct exit-code propagation
+  on Windows (no more false `verified` from a mis-read pipeline).
+- ✅ CRLF-preserving edits; config validation; AGENTS.md parser hardening.
+- ✅ Provider retry/backoff (429/5xx) honoring Retry-After; bounded response body.
+- ✅ SIGINT cancellation with a structured `cancelled` outcome; wall-clock
+  overrun now reports a structured `max_wallclock` halt.
+- ✅ Ledger fsync + surfaced write errors; attributable tool target in the audit
+  trail; `version` reports build metadata; NO_COLOR ASCII fallback.
+
 **Differentiated core**
 - ✅ Budget Kernel — token-hard cap + estimated dollar cap, enforced
   pre-flight *and* mid-stream (catches the fat-completion blowout).

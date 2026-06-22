@@ -11,6 +11,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -42,15 +43,16 @@ type Config struct {
 
 // Agent ties the Trust Kernel around a provider and tool executor.
 type Agent struct {
-	prov      provider.Provider
-	bud       *budget.Kernel
-	govLimits governor.Limits
-	led       *ledger.Ledger
-	exec      tools.Executor
-	cfg       Config
-	obs       Observer
-	hist      *history.Manager
-	messages  []provider.Message // persists across Run calls (the session transcript)
+	prov         provider.Provider
+	bud          *budget.Kernel
+	govLimits    governor.Limits
+	led          *ledger.Ledger
+	exec         tools.Executor
+	cfg          Config
+	obs          Observer
+	hist         *history.Manager
+	messages     []provider.Message // persists across Run calls (the session transcript)
+	ledgerWarned bool               // emit at most one warning if audit writes fail
 }
 
 // New builds an Agent. EstInputTokens/EstOutputTokens default to conservative
@@ -78,8 +80,14 @@ func (a *Agent) Usage() budget.Usage { return a.bud.Usage() }
 // Limits returns the budget limits.
 func (a *Agent) Limits() budget.Limits { return a.bud.Limits() }
 
-// Reset clears the conversation transcript (the budget is preserved).
-func (a *Agent) Reset() { a.messages = nil }
+// Reset clears the conversation transcript and any recoverable compaction
+// snapshot (the budget is preserved).
+func (a *Agent) Reset() {
+	a.messages = nil
+	if a.hist != nil {
+		a.hist.Reset()
+	}
+}
 
 // ContextStats returns the current estimated token size of the transcript and
 // how many times it has been compacted.
@@ -108,6 +116,7 @@ const (
 	StopCompleted = "completed"
 	StopBudget    = "budget"
 	StopError     = "error"
+	StopCancelled = "cancelled"
 )
 
 // Outcome is the structured result of a run.
@@ -146,7 +155,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		if a.hist != nil {
 			if compacted, did, info := a.hist.MaybeCompact(a.messages); did {
 				a.messages = compacted
-				a.led.Append(ledger.Entry{Turn: turn, Event: ledger.EventInfo, Detail: "context compacted: " + info})
+				a.rec(ledger.Entry{Turn: turn, Event: ledger.EventInfo, Detail: "context compacted: " + info})
 				a.emit(Event{Kind: "context", Turn: turn, Detail: info})
 			}
 		}
@@ -168,7 +177,22 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 
 		resp, err := a.prov.Complete(ctx, req)
 		if err != nil {
-			a.logf(turn, ledger.EventInfo, "provider error: "+err.Error())
+			// Roll back a dangling fresh user prompt so a later task in the same
+			// session can't produce two consecutive user messages.
+			if n := len(a.messages); n > 0 && a.messages[n-1].Role == "user" && a.messages[n-1].Text != "" && len(a.messages[n-1].ToolResults) == 0 {
+				a.messages = a.messages[:n-1]
+			}
+			if ctx.Err() != nil {
+				// A wall-clock deadline mid-turn is a structured governor halt;
+				// an external cancellation (SIGINT) is a structured "cancelled".
+				if a.cfg.MaxWallClock > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					return a.halted(governor.HaltReason{Code: "max_wallclock", Detail: "wall-clock limit exceeded mid-turn", Turn: turn}), nil
+				}
+				a.rec(ledger.Entry{Turn: turn, Event: ledger.EventHalt, Detail: "cancelled"})
+				a.emit(Event{Kind: "halt", Turn: turn, Detail: "cancelled"})
+				return Outcome{Stop: StopCancelled, Reason: "interrupted", Turns: turn, Usage: a.bud.Usage()}, nil
+			}
+			a.rec(ledger.Entry{Turn: turn, Event: ledger.EventInfo, Detail: "provider error: " + err.Error()})
 			return Outcome{Stop: StopError, Reason: err.Error(), Turns: turn, Usage: a.bud.Usage()}, err
 		}
 
@@ -176,7 +200,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		// turn that blew the pre-flight estimate; halts before the next turn.
 		capErr := a.bud.Record(a.cfg.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
 		price, _ := pricing.Lookup(a.cfg.Model)
-		a.led.Append(ledger.Entry{
+		a.rec(ledger.Entry{
 			Turn: turn, Event: ledger.EventTurn, Model: a.cfg.Model,
 			InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens,
 			USD:    price.CostUSD(resp.Usage.InputTokens, resp.Usage.OutputTokens),
@@ -215,9 +239,15 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			}
 			a.emit(Event{Kind: "tool_call", Turn: turn, Tool: call.Name, Detail: argSummary(call.Args)})
 			res := a.exec.Execute(ctx, call.Name, call.Args)
-			a.led.Append(ledger.Entry{
+			// Record an attributable target (path or truncated command) — but
+			// never file contents or old_string (which could carry secrets).
+			target := call.Args["file"]
+			if target == "" {
+				target = truncate(call.Args["command"], 80)
+			}
+			a.rec(ledger.Entry{
 				Turn: turn, Event: ledger.EventTool,
-				Detail: fmt.Sprintf("%s success=%t", call.Name, res.Success),
+				Detail: fmt.Sprintf("%s success=%t %s", call.Name, res.Success, target),
 			})
 			a.emit(Event{Kind: "tool_result", Turn: turn, Tool: call.Name, OK: res.Success, Detail: truncate(res.Output, 100)})
 			// Any successful tool call (not just an edit) counts as progress, so
@@ -256,20 +286,29 @@ func (a *Agent) emit(e Event) {
 	}
 }
 
+// rec appends to the audit ledger, surfacing (once) a warning if the write
+// fails so a broken audit trail is never silently ignored.
+func (a *Agent) rec(e ledger.Entry) {
+	if err := a.led.Append(e); err != nil && !a.ledgerWarned {
+		a.ledgerWarned = true
+		a.emit(Event{Kind: "warn", Detail: "audit ledger write failed: " + err.Error()})
+	}
+}
+
 func (a *Agent) halted(h governor.HaltReason) Outcome {
-	a.led.Append(ledger.Entry{Turn: h.Turn, Event: ledger.EventHalt, Detail: h.Code + ": " + h.Detail})
+	a.rec(ledger.Entry{Turn: h.Turn, Event: ledger.EventHalt, Detail: h.Code + ": " + h.Detail})
 	a.emit(Event{Kind: "halt", Turn: h.Turn, Detail: h.Code + ": " + h.Detail})
 	return Outcome{Stop: h.Code, Reason: h.Detail, Turns: h.Turn, Usage: a.bud.Usage()}
 }
 
 func (a *Agent) budgetHalt(err error, turn int) Outcome {
-	a.led.Append(ledger.Entry{Turn: turn, Event: ledger.EventHalt, Detail: "budget: " + err.Error()})
+	a.rec(ledger.Entry{Turn: turn, Event: ledger.EventHalt, Detail: "budget: " + err.Error()})
 	a.emit(Event{Kind: "budget", Turn: turn, Detail: err.Error()})
 	return Outcome{Stop: StopBudget, Reason: err.Error(), Turns: turn, Usage: a.bud.Usage()}
 }
 
 func (a *Agent) logf(turn int, event, detail string) {
-	a.led.Append(ledger.Entry{Turn: turn, Event: event, Detail: detail})
+	a.rec(ledger.Entry{Turn: turn, Event: event, Detail: detail})
 }
 
 // argSummary renders tool args compactly for the activity feed (no big blobs).

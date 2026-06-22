@@ -58,6 +58,13 @@ func EstimateTokens(msgs []provider.Message) int {
 // Stats returns the running compaction stats.
 func (m *Manager) Stats() Stats { return m.stats }
 
+// Reset drops the recoverable snapshot and zeroes stats (used on /clear) so a
+// later /recover does not resurrect a cleared task's context.
+func (m *Manager) Reset() {
+	m.lastFull = nil
+	m.stats = Stats{}
+}
+
 // isFreshUser reports whether a message is the start of a new task (a plain
 // user prompt, not an orphan tool_result). These are the only safe cut points.
 func isFreshUser(msg provider.Message) bool {

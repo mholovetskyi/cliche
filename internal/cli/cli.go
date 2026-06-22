@@ -6,6 +6,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"runtime/debug"
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/budget"
@@ -15,6 +16,18 @@ import (
 
 // Version is the build version, overridable via -ldflags.
 var Version = "0.0.1-dev"
+
+// versionString prefers an explicit ldflags Version, then the module version
+// embedded by `go install`, then the dev default.
+func versionString() string {
+	if Version != "0.0.1-dev" {
+		return "cliche " + Version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return "cliche " + bi.Main.Version
+	}
+	return "cliche " + Version
+}
 
 // Main is the entrypoint. It returns a process exit code.
 func Main(args []string, stdout, stderr io.Writer) int {
@@ -28,7 +41,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	case "version", "--version", "-v":
-		fmt.Fprintf(stdout, "cliche %s\n", Version)
+		fmt.Fprintln(stdout, versionString())
 		return 0
 	case "chat":
 		return cmdChat(rest, stdout, stderr)
@@ -82,7 +95,8 @@ CHAT/RUN/EXEC FLAGS:
   --allow-run         Permit shell commands without asking.
   --yolo              Skip approvals — but NEVER the budget cap or the governor.
   --verify            After completion, re-run tests and report a verdict.
-  --dir <path>        Project root (default ".").
+  --allow-outside-root  Permit file access outside the project root (off by default).
+  --dir <path>        Project root (default "."); file tools are confined to it.
 
 In an interactive 'chat' (a TTY), writes/commands prompt y/N/always unless a
 flag pre-authorizes them. Slash commands: /cost /clear /verify /help /exit.
