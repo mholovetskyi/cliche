@@ -121,20 +121,21 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 }
 
 type session struct {
-	a         *agent.Agent
-	r         *bufio.Reader
-	out       io.Writer
-	dir       string
-	cfg       config.Config
-	verify    bool
-	journal   *tools.EditJournal
-	spin      *spinner // active "thinking" indicator during a model wait (main goroutine only)
-	id        string   // session id for on-disk persistence
-	title     string   // first prompt, used as the session title
-	created   time.Time
-	resumed   int       // messages restored from a resumed session (0 if fresh)
-	streaming bool      // currently mid live-streamed assistant block
-	app       *approver // for /mode (mutates the approver's permission mode)
+	a           *agent.Agent
+	r           *bufio.Reader
+	out         io.Writer
+	dir         string
+	cfg         config.Config
+	verify      bool
+	journal     *tools.EditJournal
+	spin        *spinner // active "thinking" indicator during a model wait (main goroutine only)
+	id          string   // session id for on-disk persistence
+	title       string   // first prompt, used as the session title
+	created     time.Time
+	resumed     int       // messages restored from a resumed session (0 if fresh)
+	streaming   bool      // currently mid live-streamed assistant block
+	atLineStart bool      // streamed writer is at the start of a line (needs indent)
+	app         *approver // for /mode (mutates the approver's permission mode)
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -156,23 +157,48 @@ func (s *session) persist() {
 }
 
 // onEvent renders a live activity event, coordinating with the thinking
-// spinner: any event stops the spinner first (so frames never race output),
-// and after tool results the model will think again, so it's restarted.
+// spinner: any event stops the spinner first (so frames never race output). The
+// spinner then narrates the next phase — a tool's execution after a tool_call,
+// the model's thinking after a result — so a long step is never dead silence.
 func (s *session) onEvent(e agent.Event) {
 	if e.Kind == "delta" {
 		s.stopSpin()
 		if !s.streaming {
 			fmt.Fprintln(s.out) // start the assistant block on its own line
 			s.streaming = true
+			s.atLineStart = true
 		}
-		fmt.Fprint(s.out, e.Text)
+		s.writeStreamed(e.Text)
 		return
 	}
 	s.endStream()
 	s.stopSpin()
 	printEvent(s.out, e)
-	if e.Kind == "tool_result" {
-		s.startSpin()
+	switch e.Kind {
+	case "tool_call":
+		s.startSpin(spinLabel(e)) // spin while the tool runs (fills the old silent gap)
+	case "tool_result":
+		s.startSpin("thinking…") // spin while the model reasons about the result
+	}
+}
+
+// writeStreamed prints a chunk of streamed assistant text, indenting each line
+// to align with the activity feed (the deltas used to print flush-left, jumping
+// horizontally away from the indented feed).
+func (s *session) writeStreamed(text string) {
+	for len(text) > 0 {
+		if s.atLineStart {
+			fmt.Fprint(s.out, "  ")
+			s.atLineStart = false
+		}
+		nl := strings.IndexByte(text, '\n')
+		if nl < 0 {
+			fmt.Fprint(s.out, text)
+			return
+		}
+		fmt.Fprint(s.out, text[:nl+1])
+		s.atLineStart = true
+		text = text[nl+1:]
 	}
 }
 
@@ -181,12 +207,31 @@ func (s *session) endStream() {
 	if s.streaming {
 		fmt.Fprintln(s.out)
 		s.streaming = false
+		s.atLineStart = false
 	}
 }
 
-func (s *session) startSpin() {
-	s.spin = newSpinner(s.out, "thinking…")
+func (s *session) startSpin(label string) {
+	s.spin = newSpinner(s.out, label)
 	s.spin.Start()
+}
+
+// spinLabel narrates a tool call as a present-progressive phase for the spinner.
+func spinLabel(e agent.Event) string {
+	gerunds := map[string]string{
+		"read_file": "reading", "write_file": "writing", "edit_file": "editing",
+		"apply_diff": "editing", "run_command": "running", "search_files": "searching",
+		"find_files": "searching", "list_files": "listing", "web_fetch": "fetching",
+		"spawn_subagent": "delegating", "spawn_subagents": "delegating",
+	}
+	g := gerunds[e.Tool]
+	if g == "" {
+		return "working…"
+	}
+	if e.Detail != "" {
+		return g + " " + style.Truncate(e.Detail, 40) + "…"
+	}
+	return g + "…"
 }
 
 func (s *session) stopSpin() {
@@ -243,7 +288,7 @@ func (s *session) loop() int {
 		// current task (gracefully, structured) but leaves the session alive;
 		// Ctrl-C at the idle prompt uses the default behavior (quit).
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		s.startSpin() // shimmer while we wait on the first model response
+		s.startSpin("thinking…") // shimmer while we wait on the first model response
 		o, runErr := s.a.Run(ctx, line)
 		s.stopSpin()
 		s.endStream() // close any open streamed block before the outcome line
