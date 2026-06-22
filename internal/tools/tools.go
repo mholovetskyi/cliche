@@ -79,6 +79,7 @@ type OSExecutor struct {
 	Approve Approver
 	Journal *EditJournal // optional; records mutations for /diff and /undo (nil = off)
 	Rules   Rules        // optional allow/deny rules evaluated before the Policy/approver
+	Egress  Egress       // optional host allowlist for web_fetch (empty = unrestricted)
 }
 
 // preauthorized reports whether an action proceeds without prompting (--yolo or

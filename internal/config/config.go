@@ -51,6 +51,13 @@ type Permissions struct {
 	Deny  []string `json:"deny,omitempty"`
 }
 
+// Egress is the network host allowlist for agent-initiated fetches (web_fetch).
+// Empty means unrestricted (the --allow-web gate still applies); when set, only
+// matching hosts are reachable. Patterns: "api.github.com", "*.github.com", "*".
+type Egress struct {
+	Allow []string `json:"allow,omitempty"`
+}
+
 // ProviderDef defines (or overrides) a model provider, so Cliche can connect to
 // literally any OpenAI-compatible API — a hosted service or a local server
 // (Ollama, LM Studio, vLLM). The key is read from <NAME>_API_KEY in the
@@ -84,6 +91,7 @@ type Config struct {
 	MCP         []MCPServer   `json:"mcp,omitempty"`
 	Providers   []ProviderDef `json:"providers,omitempty"`
 	Permissions Permissions   `json:"permissions,omitempty"`
+	Egress      Egress        `json:"egress,omitempty"`
 }
 
 // Default returns conservative, trust-first defaults.

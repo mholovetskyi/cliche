@@ -6,6 +6,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -13,8 +14,8 @@ import (
 
 // web_fetch lets the agent pull current documentation/pages into context — a
 // baseline coding-CLI tool. It is network egress, so it is permission-gated
-// (--allow-web / approval) and bounded; an egress allowlist (roadmap) will
-// further constrain which hosts it can reach. Pure stdlib (net/http).
+// (--allow-web / approval), constrained by an optional host allowlist (Egress),
+// and bounded. Pure stdlib (net/http).
 
 const maxFetchBytes = 200_000 // cap fetched/extracted text fed back to the model
 
@@ -38,17 +39,26 @@ func (e OSExecutor) permitWeb(url string) bool {
 }
 
 func (e OSExecutor) webFetch(ctx context.Context, args map[string]string) Result {
-	url := strings.TrimSpace(args["url"])
-	if url == "" {
+	target := strings.TrimSpace(args["url"])
+	if target == "" {
 		return Result{Output: "fetch error: no url specified", Success: false}
 	}
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
 		return Result{Output: "fetch error: url must start with http:// or https://", Success: false}
 	}
-	if !e.permitWeb(url) {
-		return Result{Output: "permission denied: web fetch (" + url + ")", Success: false}
+	u, err := url.Parse(target)
+	if err != nil {
+		return Result{Output: "fetch error: invalid url: " + err.Error(), Success: false}
 	}
-	text, err := fetchURL(ctx, url)
+	// Egress allowlist is a hard boundary: it is checked before the --allow-web /
+	// --yolo gate, so a configured allowlist constrains even an unattended run.
+	if !e.Egress.Allowed(u.Hostname()) {
+		return Result{Output: "blocked by egress allowlist: " + u.Hostname() + " is not allowed", Success: false}
+	}
+	if !e.permitWeb(target) {
+		return Result{Output: "permission denied: web fetch (" + target + ")", Success: false}
+	}
+	text, err := fetchURL(ctx, target)
 	if err != nil {
 		return Result{Output: "fetch error: " + err.Error(), Success: false}
 	}

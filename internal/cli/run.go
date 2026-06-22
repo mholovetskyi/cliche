@@ -213,6 +213,7 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		Approve: approve,
 		Journal: journal,
 		Rules:   rules,
+		Egress:  tools.ParseEgress(cfg.Egress.Allow),
 	}
 
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)
