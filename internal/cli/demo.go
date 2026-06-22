@@ -42,16 +42,15 @@ func cmdDemo(out io.Writer) int {
 	return 0
 }
 
-func newDemoAgent(dir, name string, prov provider.Provider, gov *governor.Governor, lim budget.Limits, sim tools.SimExecutor) *agent.Agent {
+func newDemoAgent(dir, name string, prov provider.Provider, govLimits governor.Limits, lim budget.Limits, sim tools.SimExecutor) *agent.Agent {
 	led, _ := ledger.Open(filepath.Join(dir, name))
-	return agent.New(prov, budget.New(lim), gov, led, sim, agent.Config{Model: prov.Model()})
+	return agent.New(prov, budget.New(lim), govLimits, led, sim, agent.Config{Model: prov.Model()})
 }
 
 func scenarioHealthy(out io.Writer, dir string) {
 	fmt.Fprintln(out, "[1] Healthy task — the agent finishes cleanly, no false alarms.")
-	gov := governor.New(governor.DefaultLimits())
 	a := newDemoAgent(dir, "healthy", provider.NewMock("claude-sonnet-4-6", provider.NormalScript(), false),
-		gov, budget.Limits{MaxTokens: 1_000_000, MaxUSD: 5}, tools.SimExecutor{})
+		governor.DefaultLimits(), budget.Limits{MaxTokens: 1_000_000, MaxUSD: 5}, tools.SimExecutor{})
 	o, _ := a.Run(context.Background(), "fix the failing test")
 	fmt.Fprintf(out, "    → %s in %d turns, ~$%.4f. No breaker tripped.\n\n", o.Stop, o.Turns, o.Usage.USD)
 }
@@ -59,9 +58,8 @@ func scenarioHealthy(out io.Writer, dir string) {
 func scenarioRunaway(out io.Writer, dir string) {
 	fmt.Fprintln(out, "[2] Runaway loop — the agent re-issues the SAME failing edit forever.")
 	lim := governor.Limits{RepetitionWindow: 8, RepetitionThreshold: 3, MaxTurns: 1000}
-	gov := governor.New(lim)
 	a := newDemoAgent(dir, "runaway", provider.NewMock("claude-sonnet-4-6", provider.RunawayScript(), true),
-		gov, budget.Limits{MaxTokens: 100_000_000, MaxUSD: 1000}, tools.SimExecutor{FailEdits: true})
+		lim, budget.Limits{MaxTokens: 100_000_000, MaxUSD: 1000}, tools.SimExecutor{FailEdits: true})
 	o, _ := a.Run(context.Background(), "apply the patch")
 	fmt.Fprintf(out, "    → HALTED at turn %d: %s\n", o.Turns, o.Reason)
 	fmt.Fprintf(out, "    → spent ~$%.4f (%d tokens) and stopped.\n", o.Usage.USD, o.Usage.TotalTokens())
@@ -72,9 +70,9 @@ func scenarioRunaway(out io.Writer, dir string) {
 
 func scenarioBudget(out io.Writer, dir string) {
 	fmt.Fprintln(out, "[3] Budget blowout — token-heavy turns; the dollar cap is $0.50.")
-	gov := governor.New(governor.Limits{MaxTurns: 1000, RepetitionThreshold: 0, NoProgressTurns: 0})
 	a := newDemoAgent(dir, "budget", provider.NewMock("claude-sonnet-4-6", provider.HeavyScript(), true),
-		gov, budget.Limits{MaxUSD: 0.50, MaxTokens: 100_000_000}, tools.SimExecutor{})
+		governor.Limits{MaxTurns: 1000, RepetitionThreshold: 0, NoProgressTurns: 0},
+		budget.Limits{MaxUSD: 0.50, MaxTokens: 100_000_000}, tools.SimExecutor{})
 	o, _ := a.Run(context.Background(), "refactor everything")
 	fmt.Fprintf(out, "    → HALTED at turn %d: %s\n", o.Turns, o.Reason)
 	fmt.Fprintf(out, "    → preflight passed, but ACTUAL usage crossed the cap and was caught\n")

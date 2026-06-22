@@ -30,6 +30,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "cliche %s\n", Version)
 		return 0
+	case "chat":
+		return cmdChat(rest, stdout, stderr)
 	case "demo":
 		return cmdDemo(stdout)
 	case "cost":
@@ -57,8 +59,10 @@ USAGE:
   cliche <command> [flags]
 
 COMMANDS:
-  run "<prompt>"     Run the agent on a prompt (BYO key via ANTHROPIC_API_KEY).
-                     Multi-turn tool use: read/write files and run commands.
+  chat               Start an interactive agentic session: type a prompt and it
+                     cooks (reads/edits files, runs commands), then ask again.
+                     Live activity, ask-before-acting, session-wide budget.
+  run "<prompt>"     One-shot agent run on a prompt (BYO key, multi-turn tools).
   exec               Headless mode: prompt via -p or stdin, JSON output, clean
                      exit codes. Fails loudly on caps and breakers.
   verify             Independently re-run the project's tests and combine with
@@ -69,19 +73,24 @@ COMMANDS:
   version            Print the version.
   help               Show this help.
 
-RUN/EXEC FLAGS:
+CHAT/RUN/EXEC FLAGS:
   --model <id>        Model id (default from config or claude-sonnet-4-6).
   --max-usd <n>       Estimated dollar cap (hard token cap is also enforced).
   --max-tokens <n>    Hard token cap.
-  --max-turns <n>     Governor turn limit.
-  --allow-write       Permit file writes (off by default).
-  --allow-run         Permit shell commands (off by default).
+  --max-turns <n>     Governor turn limit (run/exec).
+  --allow-write       Permit file writes without asking.
+  --allow-run         Permit shell commands without asking.
   --yolo              Skip approvals — but NEVER the budget cap or the governor.
+  --verify            After completion, re-run tests and report a verdict.
   --dir <path>        Project root (default ".").
 
+In an interactive 'chat' (a TTY), writes/commands prompt y/N/always unless a
+flag pre-authorizes them. Slash commands: /cost /clear /verify /help /exit.
+
 EXAMPLES:
+  cliche chat
   cliche demo
-  cliche run --max-usd 0.50 --allow-write "fix the failing test in ./api"
+  cliche run --max-usd 0.50 --allow-write --verify "fix the failing test in ./api"
   git diff | cliche exec -p "review this change" --max-usd 0.10
   git diff | cliche verify --claim-pass
 `)
@@ -100,7 +109,7 @@ func buildBudget(cfg config.Config, maxUSD float64, maxTokens int) *budget.Kerne
 	return budget.New(lim)
 }
 
-func buildGovernor(cfg config.Config, maxTurns int) *governor.Governor {
+func buildGovernorLimits(cfg config.Config, maxTurns int) governor.Limits {
 	g := cfg.Governor
 	lim := governor.Limits{
 		MaxTurns:                  g.MaxTurns,
@@ -113,5 +122,5 @@ func buildGovernor(cfg config.Config, maxTurns int) *governor.Governor {
 	if maxTurns >= 0 {
 		lim.MaxTurns = maxTurns
 	}
-	return governor.New(lim)
+	return lim
 }

@@ -41,16 +41,45 @@ func isEditTool(name string) bool {
 	}
 }
 
-// Policy controls what the OSExecutor is allowed to do.
+// Policy controls what the OSExecutor is allowed to do without asking.
 type Policy struct {
 	AllowWrite bool
 	AllowRun   bool
 	Yolo       bool
 }
 
-// OSExecutor performs real file and command operations under a Policy.
+// Approver is consulted when a Policy does not pre-authorize an action. It
+// returns true to allow. Used for interactive y/N/always prompts. A nil
+// Approver means "deny if not pre-authorized".
+type Approver func(action, detail string) bool
+
+// OSExecutor performs real file and command operations under a Policy, asking
+// the Approver for anything the Policy doesn't already allow.
 type OSExecutor struct {
-	Policy Policy
+	Policy  Policy
+	Approve Approver
+}
+
+// permit decides whether an action ("write" or "run") may proceed. --yolo and
+// the explicit allow flags pre-authorize; otherwise the Approver is asked.
+func (e OSExecutor) permit(action, detail string) bool {
+	if e.Policy.Yolo {
+		return true
+	}
+	switch action {
+	case "write":
+		if e.Policy.AllowWrite {
+			return true
+		}
+	case "run":
+		if e.Policy.AllowRun {
+			return true
+		}
+	}
+	if e.Approve != nil {
+		return e.Approve(action, detail)
+	}
+	return false
 }
 
 // Execute runs a tool call against the real filesystem/shell.
@@ -68,23 +97,43 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		return Result{Output: string(data), Success: true}
 
 	case "write_file":
-		if !(e.Policy.AllowWrite || e.Policy.Yolo) {
-			return Result{Output: "permission denied: writes are not allowed (use --yolo or allow writes)", IsEdit: edit, Success: false}
-		}
 		if strings.TrimSpace(args["file"]) == "" {
 			return Result{Output: "write error: no file specified", IsEdit: edit, Success: false}
+		}
+		if !e.permit("write", "write_file "+args["file"]) {
+			return Result{Output: "permission denied: write to " + args["file"], IsEdit: edit, Success: false}
 		}
 		if err := os.WriteFile(args["file"], []byte(args["content"]), 0o644); err != nil {
 			return Result{Output: "write error: " + err.Error(), IsEdit: edit, Success: false}
 		}
 		return Result{Output: "wrote " + args["file"], IsEdit: edit, Success: true}
 
-	case "run_command":
-		if !(e.Policy.AllowRun || e.Policy.Yolo) {
-			return Result{Output: "permission denied: shell commands are not allowed (use --yolo or allow run)", Success: false}
+	case "edit_file":
+		if strings.TrimSpace(args["file"]) == "" {
+			return Result{Output: "edit error: no file specified", IsEdit: edit, Success: false}
 		}
+		if !e.permit("write", "edit_file "+args["file"]) {
+			return Result{Output: "permission denied: edit " + args["file"], IsEdit: edit, Success: false}
+		}
+		data, err := os.ReadFile(args["file"])
+		if err != nil {
+			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
+		}
+		updated, err := applyEdit(string(data), args["old_string"], args["new_string"], args["replace_all"] == "true")
+		if err != nil {
+			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
+		}
+		if err := os.WriteFile(args["file"], []byte(updated), 0o644); err != nil {
+			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
+		}
+		return Result{Output: "edited " + args["file"], IsEdit: edit, Success: true}
+
+	case "run_command":
 		if strings.TrimSpace(args["command"]) == "" {
 			return Result{Output: "run error: empty command", Success: false}
+		}
+		if !e.permit("run", args["command"]) {
+			return Result{Output: "permission denied: run command", Success: false}
 		}
 		var cmd *exec.Cmd
 		if runtime.GOOS == "windows" {

@@ -21,7 +21,7 @@ import (
 func cmdVerify(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project root")
-	diffPath := fs.String("diff", "", "path to a unified diff to inspect (default: stdin if piped)")
+	diffPath := fs.String("diff", "", "path to a unified diff to inspect, or '-' for stdin (default: stdin if piped)")
 	testCmd := fs.String("test-cmd", "", "override the test command")
 	noTests := fs.Bool("no-tests", false, "skip the test re-run (static checks only)")
 	claimPass := fs.Bool("claim-pass", false, "treat the change as claiming tests pass, and verify that claim")
@@ -30,16 +30,21 @@ func cmdVerify(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 
-	// Load the diff (file, else piped stdin).
+	// Load the diff. "-" or a piped stdin reads from stdin; a path reads a file.
 	diff := ""
-	if *diffPath != "" {
+	switch {
+	case *diffPath == "-":
+		if data, _ := io.ReadAll(os.Stdin); len(data) > 0 {
+			diff = string(data)
+		}
+	case *diffPath != "":
 		data, err := os.ReadFile(*diffPath)
 		if err != nil {
 			fmt.Fprintln(errOut, "verify: "+err.Error())
 			return 1
 		}
 		diff = string(data)
-	} else if stdinIsPiped() {
+	case stdinIsPiped():
 		if data, _ := io.ReadAll(os.Stdin); len(data) > 0 {
 			diff = string(data)
 		}
@@ -96,4 +101,31 @@ func cmdVerify(args []string, out, errOut io.Writer) int {
 		}
 		return 0
 	}
+}
+
+// autoVerify re-runs the project's tests after an agent completes a task and
+// returns a verdict (used by `run`/`exec --verify` and the chat /verify slash
+// command). Progress is written to out; the verdict is recorded to the ledger.
+func autoVerify(out io.Writer, dir string, cfg config.Config) verifier.Verdict {
+	cmd := cfg.Verify.TestCommand
+	if cmd == "" {
+		if c, ok := verifier.DiscoverTestCommand(dir); ok {
+			cmd = c
+		}
+	}
+	if cmd == "" {
+		fmt.Fprintln(out, "  verify: no test command found; skipping")
+		return verifier.Verdict{Status: verifier.StatusUnverified}
+	}
+	fmt.Fprintf(out, "  verify: re-running tests: %s\n", cmd)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	tr := verifier.RunTests(ctx, dir, cmd)
+	cancel()
+	// The agent made no explicit "tests pass" claim here (auto-verify), so a
+	// failing run is reported as tests_failed, not a false-claim.
+	v := verifier.VerifyClaim("", false, tr)
+	if led, err := ledger.Open(config.Dir(dir)); err == nil {
+		_ = led.Append(ledger.Entry{Event: ledger.EventVerdict, Verdict: v.Status, Detail: "auto-verify: " + cmd})
+	}
+	return v
 }

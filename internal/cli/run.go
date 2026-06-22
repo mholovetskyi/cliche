@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/tools"
+	"github.com/mholovetskyi/cliche/internal/verifier"
 )
 
 // runFlags are shared by `run` and `exec`.
@@ -26,6 +28,7 @@ type runFlags struct {
 	allowWrite bool
 	allowRun   bool
 	yolo       bool
+	verify     bool
 	dir        string
 	prompt     string // -p, used by exec
 }
@@ -40,16 +43,19 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.BoolVar(&f.allowWrite, "allow-write", false, "permit file writes")
 	fs.BoolVar(&f.allowRun, "allow-run", false, "permit shell commands")
 	fs.BoolVar(&f.yolo, "yolo", false, "skip approvals (never the budget cap or governor)")
+	fs.BoolVar(&f.verify, "verify", false, "after completion, re-run tests and report a verdict")
 	fs.StringVar(&f.dir, "dir", ".", "project root")
 	fs.StringVar(&f.prompt, "p", "", "prompt (headless)")
 	return f, fs
 }
 
-// buildAgent wires a real (Anthropic) provider through the Trust Kernel.
-func buildAgent(f *runFlags) (*agent.Agent, error) {
+// buildAgent wires a real (Anthropic) provider through the Trust Kernel. The
+// approve callback (may be nil) handles permission prompts for actions the
+// flags don't pre-authorize.
+func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Config, error) {
 	cfg, err := config.Load(f.dir)
 	if err != nil {
-		return nil, err
+		return nil, cfg, err
 	}
 	model := cfg.Model
 	if f.model != "" {
@@ -58,23 +64,24 @@ func buildAgent(f *runFlags) (*agent.Agent, error) {
 
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")
 	if apiKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set — Cliche is BYO-key. Export your key and retry")
+		return nil, cfg, fmt.Errorf("ANTHROPIC_API_KEY is not set — Cliche is BYO-key. Export your key and retry")
 	}
 
 	bud := buildBudget(cfg, f.maxUSD, f.maxTokens)
-	gov := buildGovernor(cfg, f.maxTurns)
+	govLimits := buildGovernorLimits(cfg, f.maxTurns)
 	led, err := ledger.Open(config.Dir(f.dir))
 	if err != nil {
-		return nil, err
+		return nil, cfg, err
 	}
-	exec := tools.OSExecutor{Policy: tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo}}
+	exec := tools.OSExecutor{
+		Policy:  tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo},
+		Approve: approve,
+	}
 
-	maxTok := 4096
-	prov := provider.NewAnthropic(apiKey, model, maxTok)
-
-	sys := "You are Cliche, a careful coding agent. Be concise and honest. Never claim a test passes without evidence."
+	prov := provider.NewAnthropic(apiKey, model, 4096)
+	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence."
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
-	return agent.New(prov, bud, gov, led, exec, agent.Config{System: sys, Model: model, MaxWallClock: wallClock}), nil
+	return agent.New(prov, bud, govLimits, led, exec, agent.Config{System: sys, Model: model, MaxWallClock: wallClock}), cfg, nil
 }
 
 // cmdRun is the human-facing run command.
@@ -92,14 +99,25 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 
-	a, err := buildAgent(f)
+	// In a real terminal, prompt for permission on actions the flags don't
+	// pre-authorize. When stdin is piped (CI/headless), there's no approver.
+	var approve tools.Approver
+	if !stdinIsPiped() {
+		approve = (&approver{r: bufio.NewReader(os.Stdin), out: out}).Approve
+	}
+
+	a, cfg, err := buildAgent(f, approve)
 	if err != nil {
 		fmt.Fprintln(errOut, "run: "+err.Error())
 		return 1
 	}
+	a.SetObserver(func(e agent.Event) { printEvent(out, e) })
 
 	fmt.Fprintln(out, "cliche: trust kernel armed (caps + governor on). Running…")
 	o, runErr := a.Run(context.Background(), prompt)
+	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
+		o.Verdict = autoVerify(out, f.dir, cfg).Status
+	}
 	printOutcome(out, o)
 	if runErr != nil {
 		return 1
@@ -129,13 +147,16 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 
-	a, err := buildAgent(f)
+	a, cfg, err := buildAgent(f, nil) // headless: no interactive approver
 	if err != nil {
 		writeJSON(errOut, map[string]any{"error": err.Error()})
 		return 1
 	}
 
 	o, runErr := a.Run(context.Background(), prompt)
+	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
+		o.Verdict = autoVerify(io.Discard, f.dir, cfg).Status // keep stdout clean JSON
+	}
 	writeJSON(out, o)
 	if runErr != nil {
 		return 1
@@ -150,6 +171,9 @@ func printOutcome(out io.Writer, o agent.Outcome) {
 	}
 	fmt.Fprintf(out, "turns:  %d\n", o.Turns)
 	fmt.Fprintf(out, "usage:  %d tokens, ~$%.4f (estimated)\n", o.Usage.TotalTokens(), o.Usage.USD)
+	if o.Verdict != "" {
+		fmt.Fprintf(out, "verify: %s\n", o.Verdict)
+	}
 }
 
 // stdinIsPiped reports whether stdin is a pipe or redirected file (not a TTY).
@@ -163,6 +187,9 @@ func stdinIsPiped() bool {
 
 // exitCodeFor maps an outcome to a process exit code so CI can branch on it.
 func exitCodeFor(o agent.Outcome) int {
+	if o.Stop == agent.StopCompleted && o.Verdict == verifier.StatusFlagged {
+		return 5 // completed, but auto-verify flagged the result
+	}
 	switch o.Stop {
 	case agent.StopCompleted:
 		return 0

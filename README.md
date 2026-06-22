@@ -62,12 +62,27 @@ runaway loop the Governor halts, a budget blowout caught mid-stream, and a diff
 where the agent deleted a test (flagged). The numbers printed are real program
 output.
 
-**Run the agent on a real task (BYO key):**
+**Cook interactively (AI-first session, BYO key):**
 
 ```sh
 export ANTHROPIC_API_KEY=sk-...
-cliche run --max-usd 0.50 "summarize what this repo does"
+cliche chat
 ```
+
+Type a task and Cliche works it end-to-end — reading, editing (`edit_file`),
+and running commands — streaming each step live, then waits for your next
+message (the conversation and the session-wide budget persist). In a terminal,
+writes and commands prompt `y/N/always` unless you pass `--allow-write` /
+`--allow-run` / `--yolo`. Slash commands: `/cost`, `/clear`, `/verify`,
+`/help`, `/exit`.
+
+**One-shot run (scriptable):**
+
+```sh
+cliche run --max-usd 0.50 --allow-write --verify "fix the failing test in ./api"
+```
+
+`--verify` re-runs your tests after the agent finishes and attaches a verdict.
 
 **Use it headless in CI:**
 
