@@ -16,11 +16,17 @@ import (
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/provider"
+	"github.com/mholovetskyi/cliche/internal/repomap"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/tools"
 	"github.com/mholovetskyi/cliche/internal/verifier"
 )
+
+// repoMapBudget bounds the project map injected into the system prompt (and the
+// default for `cliche map`). It's a few KB so it informs the agent without
+// dominating the context window; the cached system block amortizes the cost.
+const repoMapBudget = 6000
 
 // runFlags are shared by `run` and `exec`.
 type runFlags struct {
@@ -220,6 +226,11 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	}
 
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)
+	// Inject a bounded repo map so the agent starts knowing the project layout
+	// (it lands in the cached system block, so the token cost is largely one-time).
+	if m, err := repomap.Build(f.dir, repoMapBudget); err == nil && m != "" {
+		sys += "\n\nProject map (directories, files, and key Go symbols):\n" + m
+	}
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
 		System:             sys,

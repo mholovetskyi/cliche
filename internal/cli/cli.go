@@ -65,6 +65,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdConfig(rest, stdout, stderr)
 	case "verify":
 		return cmdVerify(rest, stdout, stderr)
+	case "map":
+		return cmdMap(rest, stdout, stderr)
 	case "run":
 		return cmdRun(rest, stdout, stderr)
 	case "exec":
@@ -103,6 +105,8 @@ COMMANDS:
                      exit codes. Fails loudly on caps and breakers.
   verify             Independently re-run the project's tests and combine with
                      reward-hack detectors into a verdict (verified/flagged).
+  map                Print the project repo map (the structural overview the
+                     agent starts with): --dir <path>, --full to skip the bound.
   demo               Run the Trust Kernel offline against four scenarios
                      (healthy task, runaway loop, budget blowout, reward-hack).
   cost               Summarize the cost ledger for this project.
