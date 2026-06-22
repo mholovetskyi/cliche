@@ -29,6 +29,15 @@ type Tool struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
+// Conn is one MCP server connection, independent of transport (stdio or HTTP).
+type Conn interface {
+	Name() string
+	Initialize(ctx context.Context) error
+	ListTools(ctx context.Context) ([]Tool, error)
+	CallTool(ctx context.Context, name string, args json.RawMessage) (string, bool, error)
+	Close() error
+}
+
 type rpcRequest struct {
 	JSONRPC string `json:"jsonrpc"`
 	ID      int    `json:"id"`
@@ -176,6 +185,11 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseToolsResult(res)
+}
+
+// parseToolsResult decodes a tools/list result (shared by both transports).
+func parseToolsResult(res json.RawMessage) ([]Tool, error) {
 	var out struct {
 		Tools []Tool `json:"tools"`
 	}
@@ -185,19 +199,19 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	return out.Tools, nil
 }
 
-// CallTool invokes a tool with the given raw JSON arguments and returns the
-// concatenated text content plus whether the server flagged an error.
-func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage) (string, bool, error) {
+// toolCallParams builds the tools/call params with normalized arguments.
+func toolCallParams(name string, args json.RawMessage) map[string]any {
 	params := map[string]any{"name": name}
 	if len(args) > 0 {
 		params["arguments"] = args
 	} else {
 		params["arguments"] = map[string]any{}
 	}
-	res, err := c.call(ctx, "tools/call", params)
-	if err != nil {
-		return "", false, err
-	}
+	return params
+}
+
+// parseCallResult decodes a tools/call result into concatenated text + isError.
+func parseCallResult(res json.RawMessage) (string, bool, error) {
 	var out struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -217,6 +231,16 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 	return sb.String(), out.IsError, nil
 }
 
+// CallTool invokes a tool with the given raw JSON arguments and returns the
+// concatenated text content plus whether the server flagged an error.
+func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage) (string, bool, error) {
+	res, err := c.call(ctx, "tools/call", toolCallParams(name, args))
+	if err != nil {
+		return "", false, err
+	}
+	return parseCallResult(res)
+}
+
 // Close tears down the transport.
 func (c *Client) Close() error {
 	if c.closer != nil {
@@ -228,14 +252,14 @@ func (c *Client) Close() error {
 // ---- Manager: many servers, namespaced tools ----
 
 type routed struct {
-	client *Client
+	client Conn
 	tool   string
 }
 
 // Manager aggregates several MCP servers and exposes their tools under
 // "mcp__<server>__<tool>" names.
 type Manager struct {
-	clients []*Client
+	clients []Conn
 	tools   []Tool
 	route   map[string]routed
 }
@@ -243,19 +267,19 @@ type Manager struct {
 // NewManager initializes each client (handshake + tools/list) and namespaces
 // their tools. A server that fails to initialize is reported as an error; any
 // already-initialized clients are still returned for cleanup.
-func NewManager(ctx context.Context, clients []*Client) (*Manager, error) {
+func NewManager(ctx context.Context, clients []Conn) (*Manager, error) {
 	m := &Manager{route: map[string]routed{}}
 	for _, c := range clients {
 		m.clients = append(m.clients, c)
 		if err := c.Initialize(ctx); err != nil {
-			return m, fmt.Errorf("initializing mcp server %q: %w", c.name, err)
+			return m, fmt.Errorf("initializing mcp server %q: %w", c.Name(), err)
 		}
 		ts, err := c.ListTools(ctx)
 		if err != nil {
-			return m, fmt.Errorf("listing tools for mcp server %q: %w", c.name, err)
+			return m, fmt.Errorf("listing tools for mcp server %q: %w", c.Name(), err)
 		}
 		for _, t := range ts {
-			ns := "mcp__" + c.name + "__" + t.Name
+			ns := "mcp__" + c.Name() + "__" + t.Name
 			m.tools = append(m.tools, Tool{Name: ns, Description: t.Description, InputSchema: t.InputSchema})
 			m.route[ns] = routed{client: c, tool: t.Name}
 		}

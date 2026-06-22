@@ -59,7 +59,7 @@ func fakeServer() *Client {
 }
 
 func TestManagerListAndCall(t *testing.T) {
-	m, err := NewManager(context.Background(), []*Client{fakeServer()})
+	m, err := NewManager(context.Background(), []Conn{fakeServer()})
 	if err != nil {
 		t.Fatal(err)
 	}

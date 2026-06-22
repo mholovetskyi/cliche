@@ -61,12 +61,14 @@ type ProviderDef struct {
 	DefaultModel string `json:"default_model"` // used when --model is not given
 }
 
-// MCPServer configures one Model Context Protocol server (stdio transport).
+// MCPServer configures one Model Context Protocol server. A server is reached
+// over stdio (a launched Command) or, when URL is set, over Streamable HTTP.
 type MCPServer struct {
 	Name    string   `json:"name"`
-	Command string   `json:"command"`
+	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
 	Env     []string `json:"env,omitempty"`
+	URL     string   `json:"url,omitempty"` // Streamable-HTTP endpoint (overrides Command)
 }
 
 // Config is the full run configuration.
@@ -134,8 +136,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("subagents.max_depth must be >= 0 (got %d)", c.Subagents.MaxDepth)
 	}
 	for i, s := range c.MCP {
-		if s.Name == "" || s.Command == "" {
-			return fmt.Errorf("mcp[%d]: both name and command are required", i)
+		if s.Name == "" {
+			return fmt.Errorf("mcp[%d]: name is required", i)
+		}
+		if s.Command == "" && s.URL == "" {
+			return fmt.Errorf("mcp[%d] (%s): set either command (stdio) or url (HTTP)", i, s.Name)
 		}
 	}
 	for i, p := range c.Providers {
