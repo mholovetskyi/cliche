@@ -20,6 +20,7 @@ type approver struct {
 	out         io.Writer
 	alwaysWrite bool
 	alwaysRun   bool
+	alwaysWeb   bool
 	mode        string // permission mode (mutable via /mode); "" == suggest
 }
 
@@ -38,8 +39,11 @@ func (a *approver) Approve(action, detail string) bool {
 	defer a.mu.Unlock()
 	switch a.mode {
 	case modePlan:
-		fmt.Fprintf(a.out, "  %s plan mode is read-only — %s blocked\n", gl("■", "x"), action)
-		return false
+		// Read-only: block mutations and commands, but allow read-only fetches.
+		if action == "write" || action == "run" {
+			fmt.Fprintf(a.out, "  %s plan mode is read-only — %s blocked\n", gl("■", "x"), action)
+			return false
+		}
 	case modeFull:
 		return true
 	case modeAutoEdit:
@@ -54,6 +58,10 @@ func (a *approver) Approve(action, detail string) bool {
 		}
 	case "run":
 		if a.alwaysRun {
+			return true
+		}
+	case "fetch":
+		if a.alwaysWeb {
 			return true
 		}
 	}
@@ -74,9 +82,12 @@ func (a *approver) Approve(action, detail string) bool {
 	case "y", "yes":
 		return true
 	case "a", "always":
-		if action == "write" {
+		switch action {
+		case "write":
 			a.alwaysWrite = true
-		} else {
+		case "fetch":
+			a.alwaysWeb = true
+		default:
 			a.alwaysRun = true
 		}
 		return true

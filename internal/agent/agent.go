@@ -312,6 +312,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			if target == "" {
 				target = truncate(call.Args["command"], 80)
 			}
+			if target == "" {
+				target = truncate(call.Args["url"], 80)
+			}
 			a.rec(ledger.Entry{
 				Turn: turn, Event: ledger.EventTool,
 				Detail: fmt.Sprintf("%s success=%t %s", call.Name, res.Success, target),
@@ -384,7 +387,7 @@ func (a *Agent) logf(turn int, event, detail string) {
 // argSummary renders tool args compactly for the activity feed (no big blobs).
 func argSummary(args map[string]string) string {
 	var parts []string
-	for _, k := range []string{"file", "command", "old_string"} {
+	for _, k := range []string{"file", "command", "url", "old_string"} {
 		if v, ok := args[k]; ok {
 			parts = append(parts, k+"="+truncate(v, 48))
 		}
@@ -452,6 +455,15 @@ func DefaultToolSpecs() []provider.ToolSpec {
 			Schema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{"path": strProp("directory to list (default: project root)")},
+			},
+		},
+		{
+			Name:        "web_fetch",
+			Description: "Fetch a URL and return its text (HTML is reduced to readable text). Use to pull current docs/specs into context. Network access is permission-gated.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"url": strProp("the http(s) URL to fetch")},
+				"required":   []string{"url"},
 			},
 		},
 		{

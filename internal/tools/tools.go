@@ -63,6 +63,7 @@ type Policy struct {
 	Yolo             bool
 	AllowOutsideRoot bool // permit file access outside the project root (escape hatch)
 	ReadOnly         bool // plan mode: hard-deny all mutations/commands (overrides everything)
+	AllowWeb         bool // pre-authorize web_fetch network egress
 }
 
 // Approver is consulted when a Policy does not pre-authorize an action. It
@@ -208,6 +209,9 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 
 	case "list_files":
 		return e.listFiles(args)
+
+	case "web_fetch":
+		return e.webFetch(ctx, args)
 
 	case "write_file":
 		if strings.TrimSpace(args["file"]) == "" {
