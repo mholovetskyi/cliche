@@ -114,6 +114,9 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	if s.id == "" {
 		s.id = sess.NewID(s.created)
 	}
+	if f.branch {
+		startBranch(out, f.dir, s.id)
+	}
 	return s.loop()
 }
 
@@ -337,11 +340,17 @@ func (s *session) slash(line string) bool {
 		s.switchModel(line)
 	case "/mode":
 		s.setMode(line)
+	case "/commit":
+		subject := strings.TrimSpace(strings.TrimPrefix(line, "/commit"))
+		if subject == "" {
+			subject = s.title
+		}
+		commitChanges(s.out, s.dir, subject, s.a.Model(), s.a.Usage().USD)
 	case "/help":
 		fmt.Fprintln(s.out, "  /cost — spend so far    /context — context usage   /verify — re-run tests")
 		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /model — show/switch model")
-		fmt.Fprintln(s.out, "  /mode — permission mode /recover — undo compaction  /clear — reset context")
-		fmt.Fprintln(s.out, "  /exit — quit")
+		fmt.Fprintln(s.out, "  /mode — permission mode /commit — git commit       /recover — undo compaction")
+		fmt.Fprintln(s.out, "  /clear — reset context  /exit — quit")
 	default:
 		fmt.Fprintf(s.out, "  unknown command (try /help)\n")
 	}

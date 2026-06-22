@@ -42,6 +42,8 @@ type runFlags struct {
 	resume           string // chat: resume this session id
 	cont             bool   // chat: --continue the most recent session
 	mode             string // permission mode: plan | suggest | auto-edit | full
+	branch           bool   // work on a fresh git branch
+	commit           bool   // commit changes after a successful run
 }
 
 func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
@@ -65,6 +67,8 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.StringVar(&f.resume, "resume", "", "chat: resume a saved session by id")
 	fs.BoolVar(&f.cont, "continue", false, "chat: resume the most recent session")
 	fs.StringVar(&f.mode, "mode", "", "permission mode: plan | suggest | auto-edit | full")
+	fs.BoolVar(&f.branch, "branch", false, "work on a fresh git branch (cliche/<id>)")
+	fs.BoolVar(&f.commit, "commit", false, "commit the agent's changes after a successful run")
 	return f, fs
 }
 
@@ -263,12 +267,18 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	fmt.Fprintln(out, gradientWordmark()+style.Gray(fmt.Sprintf("  %s · %s — caps + governor on · Ctrl-C to stop", cfg.Provider, cfg.Model)))
+	if f.branch {
+		startBranch(out, f.dir, "run-"+time.Now().UTC().Format("20060102-150405"))
+	}
 	o, runErr := a.Run(ctx, prompt)
 	if runErr == nil {
 		printChangeSummary(out, journal)
 	}
 	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
 		o.Verdict = autoVerify(out, f.dir, cfg).Status
+	}
+	if runErr == nil && f.commit && o.Stop == agent.StopCompleted {
+		commitChanges(out, f.dir, prompt, cfg.Model, o.Usage.USD)
 	}
 	printOutcome(out, o)
 	if runErr != nil {
