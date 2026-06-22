@@ -33,7 +33,8 @@ func versionString() string {
 // Main is the entrypoint. It returns a process exit code.
 func Main(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
-		usage(stdout)
+		fmt.Fprint(stdout, splash())
+		fmt.Fprintln(stdout, "  "+style.Gray("run `cliche help` for every command and flag."))
 		return 0
 	}
 	cmd, rest := args[1], args[2:]
