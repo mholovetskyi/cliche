@@ -72,9 +72,13 @@ output.
 **Cook interactively (AI-first session, BYO key):**
 
 ```sh
-export ANTHROPIC_API_KEY=sk-...
+cliche auth openrouter            # save your key once (or export *_API_KEY)
 cliche chat
 ```
+
+`cliche auth` stores the key in your per-user config dir (`0600`, never in the
+repo); the matching `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` / `OPENAI_API_KEY`
+environment variable still overrides it when set.
 
 Bring any model — Cliche is provider-neutral and **auto-detects the backend**
 from whichever key you export (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or
