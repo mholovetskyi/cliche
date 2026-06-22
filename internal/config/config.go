@@ -43,6 +43,16 @@ type Subagents struct {
 	MaxDepth int `json:"max_depth"` // 0 disables subagents
 }
 
+// ProviderDef defines (or overrides) a model provider, so Cliche can connect to
+// literally any OpenAI-compatible API — a hosted service or a local server
+// (Ollama, LM Studio, vLLM). The key is read from <NAME>_API_KEY in the
+// environment, or saved with `cliche auth <name>`.
+type ProviderDef struct {
+	Name         string `json:"name"`
+	BaseURL      string `json:"base_url"`      // OpenAI-compatible chat-completions endpoint
+	DefaultModel string `json:"default_model"` // used when --model is not given
+}
+
 // MCPServer configures one Model Context Protocol server (stdio transport).
 type MCPServer struct {
 	Name    string   `json:"name"`
@@ -53,15 +63,16 @@ type MCPServer struct {
 
 // Config is the full run configuration.
 type Config struct {
-	Model     string      `json:"model"`
-	Provider  string      `json:"provider"` // anthropic | openrouter | openai
-	BaseURL   string      `json:"base_url"` // override the provider's API endpoint
-	Budget    Budget      `json:"budget"`
-	Governor  Governor    `json:"governor"`
-	Verify    Verify      `json:"verify"`
-	Context   Context     `json:"context"`
-	Subagents Subagents   `json:"subagents"`
-	MCP       []MCPServer `json:"mcp,omitempty"`
+	Model     string        `json:"model"`
+	Provider  string        `json:"provider"` // anthropic | openrouter | openai
+	BaseURL   string        `json:"base_url"` // override the provider's API endpoint
+	Budget    Budget        `json:"budget"`
+	Governor  Governor      `json:"governor"`
+	Verify    Verify        `json:"verify"`
+	Context   Context       `json:"context"`
+	Subagents Subagents     `json:"subagents"`
+	MCP       []MCPServer   `json:"mcp,omitempty"`
+	Providers []ProviderDef `json:"providers,omitempty"`
 }
 
 // Default returns conservative, trust-first defaults.
@@ -113,14 +124,14 @@ func (c Config) Validate() error {
 	case c.Subagents.MaxDepth < 0:
 		return fmt.Errorf("subagents.max_depth must be >= 0 (got %d)", c.Subagents.MaxDepth)
 	}
-	switch c.Provider {
-	case "", "anthropic", "openrouter", "openai":
-	default:
-		return fmt.Errorf("provider must be one of anthropic|openrouter|openai (got %q)", c.Provider)
-	}
 	for i, s := range c.MCP {
 		if s.Name == "" || s.Command == "" {
 			return fmt.Errorf("mcp[%d]: both name and command are required", i)
+		}
+	}
+	for i, p := range c.Providers {
+		if p.Name == "" || p.BaseURL == "" {
+			return fmt.Errorf("providers[%d]: both name and base_url are required", i)
 		}
 	}
 	return nil

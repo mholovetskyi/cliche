@@ -83,6 +83,22 @@ func TestAllowOutsideRootEscapeHatch(t *testing.T) {
 	}
 }
 
+func TestWriteFileCreatesParentDirs(t *testing.T) {
+	root := t.TempDir()
+	e := OSExecutor{Root: root, Policy: Policy{Yolo: true}}
+	// A path into folders that don't exist yet must succeed (scaffolding).
+	r := e.Execute(context.Background(), "write_file", map[string]string{
+		"file": "pkg/sub/deep/file.txt", "content": "hi",
+	})
+	if !r.Success {
+		t.Fatalf("write into a new folder tree should succeed: %s", r.Output)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "pkg", "sub", "deep", "file.txt"))
+	if err != nil || string(got) != "hi" {
+		t.Fatalf("file not created in new dirs: %v %q", err, got)
+	}
+}
+
 type spyApprover struct {
 	calls      int
 	allow      bool

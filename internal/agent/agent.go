@@ -434,7 +434,7 @@ func DefaultToolSpecs() []provider.ToolSpec {
 		},
 		{
 			Name:        "write_file",
-			Description: "Write (overwrite) a whole file. Use for new files; prefer edit_file for changes.",
+			Description: "Write (overwrite) a whole file, creating any parent directories as needed (so you can scaffold new folders). Use for new files; prefer edit_file for changes.",
 			Schema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

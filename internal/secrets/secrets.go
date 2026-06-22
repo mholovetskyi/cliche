@@ -16,26 +16,16 @@ import (
 	"strings"
 )
 
-// envVars maps a provider to the environment variable holding its key.
-var envVars = map[string]string{
-	"anthropic":  "ANTHROPIC_API_KEY",
-	"openrouter": "OPENROUTER_API_KEY",
-	"openai":     "OPENAI_API_KEY",
-}
-
-// EnvVar returns the environment variable name for a provider's key ("" for an
-// unknown provider). An empty provider is treated as the Anthropic default.
+// EnvVar returns the environment variable holding a provider's key, by the
+// universal convention <PROVIDER>_API_KEY (e.g. groq → GROQ_API_KEY). This lets
+// any provider — built-in or user-defined — resolve a key from the environment
+// without a hardcoded table. An empty provider is treated as Anthropic.
 func EnvVar(provider string) string {
 	if provider == "" {
 		provider = "anthropic"
 	}
-	return envVars[provider]
-}
-
-// Known reports whether provider is a recognized backend.
-func Known(provider string) bool {
-	_, ok := envVars[provider]
-	return ok
+	up := strings.ToUpper(strings.ReplaceAll(provider, "-", "_"))
+	return up + "_API_KEY"
 }
 
 // baseDir is the per-user config directory for cliche. CLICHE_CONFIG_HOME

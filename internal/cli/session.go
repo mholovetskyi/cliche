@@ -70,7 +70,7 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 
 	// Seamless first run: if no provider key is configured yet, drop straight
 	// into the setup wizard instead of erroring out.
-	if f.provider == "" && firstProviderWithKey() == "" {
+	if cfg, _ := config.Load(f.dir); f.provider == "" && firstProviderWithKey(cfg) == "" {
 		if code := runLogin(reader, out); code != 0 {
 			return code
 		}

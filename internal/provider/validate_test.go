@@ -24,20 +24,21 @@ func TestValidateKey(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 
-	if err := ValidateKey(ctx, "openrouter", "k", srv.URL+"/ok/chat/completions"); err != nil {
+	// A generic OpenAI-compatible provider (e.g. groq) validates against /models.
+	if err := ValidateKey(ctx, "groq", "k", srv.URL+"/ok/chat/completions"); err != nil {
 		t.Fatalf("2xx should validate: %v", err)
 	}
 	if gotAuth != "Bearer k" {
 		t.Fatalf("bearer auth header not sent, got %q", gotAuth)
 	}
-	if err := ValidateKey(ctx, "openrouter", "k", srv.URL+"/bad/chat/completions"); !errors.Is(err, ErrUnauthorized) {
+	if err := ValidateKey(ctx, "groq", "k", srv.URL+"/bad/chat/completions"); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("401 should be ErrUnauthorized, got %v", err)
 	}
-	if err := ValidateKey(ctx, "openrouter", "k", srv.URL+"/err/chat/completions"); err == nil || errors.Is(err, ErrUnauthorized) {
+	if err := ValidateKey(ctx, "groq", "k", srv.URL+"/err/chat/completions"); err == nil || errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("500 should be a non-auth error, got %v", err)
 	}
-	if err := ValidateKey(ctx, "bogus", "k", ""); err == nil {
-		t.Fatal("unknown provider should error")
+	if err := ValidateKey(ctx, "customthing", "k", ""); err == nil {
+		t.Fatal("a non-built-in provider with no base URL should error")
 	}
 }
 

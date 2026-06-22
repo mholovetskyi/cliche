@@ -37,8 +37,8 @@ func cmdAuth(args []string, out, errOut io.Writer) int {
 		printAuthStatus(out)
 		return 0
 	}
-	if !secrets.Known(provider) {
-		fmt.Fprintf(errOut, "auth: unknown provider %q (want anthropic, openrouter, or openai)\n", provider)
+	if !validProviderName(provider) {
+		fmt.Fprintf(errOut, "auth: invalid provider name %q (use letters, digits, '-', '_')\n", provider)
 		return 2
 	}
 
@@ -92,7 +92,7 @@ func readKey(key, fromFile string, errOut io.Writer) (string, int) {
 // never the key itself.
 func printAuthStatus(out io.Writer) {
 	fmt.Fprintln(out, "\n  "+style.BoldWhite("credentials")+style.Gray("  ·  set a key with `cliche auth <provider>`"))
-	for _, p := range supportedProviders {
+	for _, p := range providerOrder {
 		if _, source := secrets.Lookup(p); source != "" {
 			fmt.Fprintf(out, "  %s %s %s\n", style.Red(gl("✔", "+")), style.White(fmt.Sprintf("%-11s", p)), style.Gray("configured ("+source+")"))
 		} else {

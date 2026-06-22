@@ -5,15 +5,18 @@ import (
 	"testing"
 )
 
-func TestEnvVarAndKnown(t *testing.T) {
-	if EnvVar("openrouter") != "OPENROUTER_API_KEY" {
-		t.Fatal("openrouter env var wrong")
+func TestEnvVar(t *testing.T) {
+	cases := map[string]string{
+		"openrouter": "OPENROUTER_API_KEY",
+		"":           "ANTHROPIC_API_KEY", // empty → anthropic
+		"groq":       "GROQ_API_KEY",
+		"deepseek":   "DEEPSEEK_API_KEY",
+		"my-local":   "MY_LOCAL_API_KEY", // dashes become underscores
 	}
-	if EnvVar("") != "ANTHROPIC_API_KEY" {
-		t.Fatal("empty provider should default to anthropic env var")
-	}
-	if Known("nope") || !Known("openai") {
-		t.Fatal("Known() wrong")
+	for in, want := range cases {
+		if got := EnvVar(in); got != want {
+			t.Errorf("EnvVar(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

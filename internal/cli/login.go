@@ -21,13 +21,17 @@ var validateKey = provider.ValidateKey
 
 // loginChoice is one selectable provider in the login wizard.
 type loginChoice struct {
-	key, label, where string
+	key, label, where, baseURL string
 }
 
-var loginChoices = []loginChoice{
-	{"anthropic", "Anthropic", "console.anthropic.com → API keys"},
-	{"openrouter", "OpenRouter", "openrouter.ai/keys · one key, many models"},
-	{"openai", "OpenAI", "platform.openai.com/api-keys"},
+// loginChoices builds the wizard's provider menu from the built-in registry.
+func loginChoices() []loginChoice {
+	cs := make([]loginChoice, 0, len(providerOrder))
+	for _, name := range providerOrder {
+		info := builtinProviders[name]
+		cs = append(cs, loginChoice{key: name, label: info.label, where: info.keysURL, baseURL: info.baseURL})
+	}
+	return cs
 }
 
 // cmdLogin runs the interactive setup wizard. In a non-interactive context it
@@ -47,20 +51,22 @@ func runLogin(r *bufio.Reader, out io.Writer) int {
 	fmt.Fprintln(out, "\n  "+gradientWordmark()+style.Gray("  let's connect a model provider"))
 	fmt.Fprintln(out, "  "+style.Gray("Cliche is BYO-key — your key is stored locally (0600), never sent anywhere but the provider.\n"))
 
-	for i, c := range loginChoices {
+	choices := loginChoices()
+	for i, c := range choices {
 		mark := " "
 		if _, src := secrets.Lookup(c.key); src != "" {
 			mark = gl("✓", "*")
 		}
 		fmt.Fprintf(out, "    %s %d) %s  %s\n", style.Red(mark), i+1, style.White(c.label), style.Gray(c.where))
 	}
+	fmt.Fprintln(out, "    "+style.Gray("  (any other OpenAI-compatible API — incl. local Ollama/LM Studio — goes under `providers` in .cliche/config.json)"))
 
-	choice, ok := readChoice(r, out)
+	choice, ok := readChoice(r, out, choices)
 	if !ok {
 		fmt.Fprintln(out, "  cancelled.")
 		return 1
 	}
-	c := loginChoices[choice]
+	c := choices[choice]
 
 	for attempt := 0; attempt < 3; attempt++ {
 		key, err := readSecret(out, r, fmt.Sprintf("\n  paste your %s API key (hidden): ", c.label))
@@ -70,7 +76,7 @@ func runLogin(r *bufio.Reader, out io.Writer) int {
 		}
 		fmt.Fprint(out, "  checking… ")
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-		verr := validateKey(ctx, c.key, key, "")
+		verr := validateKey(ctx, c.key, key, c.baseURL)
 		cancel()
 
 		switch {
@@ -109,18 +115,18 @@ func saveAndFinish(out io.Writer, c loginChoice, key string, verified bool) int 
 
 // readChoice reads a provider selection (a number 1-N or a provider name),
 // re-prompting on invalid input.
-func readChoice(r *bufio.Reader, out io.Writer) (int, bool) {
+func readChoice(r *bufio.Reader, out io.Writer, choices []loginChoice) (int, bool) {
 	for tries := 0; tries < 3; tries++ {
-		fmt.Fprintf(out, "\n  choose a provider [1-%d]: ", len(loginChoices))
+		fmt.Fprintf(out, "\n  choose a provider [1-%d]: ", len(choices))
 		line, err := r.ReadString('\n')
 		if err != nil && line == "" {
 			return 0, false
 		}
 		s := strings.ToLower(strings.TrimSpace(line))
-		if n, perr := strconv.Atoi(s); perr == nil && n >= 1 && n <= len(loginChoices) {
+		if n, perr := strconv.Atoi(s); perr == nil && n >= 1 && n <= len(choices) {
 			return n - 1, true
 		}
-		for i, c := range loginChoices {
+		for i, c := range choices {
 			if s == c.key {
 				return i, true
 			}

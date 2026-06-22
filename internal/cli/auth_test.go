@@ -43,10 +43,15 @@ func TestCmdAuthSaveAndStatus(t *testing.T) {
 		t.Fatalf("status must never print the key:\n%s", s)
 	}
 
-	// Unknown provider is a usage error.
+	// A syntactically-invalid provider name is a usage error.
 	out.Reset()
-	if code := cmdAuth([]string{"bogus", "--key", "x"}, &out, &out); code != 2 {
-		t.Fatalf("unknown provider should exit 2, got %d", code)
+	if code := cmdAuth([]string{"bad name", "--key", "x"}, &out, &out); code != 2 {
+		t.Fatalf("invalid provider name should exit 2, got %d", code)
+	}
+	// But an arbitrary valid name (a custom/config provider) is accepted.
+	out.Reset()
+	if code := cmdAuth([]string{"groq", "--key", "gsk-x"}, &out, &out); code != 0 {
+		t.Fatalf("a valid custom provider name should be accepted, got %d:\n%s", code, out.String())
 	}
 
 	// Removal clears the saved key.

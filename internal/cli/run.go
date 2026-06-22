@@ -60,13 +60,6 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	return f, fs
 }
 
-// supportedProviders is the BYO-key backend list, in the precedence used for
-// auto-detection.
-var supportedProviders = []string{"anthropic", "openrouter", "openai"}
-
-// providerKeyEnv maps a provider to the environment variable holding its key.
-func providerKeyEnv(name string) string { return secrets.EnvVar(name) }
-
 // hasProviderKey reports whether a key for a provider is configured (env var or
 // the saved credentials file).
 func hasProviderKey(name string) bool {
@@ -74,10 +67,10 @@ func hasProviderKey(name string) bool {
 	return key != ""
 }
 
-// firstProviderWithKey returns the first supported provider that has a key set,
-// or "" if none do.
-func firstProviderWithKey() string {
-	for _, p := range supportedProviders {
+// firstProviderWithKey returns the first provider (built-in precedence, then any
+// config-defined) that has a key configured, or "" if none do.
+func firstProviderWithKey(cfg config.Config) string {
+	for _, p := range allProviderNames(cfg) {
 		if hasProviderKey(p) {
 			return p
 		}
@@ -85,85 +78,76 @@ func firstProviderWithKey() string {
 	return ""
 }
 
-// defaultModelFor returns a sensible default model id for a provider — used when
-// the provider is chosen (or auto-detected) but no model was specified, so a
-// non-Anthropic provider doesn't inherit an Anthropic-only model id. The
-// non-Anthropic defaults favor a cheap, tool-capable model that works on a
-// free/low-credit account out of the box; pick a stronger one with --model or
-// in .cliche/config.json once you have credits.
-func defaultModelFor(name string) string {
-	switch name {
-	case "openrouter":
-		return "openai/gpt-4o-mini"
-	case "openai":
-		return "gpt-4o-mini"
-	default:
-		return "claude-sonnet-4-6"
-	}
+// backend is a fully-resolved model target.
+type backend struct {
+	name, model, baseURL string
+	native               bool // Anthropic Messages API vs OpenAI-compatible
 }
 
-// resolveBackend picks the provider and model. Cliche is provider-neutral and
-// BYO-key, so it must not be Anthropic-by-default in practice: when the user
-// hasn't explicitly chosen a provider (no --provider) and the default
-// provider's key is absent, it auto-detects from whichever supported key IS
+// resolveBackend picks the provider, model, and endpoint. Cliche is
+// provider-neutral and BYO-key, so it is not Anthropic-by-default in practice:
+// when the user hasn't chosen a provider (no --provider) and the default
+// provider's key is absent, it auto-detects from whichever configured key IS
 // set. An explicit --provider is always respected (and errors if its key is
-// missing). With no key at all, the error names every option.
-func resolveBackend(cfg config.Config, f *runFlags) (prov, model string, err error) {
-	prov = f.provider
-	explicit := prov != ""
-	if prov == "" {
-		prov = cfg.Provider
+// missing). With no key at all, the error points at `cliche login`.
+func resolveBackend(cfg config.Config, f *runFlags) (backend, error) {
+	name := f.provider
+	explicit := name != ""
+	if name == "" {
+		name = cfg.Provider
 	}
-	if prov == "" {
-		prov = "anthropic"
+	if name == "" {
+		name = "anthropic"
 	}
-
-	// Auto-correct a soft (non-explicit) provider to one we actually have a key
-	// for, so `cliche chat` just works when only OPENROUTER_API_KEY is set.
-	if !explicit && !hasProviderKey(prov) {
-		if alt := firstProviderWithKey(); alt != "" {
-			prov = alt
+	if !explicit && !hasProviderKey(name) {
+		if alt := firstProviderWithKey(cfg); alt != "" {
+			name = alt
 		}
 	}
-	if !hasProviderKey(prov) {
-		return "", "", fmt.Errorf(
-			"no API key configured. Cliche is BYO-key — set one up once with:\n" +
-				"    cliche auth openrouter            (then paste your key, or --from-file <path>)\n" +
-				"  or, for this shell only, export ANTHROPIC_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY.\n" +
-				"  (pass --provider to force a specific backend.)")
+	if !hasProviderKey(name) {
+		return backend{}, fmt.Errorf(
+			"no API key configured for %q. Cliche is BYO-key — set one up once with `cliche login`\n"+
+				"  (or `cliche auth %s`), or export %s for this shell.",
+			name, name, secrets.EnvVar(name))
 	}
 
-	model = f.model
+	info, known := lookupProvider(cfg, name)
+	baseURL := info.baseURL
+	if f.baseURL != "" {
+		baseURL = f.baseURL
+	} else if cfg.BaseURL != "" {
+		baseURL = cfg.BaseURL
+	}
+	if !known && baseURL == "" {
+		return backend{}, fmt.Errorf("unknown provider %q — pass --base-url (any OpenAI-compatible endpoint) or define it under `providers` in .cliche/config.json", name)
+	}
+	if !info.native && baseURL == "" {
+		return backend{}, fmt.Errorf("provider %q has no base URL — pass --base-url or set it in config", name)
+	}
+
+	model := f.model
 	if model == "" {
 		model = cfg.Model
-		// If the model is still the built-in default but the provider isn't
-		// Anthropic, the default id won't exist there — pick the provider's own.
-		if model == "" || (model == config.Default().Model && prov != "anthropic") {
-			model = defaultModelFor(prov)
+		// The built-in config default is an Anthropic id; for any other provider
+		// fall back to that provider's own default model.
+		if model == "" || (model == config.Default().Model && name != "anthropic") {
+			model = info.defaultModel
 		}
 	}
-	return prov, model, nil
+	if model == "" {
+		return backend{}, fmt.Errorf("no model for provider %q — pass --model or set default_model in config", name)
+	}
+	return backend{name: name, model: model, baseURL: baseURL, native: info.native}, nil
 }
 
-// buildProvider constructs the selected, already-resolved backend with the
-// resolved key (BYO-key — from env or the saved credentials file).
-func buildProvider(name, model, key, baseURLOverride string) (provider.Provider, error) {
-	baseURL := func(def string) string {
-		if baseURLOverride != "" {
-			return baseURLOverride
-		}
-		return def
+// buildProvider constructs the resolved backend with its key (from env or the
+// saved credentials file). Anthropic uses the native Messages API; every other
+// provider is OpenAI-compatible at its base URL.
+func buildProvider(b backend, key string) (provider.Provider, error) {
+	if b.native {
+		return provider.NewAnthropic(key, b.model, 4096), nil
 	}
-	switch name {
-	case "", "anthropic":
-		return provider.NewAnthropic(key, model, 4096), nil
-	case "openrouter":
-		return provider.NewOpenAICompat(key, model, baseURL("https://openrouter.ai/api/v1/chat/completions"), 4096), nil
-	case "openai":
-		return provider.NewOpenAICompat(key, model, baseURL("https://api.openai.com/v1/chat/completions"), 4096), nil
-	default:
-		return nil, fmt.Errorf("unknown provider %q (want anthropic|openrouter|openai)", name)
-	}
+	return provider.NewOpenAICompat(key, b.model, b.baseURL, 4096), nil
 }
 
 // buildAgent wires the selected provider through the Trust Kernel. The approve
@@ -178,20 +162,16 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, *tools.EditJ
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, cfg, noop, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
 	}
-	provName, model, err := resolveBackend(cfg, f)
+	b, err := resolveBackend(cfg, f)
 	if err != nil {
 		return nil, nil, cfg, noop, err
 	}
 	// Record the resolved backend so callers (and `verify`) reflect what actually
 	// ran, not the pre-resolution defaults.
-	cfg.Provider, cfg.Model = provName, model
+	cfg.Provider, cfg.Model = b.name, b.model
 
-	baseURLOverride := f.baseURL
-	if baseURLOverride == "" {
-		baseURLOverride = cfg.BaseURL
-	}
-	key, _ := secrets.Lookup(provName) // presence guaranteed by resolveBackend
-	prov, err := buildProvider(provName, model, key, baseURLOverride)
+	key, _ := secrets.Lookup(b.name) // presence guaranteed by resolveBackend
+	prov, err := buildProvider(b, key)
 	if err != nil {
 		return nil, nil, cfg, noop, err
 	}
@@ -214,7 +194,7 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, *tools.EditJ
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
 		System:             sys,
-		Model:              model,
+		Model:              b.model,
 		MaxWallClock:       wallClock,
 		ContextLimitTokens: cfg.Context.LimitTokens,
 		ContextKeepRecent:  cfg.Context.KeepRecent,

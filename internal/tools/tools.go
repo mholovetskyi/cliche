@@ -210,6 +210,13 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if err := validateSyntax(p, args["content"]); err != nil {
 			return Result{Output: "write rejected: " + err.Error(), IsEdit: edit, Success: false}
 		}
+		// Create parent directories so the agent can scaffold new folders (like
+		// Claude Code). The dir is inside the confined root (p resolved above).
+		if dir := filepath.Dir(p); dir != "" {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return Result{Output: "write error: " + err.Error(), IsEdit: edit, Success: false}
+			}
+		}
 		if err := os.WriteFile(p, []byte(args["content"]), 0o644); err != nil {
 			return Result{Output: "write error: " + err.Error(), IsEdit: edit, Success: false}
 		}

@@ -43,10 +43,8 @@ func ValidateKey(ctx context.Context, name, key, baseURLOverride string) error {
 }
 
 func validateRequest(ctx context.Context, name, key, baseURLOverride string) (*http.Request, error) {
-	var url string
-	switch name {
-	case "", "anthropic":
-		url = "https://api.anthropic.com/v1/models"
+	if name == "" || name == "anthropic" {
+		url := "https://api.anthropic.com/v1/models"
 		if baseURLOverride != "" {
 			url = modelsURLFrom(baseURLOverride)
 		}
@@ -57,18 +55,22 @@ func validateRequest(ctx context.Context, name, key, baseURLOverride string) (*h
 		req.Header.Set("x-api-key", key)
 		req.Header.Set("anthropic-version", "2023-06-01")
 		return req, nil
-	case "openrouter":
-		// OpenRouter's /models endpoint is PUBLIC (returns 200 for any key), so it
-		// can't validate a key. /auth/key is authenticated and 401s on a bad key.
-		if baseURLOverride != "" {
-			url = modelsURLFrom(baseURLOverride)
-		} else {
-			url = "https://openrouter.ai/api/v1/auth/key"
-		}
-	case "openai":
-		url = modelsURLFrom(orElse(baseURLOverride, "https://api.openai.com/v1/chat/completions"))
+	}
+
+	// Every other provider is OpenAI-compatible: hit its /models endpoint with a
+	// Bearer token (authenticated → 401s on a bad key).
+	var url string
+	switch {
+	case name == "openrouter":
+		// OpenRouter's /models is PUBLIC (200 for any key); /auth/key is the
+		// authenticated check, so use it regardless of the base URL.
+		url = "https://openrouter.ai/api/v1/auth/key"
+	case baseURLOverride != "":
+		url = modelsURLFrom(baseURLOverride)
+	case name == "openai":
+		url = modelsURLFrom("https://api.openai.com/v1/chat/completions")
 	default:
-		return nil, fmt.Errorf("unknown provider %q", name)
+		return nil, fmt.Errorf("cannot validate provider %q without a base URL", name)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -83,11 +85,4 @@ func validateRequest(ctx context.Context, name, key, baseURLOverride string) (*h
 func modelsURLFrom(chatURL string) string {
 	u := strings.TrimSuffix(chatURL, "/chat/completions")
 	return strings.TrimRight(u, "/") + "/models"
-}
-
-func orElse(s, def string) string {
-	if s != "" {
-		return s
-	}
-	return def
 }

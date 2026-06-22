@@ -18,15 +18,18 @@ func TestResolveBackendAutoDetect(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "")
 		t.Setenv("OPENROUTER_API_KEY", "sk-or-x")
 		t.Setenv("OPENAI_API_KEY", "")
-		prov, model, err := resolveBackend(base, &runFlags{})
+		b, err := resolveBackend(base, &runFlags{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if prov != "openrouter" {
-			t.Fatalf("provider = %q, want openrouter (Cliche must not be Anthropic-by-default)", prov)
+		if b.name != "openrouter" {
+			t.Fatalf("provider = %q, want openrouter (Cliche must not be Anthropic-by-default)", b.name)
 		}
-		if model != "openai/gpt-4o-mini" {
-			t.Fatalf("model = %q, want the openrouter default (not the Anthropic id)", model)
+		if b.model != "openai/gpt-4o-mini" {
+			t.Fatalf("model = %q, want the openrouter default (not the Anthropic id)", b.model)
+		}
+		if b.native || b.baseURL == "" {
+			t.Fatalf("openrouter should be OpenAI-compatible with a base URL, got native=%v base=%q", b.native, b.baseURL)
 		}
 	})
 
@@ -34,9 +37,20 @@ func TestResolveBackendAutoDetect(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
 		t.Setenv("OPENROUTER_API_KEY", "sk-or")
 		t.Setenv("OPENAI_API_KEY", "")
-		prov, model, err := resolveBackend(base, &runFlags{})
-		if err != nil || prov != "anthropic" || model != "claude-sonnet-4-6" {
-			t.Fatalf("got prov=%q model=%q err=%v", prov, model, err)
+		b, err := resolveBackend(base, &runFlags{})
+		if err != nil || b.name != "anthropic" || b.model != "claude-sonnet-4-6" || !b.native {
+			t.Fatalf("got %+v err=%v", b, err)
+		}
+	})
+
+	t.Run("auto-detects a third-party provider (groq)", func(t *testing.T) {
+		t.Setenv("ANTHROPIC_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("GROQ_API_KEY", "gsk-x")
+		b, err := resolveBackend(base, &runFlags{})
+		if err != nil || b.name != "groq" || b.baseURL == "" {
+			t.Fatalf("expected groq auto-detected with a base URL, got %+v err=%v", b, err)
 		}
 	})
 
@@ -44,23 +58,30 @@ func TestResolveBackendAutoDetect(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "")
 		t.Setenv("OPENROUTER_API_KEY", "sk-or")
 		t.Setenv("OPENAI_API_KEY", "")
-		if _, _, err := resolveBackend(base, &runFlags{provider: "anthropic"}); err == nil {
+		if _, err := resolveBackend(base, &runFlags{provider: "anthropic"}); err == nil {
 			t.Fatal("explicit --provider anthropic with no key must error, not silently auto-switch")
 		}
 	})
 
-	t.Run("no key at all errors listing every option", func(t *testing.T) {
+	t.Run("custom provider via --base-url", func(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "")
 		t.Setenv("OPENROUTER_API_KEY", "")
 		t.Setenv("OPENAI_API_KEY", "")
-		_, _, err := resolveBackend(base, &runFlags{})
-		if err == nil {
-			t.Fatal("no keys must error")
+		t.Setenv("LOCAL_API_KEY", "x")
+		b, err := resolveBackend(base, &runFlags{provider: "local", baseURL: "http://localhost:11434/v1/chat/completions", model: "llama3"})
+		if err != nil || b.baseURL != "http://localhost:11434/v1/chat/completions" || b.model != "llama3" || b.native {
+			t.Fatalf("custom provider via --base-url failed: %+v err=%v", b, err)
 		}
-		for _, want := range []string{"ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("error should name %s, got: %v", want, err)
-			}
+	})
+
+	t.Run("no key at all errors with a setup hint", func(t *testing.T) {
+		t.Setenv("ANTHROPIC_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("GROQ_API_KEY", "")
+		_, err := resolveBackend(base, &runFlags{})
+		if err == nil || !strings.Contains(err.Error(), "cliche login") {
+			t.Fatalf("no keys should error pointing at cliche login, got: %v", err)
 		}
 	})
 
@@ -68,8 +89,8 @@ func TestResolveBackendAutoDetect(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "")
 		t.Setenv("OPENROUTER_API_KEY", "sk-or")
 		t.Setenv("OPENAI_API_KEY", "")
-		if _, model, _ := resolveBackend(base, &runFlags{model: "mistralai/mixtral"}); model != "mistralai/mixtral" {
-			t.Fatalf("model = %q, want the explicit override", model)
+		if b, _ := resolveBackend(base, &runFlags{model: "mistralai/mixtral"}); b.model != "mistralai/mixtral" {
+			t.Fatalf("model = %q, want the explicit override", b.model)
 		}
 	})
 }
