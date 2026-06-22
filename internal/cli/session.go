@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/secrets"
+	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/tools"
 )
@@ -83,8 +85,27 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	}
 	defer cleanup()
 
-	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal}
+	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal, created: time.Now()}
 	a.SetObserver(s.onEvent)
+
+	// Resume a saved session if requested (--continue = most recent, --resume <id>).
+	if id := f.resume; id != "" || f.cont {
+		if id == "" {
+			id = sess.Latest(f.dir)
+		}
+		if id == "" {
+			fmt.Fprintln(errOut, "chat: no saved session to resume (try `cliche sessions`).")
+		} else if rec, err := sess.Load(f.dir, id); err != nil {
+			fmt.Fprintln(errOut, "chat: "+err.Error())
+		} else {
+			a.Restore(rec.Messages, rec.Usage)
+			s.id, s.title, s.created = rec.ID, rec.Title, rec.Created
+			s.resumed = len(rec.Messages)
+		}
+	}
+	if s.id == "" {
+		s.id = sess.NewID(s.created)
+	}
 	return s.loop()
 }
 
@@ -97,6 +118,28 @@ type session struct {
 	verify  bool
 	journal *tools.EditJournal
 	spin    *spinner // active "thinking" indicator during a model wait (main goroutine only)
+	id      string   // session id for on-disk persistence
+	title   string   // first prompt, used as the session title
+	created time.Time
+	resumed int // messages restored from a resumed session (0 if fresh)
+}
+
+// persist writes the session transcript to .cliche/sessions/<id>.json. Best
+// effort: a disk error must not kill the live session.
+func (s *session) persist() {
+	if s.id == "" {
+		return
+	}
+	_ = sess.Save(s.dir, sess.Record{
+		ID:       s.id,
+		Title:    s.title,
+		Provider: s.cfg.Provider,
+		Model:    s.a.Model(),
+		Created:  s.created,
+		Updated:  time.Now(),
+		Usage:    s.a.Usage(),
+		Messages: s.a.Transcript(),
+	})
 }
 
 // onEvent renders a live activity event, coordinating with the thinking
@@ -134,12 +177,17 @@ func (s *session) loop() int {
 	if w := keyOverrideWarning(s.cfg.Provider); w != "" {
 		fmt.Fprintln(s.out, "  "+style.Red(gl("⚠", "!"))+" "+style.White(w))
 	}
+	if s.resumed > 0 {
+		u := s.a.Usage()
+		fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("resumed session %s · %d messages · ~$%.4f spent so far", s.id, s.resumed, u.USD)))
+	}
 	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /model · /verify · /context · /clear · /help · /exit"))
 	for {
 		fmt.Fprint(s.out, "\n"+style.Color(gl("❯", ">"), style.Sample(0))+style.Color(gl("❯", ">"), style.Sample(0.5))+style.Color(gl("❯", ">"), style.Sample(1))+" ")
 		line, err := s.r.ReadString('\n')
 		if err != nil { // EOF (Ctrl-D)
 			fmt.Fprintln(s.out)
+			s.persist()
 			return 0
 		}
 		line = strings.TrimSpace(line)
@@ -148,9 +196,13 @@ func (s *session) loop() int {
 		}
 		if strings.HasPrefix(line, "/") {
 			if s.slash(line) {
+				s.persist()
 				return 0
 			}
 			continue
+		}
+		if s.title == "" {
+			s.title = line // first prompt becomes the session title
 		}
 		// Install a SIGINT handler only while a task runs, so Ctrl-C aborts the
 		// current task (gracefully, structured) but leaves the session alive;
@@ -160,6 +212,7 @@ func (s *session) loop() int {
 		o, runErr := s.a.Run(ctx, line)
 		s.stopSpin()
 		stop()
+		s.persist() // save the transcript after every task (incl. halts)
 		if runErr != nil {
 			s.renderError(runErr.Error())
 			continue

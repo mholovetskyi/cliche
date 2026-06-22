@@ -72,6 +72,14 @@ func (k *Kernel) Usage() Usage {
 	return k.usage
 }
 
+// Preload seeds the running tally (used when resuming a persisted session so the
+// session-wide cap accounts for prior spend). It does not bubble to ancestors.
+func (k *Kernel) Preload(u Usage) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.usage = u
+}
+
 // Limits returns the configured limits (immutable).
 func (k *Kernel) Limits() Limits { return k.limits }
 

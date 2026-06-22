@@ -25,8 +25,9 @@ type ToolCall struct {
 	Args map[string]string `json:"args"`
 	// Raw is the model's original tool input JSON, preserved verbatim so the
 	// echoed assistant turn round-trips non-string args (numbers, booleans,
-	// nested objects) without lossy stringification.
-	Raw json.RawMessage `json:"-"`
+	// nested objects) without lossy stringification. Serialized so a persisted
+	// session transcript can resume with byte-faithful tool inputs.
+	Raw json.RawMessage `json:"raw,omitempty"`
 	// Signature is a stable description of the call used by the Governor for
 	// repetition detection. Two semantically-identical calls must share a
 	// signature.

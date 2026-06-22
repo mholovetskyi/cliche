@@ -38,6 +38,8 @@ type runFlags struct {
 	allowMCP         bool
 	dir              string
 	prompt           string // -p, used by exec
+	resume           string // chat: resume this session id
+	cont             bool   // chat: --continue the most recent session
 }
 
 func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
@@ -57,6 +59,8 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.BoolVar(&f.allowMCP, "allow-mcp", false, "permit MCP tool calls without asking")
 	fs.StringVar(&f.dir, "dir", ".", "project root")
 	fs.StringVar(&f.prompt, "p", "", "prompt (headless)")
+	fs.StringVar(&f.resume, "resume", "", "chat: resume a saved session by id")
+	fs.BoolVar(&f.cont, "continue", false, "chat: resume the most recent session")
 	return f, fs
 }
 

@@ -104,6 +104,17 @@ func (a *Agent) SetMCP(m MCP) { a.mcp = m }
 // Usage returns the session-cumulative budget usage.
 func (a *Agent) Usage() budget.Usage { return a.bud.Usage() }
 
+// Transcript returns the current conversation messages (for session persistence).
+func (a *Agent) Transcript() []provider.Message { return a.messages }
+
+// Restore loads a persisted transcript (for `chat --resume`). The budget usage
+// is seeded separately via the kernel so the session-wide cap stays honest
+// across resumes.
+func (a *Agent) Restore(msgs []provider.Message, usage budget.Usage) {
+	a.messages = msgs
+	a.bud.Preload(usage)
+}
+
 // Limits returns the budget limits.
 func (a *Agent) Limits() budget.Limits { return a.bud.Limits() }
 

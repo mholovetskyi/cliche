@@ -9,14 +9,48 @@ import (
 	"strings"
 	"testing"
 
+	"time"
+
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/budget"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/governor"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/provider"
+	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/tools"
 )
+
+func TestSessionPersistsAndResumes(t *testing.T) {
+	dir := t.TempDir()
+	led, _ := ledger.Open(t.TempDir())
+	a := agent.New(
+		provider.NewMock("mock", provider.NormalScript(), false),
+		budget.New(budget.Limits{MaxTokens: 1_000_000}),
+		governor.DefaultLimits(),
+		led, tools.SimExecutor{}, agent.Config{Model: "mock"},
+	)
+	var out bytes.Buffer
+	s := &session{
+		a: a, r: bufio.NewReader(strings.NewReader("fix the bug\n/exit\n")),
+		out: &out, dir: dir, cfg: config.Config{Provider: "mock", Model: "mock"},
+		id: sess.NewID(time.Now()), created: time.Now(),
+	}
+	a.SetObserver(func(agent.Event) {})
+	s.loop()
+
+	metas, err := sess.List(dir)
+	if err != nil || len(metas) != 1 {
+		t.Fatalf("expected 1 persisted session, got %d (err=%v)", len(metas), err)
+	}
+	if metas[0].Title != "fix the bug" {
+		t.Fatalf("session title should be the first prompt, got %q", metas[0].Title)
+	}
+	rec, err := sess.Load(dir, metas[0].ID)
+	if err != nil || len(rec.Messages) == 0 {
+		t.Fatalf("persisted session should carry the transcript: %d msgs, err=%v", len(rec.Messages), err)
+	}
+}
 
 func TestSessionSwitchModel(t *testing.T) {
 	led, _ := ledger.Open(t.TempDir())

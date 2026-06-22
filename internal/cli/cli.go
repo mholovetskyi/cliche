@@ -53,6 +53,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdLogin(rest, stdout, stderr)
 	case "chat":
 		return cmdChat(rest, stdout, stderr)
+	case "sessions":
+		return cmdSessions(rest, stdout, stderr)
 	case "demo":
 		return cmdDemo(stdout)
 	case "cost":
@@ -94,6 +96,8 @@ COMMANDS:
   chat               Start an interactive agentic session: type a prompt and it
                      cooks (reads/edits files, runs commands), then ask again.
                      Live activity, ask-before-acting, session-wide budget.
+                     Resume with --continue or --resume <id>.
+  sessions           List saved chat sessions (resume one with chat --resume).
   run "<prompt>"     One-shot agent run on a prompt (BYO key, multi-turn tools).
   exec               Headless mode: prompt via -p or stdin, JSON output, clean
                      exit codes. Fails loudly on caps and breakers.
