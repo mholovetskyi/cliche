@@ -43,7 +43,7 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	f := &runFlags{}
 	fs.StringVar(&f.model, "model", "", "model id")
-	fs.StringVar(&f.provider, "provider", "", "anthropic | openrouter | openai")
+	fs.StringVar(&f.provider, "provider", "", "anthropic | openrouter | openai (default: auto-detect from your API keys)")
 	fs.StringVar(&f.baseURL, "base-url", "", "override the provider API endpoint")
 	fs.Float64Var(&f.maxUSD, "max-usd", -1, "estimated dollar cap")
 	fs.IntVar(&f.maxTokens, "max-tokens", -1, "hard token cap")
@@ -59,40 +59,111 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	return f, fs
 }
 
-// buildProvider selects the model backend (BYO-key, provider-neutral).
-func buildProvider(cfg config.Config, f *runFlags, model string) (provider.Provider, error) {
-	name := f.provider
-	if name == "" {
-		name = cfg.Provider
+// supportedProviders is the BYO-key backend list, in the precedence used for
+// auto-detection.
+var supportedProviders = []string{"anthropic", "openrouter", "openai"}
+
+// providerKeyEnv maps a provider to the environment variable holding its key.
+func providerKeyEnv(name string) string {
+	switch name {
+	case "", "anthropic":
+		return "ANTHROPIC_API_KEY"
+	case "openrouter":
+		return "OPENROUTER_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
 	}
-	baseURL := func(def string) string {
-		if f.baseURL != "" {
-			return f.baseURL
+	return ""
+}
+
+// hasProviderKey reports whether the key for a provider is present in the env.
+func hasProviderKey(name string) bool {
+	env := providerKeyEnv(name)
+	return env != "" && os.Getenv(env) != ""
+}
+
+// firstProviderWithKey returns the first supported provider that has a key set,
+// or "" if none do.
+func firstProviderWithKey() string {
+	for _, p := range supportedProviders {
+		if hasProviderKey(p) {
+			return p
 		}
-		if cfg.BaseURL != "" {
-			return cfg.BaseURL
+	}
+	return ""
+}
+
+// defaultModelFor returns a sensible default model id for a provider — used when
+// the provider is chosen (or auto-detected) but no model was specified, so a
+// non-Anthropic provider doesn't inherit an Anthropic-only model id.
+func defaultModelFor(name string) string {
+	switch name {
+	case "openrouter":
+		return "anthropic/claude-sonnet-4.6"
+	case "openai":
+		return "gpt-5"
+	default:
+		return "claude-sonnet-4-6"
+	}
+}
+
+// resolveBackend picks the provider and model. Cliche is provider-neutral and
+// BYO-key, so it must not be Anthropic-by-default in practice: when the user
+// hasn't explicitly chosen a provider (no --provider) and the default
+// provider's key is absent, it auto-detects from whichever supported key IS
+// set. An explicit --provider is always respected (and errors if its key is
+// missing). With no key at all, the error names every option.
+func resolveBackend(cfg config.Config, f *runFlags) (prov, model string, err error) {
+	prov = f.provider
+	explicit := prov != ""
+	if prov == "" {
+		prov = cfg.Provider
+	}
+	if prov == "" {
+		prov = "anthropic"
+	}
+
+	// Auto-correct a soft (non-explicit) provider to one we actually have a key
+	// for, so `cliche chat` just works when only OPENROUTER_API_KEY is set.
+	if !explicit && !hasProviderKey(prov) {
+		if alt := firstProviderWithKey(); alt != "" {
+			prov = alt
+		}
+	}
+	if !hasProviderKey(prov) {
+		return "", "", fmt.Errorf(
+			"no API key for provider %q (looked for %s). Cliche is BYO-key — export one of "+
+				"ANTHROPIC_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY, or pass --provider to pick one",
+			prov, providerKeyEnv(prov))
+	}
+
+	model = f.model
+	if model == "" {
+		model = cfg.Model
+		// If the model is still the built-in default but the provider isn't
+		// Anthropic, the default id won't exist there — pick the provider's own.
+		if model == "" || (model == config.Default().Model && prov != "anthropic") {
+			model = defaultModelFor(prov)
+		}
+	}
+	return prov, model, nil
+}
+
+// buildProvider constructs the selected, already-resolved backend (BYO-key).
+func buildProvider(name, model, baseURLOverride string) (provider.Provider, error) {
+	baseURL := func(def string) string {
+		if baseURLOverride != "" {
+			return baseURLOverride
 		}
 		return def
 	}
 	switch name {
 	case "", "anthropic":
-		key := os.Getenv("ANTHROPIC_API_KEY")
-		if key == "" {
-			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set — Cliche is BYO-key. Export your key and retry")
-		}
-		return provider.NewAnthropic(key, model, 4096), nil
+		return provider.NewAnthropic(os.Getenv("ANTHROPIC_API_KEY"), model, 4096), nil
 	case "openrouter":
-		key := os.Getenv("OPENROUTER_API_KEY")
-		if key == "" {
-			return nil, fmt.Errorf("OPENROUTER_API_KEY is not set")
-		}
-		return provider.NewOpenAICompat(key, model, baseURL("https://openrouter.ai/api/v1/chat/completions"), 4096), nil
+		return provider.NewOpenAICompat(os.Getenv("OPENROUTER_API_KEY"), model, baseURL("https://openrouter.ai/api/v1/chat/completions"), 4096), nil
 	case "openai":
-		key := os.Getenv("OPENAI_API_KEY")
-		if key == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY is not set")
-		}
-		return provider.NewOpenAICompat(key, model, baseURL("https://api.openai.com/v1/chat/completions"), 4096), nil
+		return provider.NewOpenAICompat(os.Getenv("OPENAI_API_KEY"), model, baseURL("https://api.openai.com/v1/chat/completions"), 4096), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q (want anthropic|openrouter|openai)", name)
 	}
@@ -110,12 +181,19 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, *tools.EditJ
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, cfg, noop, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
 	}
-	model := cfg.Model
-	if f.model != "" {
-		model = f.model
+	provName, model, err := resolveBackend(cfg, f)
+	if err != nil {
+		return nil, nil, cfg, noop, err
 	}
+	// Record the resolved backend so callers (and `verify`) reflect what actually
+	// ran, not the pre-resolution defaults.
+	cfg.Provider, cfg.Model = provName, model
 
-	prov, err := buildProvider(cfg, f, model)
+	baseURLOverride := f.baseURL
+	if baseURLOverride == "" {
+		baseURLOverride = cfg.BaseURL
+	}
+	prov, err := buildProvider(provName, model, baseURLOverride)
 	if err != nil {
 		return nil, nil, cfg, noop, err
 	}
@@ -185,7 +263,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	fmt.Fprintln(out, wordmark()+style.Gray("  trust kernel armed — caps + governor on · Ctrl-C to stop"))
+	fmt.Fprintln(out, wordmark()+style.Gray(fmt.Sprintf("  %s · %s — caps + governor on · Ctrl-C to stop", cfg.Provider, cfg.Model)))
 	o, runErr := a.Run(ctx, prompt)
 	if runErr == nil {
 		printChangeSummary(out, journal)

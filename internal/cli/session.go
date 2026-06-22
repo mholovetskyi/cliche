@@ -68,6 +68,7 @@ type session struct {
 
 func (s *session) loop() int {
 	fmt.Fprint(s.out, banner())
+	fmt.Fprintln(s.out, "  "+style.Gray(s.cfg.Provider+" · "+s.cfg.Model))
 	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /verify · /context · /clear · /help · /exit"))
 	for {
 		fmt.Fprint(s.out, "\n"+style.Red(gl("›", ">"))+" ")

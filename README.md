@@ -76,10 +76,12 @@ export ANTHROPIC_API_KEY=sk-...
 cliche chat
 ```
 
-Bring any model — `--provider anthropic` (default), `openrouter`, or `openai`,
-with the matching `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` / `OPENAI_API_KEY`.
-The end-to-end agent loop is currently proven against OpenRouter; the native
-Anthropic path shares the same loop and is unit-tested.
+Bring any model — Cliche is provider-neutral and **auto-detects the backend**
+from whichever key you export (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or
+`OPENAI_API_KEY`), so `cliche chat` just works with the key you have. Pin one
+explicitly with `--provider anthropic|openrouter|openai` (`--model` to override
+the model). The end-to-end agent loop is currently proven against OpenRouter;
+the native Anthropic path shares the same loop and is unit-tested.
 
 Type a task and Cliche works it end-to-end — reading, editing (`edit_file`),
 running commands, and delegating isolated subtasks to **budget-scoped
