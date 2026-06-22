@@ -79,7 +79,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		defer cancel()
 	}
 
-	req := provider.Request{System: a.cfg.System, Prompt: prompt, Model: a.cfg.Model}
+	messages := []provider.Message{{Role: "user", Text: prompt}}
 
 	for {
 		turn, halt := a.gov.BeginTurn()
@@ -92,6 +92,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			return a.budgetHalt(err, turn), nil
 		}
 
+		req := provider.Request{System: a.cfg.System, Model: a.cfg.Model, Messages: messages, Tools: DefaultToolSpecs()}
 		// Bound this request's output by the remaining token budget so a single
 		// turn cannot overshoot the hard token cap.
 		if a.bud.Limits().MaxTokens > 0 {
@@ -106,8 +107,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			return Outcome{Stop: StopError, Reason: err.Error(), Turns: turn, Usage: a.bud.Usage()}, err
 		}
 
-		// Gate 2 (mid-stream/post-turn): record ACTUAL usage. Catches a
-		// fat-completion turn that blew the pre-flight estimate.
+		// Gate 2 (post-turn): record ACTUAL usage. Catches a fat-completion
+		// turn that blew the pre-flight estimate; halts before the next turn.
 		capErr := a.bud.Record(a.cfg.Model, resp.Usage.InputTokens, resp.Usage.OutputTokens)
 		price, _ := pricing.Lookup(a.cfg.Model)
 		a.led.Append(ledger.Entry{
@@ -120,7 +121,17 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			return a.budgetHalt(capErr, turn), nil
 		}
 
+		// Record the assistant turn in the transcript.
+		messages = append(messages, provider.Message{Role: "assistant", Text: resp.Text, ToolCalls: resp.ToolCalls})
+
+		// No tool calls => the model produced its final answer.
+		if len(resp.ToolCalls) == 0 {
+			a.logf(turn, ledger.EventInfo, "completed")
+			return Outcome{Stop: StopCompleted, Reason: resp.Text, Turns: turn, Usage: a.bud.Usage()}, nil
+		}
+
 		madeProgress := false
+		results := make([]provider.ToolResult, 0, len(resp.ToolCalls))
 		for _, call := range resp.ToolCalls {
 			if h := a.gov.RecordToolCall(call.Signature); h != nil {
 				return a.halted(*h), nil
@@ -140,17 +151,55 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 					return a.halted(*h), nil
 				}
 			}
-			req.Messages = append(req.Messages, provider.Message{Role: "tool", Content: res.Output})
+			results = append(results, provider.ToolResult{ID: call.ID, Content: res.Output, IsError: !res.Success})
 		}
+
+		// Feed tool results back to the model as the next user turn.
+		messages = append(messages, provider.Message{Role: "user", ToolResults: results})
 
 		if h := a.gov.RecordTurnProgress(madeProgress); h != nil {
 			return a.halted(*h), nil
 		}
+	}
+}
 
-		if resp.Done {
-			a.logf(turn, ledger.EventInfo, "completed")
-			return Outcome{Stop: StopCompleted, Reason: resp.Text, Turns: turn, Usage: a.bud.Usage()}, nil
-		}
+// DefaultToolSpecs are the tools advertised to the model. v0 ships read/write
+// file and a shell command; the executor still gates each behind permissions.
+func DefaultToolSpecs() []provider.ToolSpec {
+	strProp := func(desc string) map[string]any {
+		return map[string]any{"type": "string", "description": desc}
+	}
+	return []provider.ToolSpec{
+		{
+			Name:        "read_file",
+			Description: "Read a UTF-8 text file and return its contents.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"file": strProp("path to the file to read")},
+				"required":   []string{"file"},
+			},
+		},
+		{
+			Name:        "write_file",
+			Description: "Write (overwrite) a file with the given contents.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"file":    strProp("path to the file to write"),
+					"content": strProp("full new contents of the file"),
+				},
+				"required": []string{"file", "content"},
+			},
+		},
+		{
+			Name:        "run_command",
+			Description: "Run a shell command in the project directory and return its output.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"command": strProp("the shell command to run")},
+				"required":   []string{"command"},
+			},
+		},
 	}
 }
 

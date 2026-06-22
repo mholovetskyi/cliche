@@ -28,11 +28,15 @@ unattended without a runaway, a blown budget, or a silently faked result.
 **Table-stakes (adequate, deliberately not excellent yet)**
 - ✅ Graduated permissions; `--yolo` skips approvals but never caps/governor.
 - ✅ `.cliche/config.json` over safe defaults; `AGENTS.md` detection.
-- 🟡 Provider abstraction — Anthropic backend is **single-shot** (no multi-turn
-  tool use yet); offline Mock for tests/demo.
+- ✅ Provider abstraction — Anthropic backend does **multi-turn tool use**
+  (read/write/run, advertised tool schemas, tool_use/tool_result loop); offline
+  Mock for tests/demo.
+- ✅ Verifier independent test re-run (the keystone): `cliche verify` re-runs the
+  project's tests (auto-detected or from `AGENTS.md`), and `verified` is only
+  returned when a real re-run passes. False "tests pass" claims are flagged.
 - ⬜ Reliable diff/edit engine (exact → whitespace-normalized → anchor → fuzzy).
-- ⬜ Verifier independent test re-run (the keystone): re-run the agent's claimed
-  tests, diff reported vs. actual, governed by the Budget Kernel itself.
+  v0 edits via full-file writes; no `apply_diff` tool yet.
+- ⬜ Auto-verify integrated into the `run`/`exec` loop (verify is standalone in v0).
 - ⬜ Context Ledger — bounded, recoverable, never-silent compaction.
 - ⬜ Secrets in OS keychain; signed/reproducible releases (Sigstore + SBOM).
 - ⬜ Network egress denied-by-default with allowlist.

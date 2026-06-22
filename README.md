@@ -13,7 +13,8 @@ Auditable to the token.
 > they're code wrapped around the loop, not a prompt the model can ignore.
 
 This is **v0**: the deterministic core is real, tested, and runnable today. The
-real-model path is intentionally thin (single-shot Anthropic). See
+real-model path does **multi-turn tool use** (read/write files, run commands)
+via Anthropic, and the **Verifier independently re-runs your tests**. See
 [ROADMAP.md](ROADMAP.md) for what's next and [why it exists](docs/landing.md).
 
 ---
@@ -83,6 +84,20 @@ git diff | cliche exec -p "review this change" --max-usd 0.10
 | `2`  | bad usage |
 | `3`  | budget cap reached |
 | `4`  | a governor breaker tripped |
+
+**Independently verify a change (the keystone):**
+
+`verify` re-runs your project's tests itself and combines the result with
+reward-hacking detectors over the diff — so a "tests pass" claim is checked, not
+trusted:
+
+```sh
+git diff | cliche verify --claim-pass
+```
+
+It auto-detects the test command (`go test ./...`, `pytest`, `npm test`,
+`cargo test`) or reads a `## verify` / `test:` line from `AGENTS.md`. Exit
+codes: `0` verified, `5` flagged, `0`/`2` unverified (with `--strict`).
 
 **See where the money went:**
 
@@ -163,10 +178,12 @@ project context — the cross-tool standard.
 - The **token cap is the hard guarantee**; the **dollar cap is an estimate**
   derived from a maintained price table (rounded conservatively, with a high
   unknown-model fallback).
-- The **Verifier catches documented patterns** and honest mistakes. It is
-  **not** a security boundary against an adversary who knows the rules.
-- v0's real-model path is **single-shot** (no multi-turn tool use yet). The
-  deterministic kernel is the part that's complete.
+- The **Verifier catches documented patterns** and honest mistakes, and can
+  independently re-run your tests. It is **not** a security boundary against an
+  adversary who knows the rules.
+- The real-model loop does **multi-turn tool use** with read/write/run tools
+  (gated by permissions). A reliable AST-aware diff/edit engine is roadmapped;
+  v0 edits via full-file writes.
 
 We'd rather state the limits than oversell them. See [SECURITY.md](SECURITY.md).
 

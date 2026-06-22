@@ -34,6 +34,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdDemo(stdout)
 	case "cost":
 		return cmdCost(rest, stdout, stderr)
+	case "verify":
+		return cmdVerify(rest, stdout, stderr)
 	case "run":
 		return cmdRun(rest, stdout, stderr)
 	case "exec":
@@ -56,8 +58,11 @@ USAGE:
 
 COMMANDS:
   run "<prompt>"     Run the agent on a prompt (BYO key via ANTHROPIC_API_KEY).
+                     Multi-turn tool use: read/write files and run commands.
   exec               Headless mode: prompt via -p or stdin, JSON output, clean
                      exit codes. Fails loudly on caps and breakers.
+  verify             Independently re-run the project's tests and combine with
+                     reward-hack detectors into a verdict (verified/flagged).
   demo               Run the Trust Kernel offline against four scenarios
                      (healthy task, runaway loop, budget blowout, reward-hack).
   cost               Summarize the cost ledger for this project.
@@ -76,8 +81,9 @@ RUN/EXEC FLAGS:
 
 EXAMPLES:
   cliche demo
-  cliche run --max-usd 0.50 "fix the failing test in ./api"
+  cliche run --max-usd 0.50 --allow-write "fix the failing test in ./api"
   git diff | cliche exec -p "review this change" --max-usd 0.10
+  git diff | cliche verify --claim-pass
 `)
 }
 

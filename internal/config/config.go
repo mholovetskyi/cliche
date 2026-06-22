@@ -26,11 +26,17 @@ type Governor struct {
 	NoProgressTurns           int `json:"no_progress_turns"`
 }
 
+// Verify configures the Verifier's independent test re-run.
+type Verify struct {
+	TestCommand string `json:"test_command"`
+}
+
 // Config is the full run configuration.
 type Config struct {
 	Model    string   `json:"model"`
 	Budget   Budget   `json:"budget"`
 	Governor Governor `json:"governor"`
+	Verify   Verify   `json:"verify"`
 }
 
 // Default returns conservative, trust-first defaults.
