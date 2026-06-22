@@ -87,7 +87,12 @@ type Summary struct {
 
 // Summarize reads the whole ledger and aggregates it. A missing file is not
 // an error; it yields an empty summary.
-func (l *Ledger) Summarize() (Summary, error) {
+func (l *Ledger) Summarize() (Summary, error) { return l.SummarizeSince(time.Time{}) }
+
+// SummarizeSince aggregates only entries at or after since (a zero time includes
+// everything). Used to scope a report to a single session's time window rather
+// than the whole project history.
+func (l *Ledger) SummarizeSince(since time.Time) (Summary, error) {
 	s := Summary{Verdicts: map[string]int{}}
 	f, err := os.Open(l.path)
 	if err != nil {
@@ -102,6 +107,9 @@ func (l *Ledger) Summarize() (Summary, error) {
 		var e Entry
 		if err := dec.Decode(&e); err != nil {
 			return s, err
+		}
+		if !since.IsZero() && e.Time.Before(since) {
+			continue
 		}
 		s.InputTokens += e.InputTokens
 		s.OutputTokens += e.OutputTokens

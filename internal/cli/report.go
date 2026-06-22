@@ -25,6 +25,7 @@ type reportData struct {
 	Summary  ledger.Summary
 	Stat     string
 	Files    []string
+	Scoped   bool // metrics scoped to one session vs. the whole project ledger
 }
 
 // cmdReport exports the audit ledger (enriched with the latest session and git
@@ -48,14 +49,11 @@ func cmdReport(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "report: "+err.Error())
 		return 1
 	}
-	sum, err := led.Summarize()
-	if err != nil {
-		fmt.Fprintln(errOut, "report: "+err.Error())
-		return 1
-	}
 
-	data := reportData{Summary: sum, Title: *title}
-	// Enrich with the latest (or named) session for the title/provider/model.
+	data := reportData{Title: *title}
+	// Scope the ledger to the session's time window when one is available, so the
+	// report reflects THIS run's cost — not the project's cumulative spend.
+	since := time.Time{}
 	id := *sessionID
 	if id == "" {
 		id = sess.Latest(*dir)
@@ -66,8 +64,16 @@ func cmdReport(args []string, out, errOut io.Writer) int {
 				data.Title = rec.Title
 			}
 			data.Provider, data.Model = rec.Provider, rec.Model
+			since = rec.Created
+			data.Scoped = true
 		}
 	}
+	sum, err := led.SummarizeSince(since)
+	if err != nil {
+		fmt.Fprintln(errOut, "report: "+err.Error())
+		return 1
+	}
+	data.Summary = sum
 	if git.Available() && git.IsRepo(*dir) {
 		data.Stat = git.ShortStat(*dir)
 		data.Files = git.ChangedFiles(*dir, 20)
@@ -114,6 +120,9 @@ func renderReport(d reportData) string {
 	fmt.Fprintf(&b, "| Est. cost | ~$%.4f |\n", d.Summary.USD)
 	if d.Stat != "" {
 		fmt.Fprintf(&b, "| Diff | %s |\n", d.Stat)
+	}
+	if !d.Scoped {
+		b.WriteString("\n_Metrics cover the whole project ledger (no session found to scope this run)._\n")
 	}
 
 	if len(d.Files) > 0 {

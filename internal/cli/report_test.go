@@ -16,10 +16,14 @@ func TestRenderReportContents(t *testing.T) {
 			Turns: 7, InputTokens: 1200, OutputTokens: 340, USD: 0.0123,
 			Verdicts: map[string]int{"verified": 1},
 		},
-		Stat:  "3 files changed, 40 insertions(+), 2 deletions(-)",
-		Files: []string{"parser.go", "parser_test.go"},
+		Stat:   "3 files changed, 40 insertions(+), 2 deletions(-)",
+		Files:  []string{"parser.go", "parser_test.go"},
+		Scoped: true,
 	}
 	md := renderReport(d)
+	if strings.Contains(md, "whole project ledger") {
+		t.Errorf("a session-scoped report must not carry the project-ledger caveat:\n%s", md)
+	}
 
 	for _, want := range []string{
 		"## 🤖 Cliche run report",
@@ -36,6 +40,13 @@ func TestRenderReportContents(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("report missing %q\n---\n%s", want, md)
 		}
+	}
+}
+
+func TestRenderReportUnscopedCaveat(t *testing.T) {
+	md := renderReport(reportData{Summary: ledger.Summary{Turns: 1}}) // Scoped:false
+	if !strings.Contains(md, "whole project ledger") {
+		t.Errorf("an unscoped report should note it covers the whole project ledger:\n%s", md)
 	}
 }
 
