@@ -34,8 +34,12 @@ var table = map[string]Price{
 	// OpenRouter-style model ids (illustrative defaults).
 	"openai/gpt-4o-mini":          {InputPerM: 0.15, OutputPerM: 0.60},
 	"openai/gpt-4o":               {InputPerM: 2.5, OutputPerM: 10},
+	"anthropic/claude-3-haiku":    {InputPerM: 0.25, OutputPerM: 1.25},
 	"anthropic/claude-3.5-haiku":  {InputPerM: 0.80, OutputPerM: 4},
 	"anthropic/claude-3.5-sonnet": {InputPerM: 3, OutputPerM: 15},
+	"anthropic/claude-haiku-4.5":  {InputPerM: 1, OutputPerM: 5},
+	"anthropic/claude-sonnet-4.6": {InputPerM: 3, OutputPerM: 15},
+	"anthropic/claude-opus-4.8":   {InputPerM: 15, OutputPerM: 75},
 	"google/gemini-2.0-flash-001": {InputPerM: 0.10, OutputPerM: 0.40},
 }
 
