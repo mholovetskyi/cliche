@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 )
 
 // approver implements interactive y/N/always permission prompts, reading from
 // a shared bufio.Reader so it coexists with an interactive session's prompt
-// loop (single-threaded). "always" sticks for the rest of the process.
+// loop (single-threaded). "always" sticks for the rest of the process. The
+// mutex serializes prompts when parallel subagents request approval at once.
 type approver struct {
+	mu          sync.Mutex
 	r           *bufio.Reader
 	out         io.Writer
 	alwaysWrite bool
@@ -19,6 +22,8 @@ type approver struct {
 
 // Approve is passed to tools.OSExecutor as its Approver.
 func (a *approver) Approve(action, detail string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	switch action {
 	case "write":
 		if a.alwaysWrite {

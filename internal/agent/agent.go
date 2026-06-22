@@ -11,10 +11,12 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/budget"
@@ -58,6 +60,7 @@ type Agent struct {
 	messages     []provider.Message // persists across Run calls (the session transcript)
 	ledgerWarned bool               // emit at most one warning if audit writes fail
 	depth        int                // subagent nesting depth (0 = top-level)
+	emitMu       *sync.Mutex        // serializes observer output across parallel subagents
 }
 
 // New builds an Agent. EstInputTokens/EstOutputTokens default to conservative
@@ -69,7 +72,7 @@ func New(p provider.Provider, b *budget.Kernel, govLimits governor.Limits, l *le
 	if cfg.EstOutputTokens <= 0 {
 		cfg.EstOutputTokens = 1000
 	}
-	a := &Agent{prov: p, bud: b, govLimits: govLimits, led: l, exec: e, cfg: cfg}
+	a := &Agent{prov: p, bud: b, govLimits: govLimits, led: l, exec: e, cfg: cfg, emitMu: &sync.Mutex{}}
 	if cfg.ContextLimitTokens > 0 {
 		a.hist = history.New(cfg.ContextLimitTokens, cfg.ContextKeepRecent)
 	}
@@ -243,9 +246,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			}
 			a.emit(Event{Kind: "tool_call", Turn: turn, Tool: call.Name, Detail: argSummary(call.Args)})
 			var res tools.Result
-			if call.Name == "spawn_subagent" {
+			switch call.Name {
+			case "spawn_subagent":
 				res = a.spawnSubagent(ctx, call.Args)
-			} else {
+			case "spawn_subagents":
+				res = a.spawnSubagents(ctx, call.Args)
+			default:
 				res = a.exec.Execute(ctx, call.Name, call.Args)
 			}
 			// Record an attributable target (path or truncated command) — but
@@ -290,9 +296,12 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 }
 
 func (a *Agent) emit(e Event) {
-	if a.obs != nil {
-		a.obs(e)
+	if a.obs == nil {
+		return
 	}
+	a.emitMu.Lock()
+	defer a.emitMu.Unlock()
+	a.obs(e)
 }
 
 // rec appends to the audit ledger, surfacing (once) a warning if the write
@@ -398,7 +407,7 @@ func DefaultToolSpecs() []provider.ToolSpec {
 func (a *Agent) toolSpecs() []provider.ToolSpec {
 	specs := DefaultToolSpecs()
 	if a.depth < a.cfg.MaxSubagentDepth {
-		specs = append(specs, spawnSubagentSpec())
+		specs = append(specs, spawnSubagentSpec(), spawnSubagentsSpec())
 	}
 	return specs
 }
@@ -415,6 +424,32 @@ func spawnSubagentSpec() provider.ToolSpec {
 				"max_tokens": map[string]any{"type": "integer", "description": "optional token cap for this subagent"},
 			},
 			"required": []string{"prompt"},
+		},
+	}
+}
+
+func spawnSubagentsSpec() provider.ToolSpec {
+	return provider.ToolSpec{
+		Name:        "spawn_subagents",
+		Description: "Run SEVERAL subagents in PARALLEL, each on its own isolated subtask with a scoped budget. Use for independent work that can proceed concurrently (e.g. investigate three files at once). Returns all summaries together.",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"tasks": map[string]any{
+					"type":        "array",
+					"description": "the subtasks to run concurrently",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"prompt":     map[string]any{"type": "string", "description": "the subtask"},
+							"max_usd":    map[string]any{"type": "number", "description": "optional dollar cap"},
+							"max_tokens": map[string]any{"type": "integer", "description": "optional token cap"},
+						},
+						"required": []string{"prompt"},
+					},
+				},
+			},
+			"required": []string{"tasks"},
 		},
 	}
 }
@@ -454,5 +489,63 @@ func (a *Agent) newChild(sub budget.Limits) *Agent {
 	c := New(a.prov, a.bud.Scoped(sub), a.govLimits, a.led, a.exec, a.cfg)
 	c.depth = a.depth + 1
 	c.obs = a.obs
+	c.emitMu = a.emitMu // share so concurrent siblings serialize their output
 	return c
+}
+
+type subTask struct {
+	Prompt    string  `json:"prompt"`
+	MaxUSD    float64 `json:"max_usd"`
+	MaxTokens int     `json:"max_tokens"`
+}
+
+// maxParallelSubagents bounds fan-out per call (budget/governor still bound spend).
+const maxParallelSubagents = 8
+
+// spawnSubagents runs several subagents CONCURRENTLY, each isolated with its own
+// scoped budget, and returns their combined summaries. Spend from all of them
+// bubbles into (and is bounded by) the shared session budget.
+func (a *Agent) spawnSubagents(ctx context.Context, args map[string]string) tools.Result {
+	if a.depth >= a.cfg.MaxSubagentDepth {
+		return tools.Result{Output: "subagents are not available at this depth", Success: false}
+	}
+	var tasks []subTask
+	if err := json.Unmarshal([]byte(args["tasks"]), &tasks); err != nil {
+		return tools.Result{Output: "spawn error: 'tasks' must be a JSON array of {prompt,...}: " + err.Error(), Success: false}
+	}
+	if len(tasks) == 0 {
+		return tools.Result{Output: "spawn error: no tasks provided", Success: false}
+	}
+	truncated := false
+	if len(tasks) > maxParallelSubagents {
+		tasks = tasks[:maxParallelSubagents]
+		truncated = true
+	}
+
+	results := make([]string, len(tasks))
+	var wg sync.WaitGroup
+	for i, tk := range tasks {
+		if strings.TrimSpace(tk.Prompt) == "" {
+			results[i] = fmt.Sprintf("task %d skipped: empty prompt", i+1)
+			continue
+		}
+		wg.Add(1)
+		go func(i int, tk subTask) {
+			defer wg.Done()
+			child := a.newChild(budget.Limits{MaxTokens: tk.MaxTokens, MaxUSD: tk.MaxUSD})
+			o, err := child.Run(ctx, tk.Prompt)
+			if err != nil {
+				results[i] = fmt.Sprintf("task %d error: %v", i+1, err)
+				return
+			}
+			results[i] = fmt.Sprintf("task %d (%s, ~$%.4f): %s", i+1, o.Stop, o.Usage.USD, truncate(o.Reason, 800))
+		}(i, tk)
+	}
+	wg.Wait()
+
+	out := strings.Join(results, "\n")
+	if truncated {
+		out += fmt.Sprintf("\n(note: only the first %d tasks were run)", maxParallelSubagents)
+	}
+	return tools.Result{Output: out, Success: true}
 }

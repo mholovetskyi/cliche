@@ -18,6 +18,7 @@ package budget
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/mholovetskyi/cliche/internal/pricing"
 )
@@ -50,9 +51,10 @@ var (
 // (tighter) limits AND bubbles every charge up to its parent, so a subagent
 // can never exceed either its own sub-budget or the shared session cap.
 type Kernel struct {
-	limits Limits
-	usage  Usage
+	limits Limits // immutable after construction
 	parent *Kernel
+	mu     sync.Mutex
+	usage  Usage // guarded by mu
 }
 
 // New returns a Budget Kernel with the given limits.
@@ -64,17 +66,24 @@ func New(l Limits) *Kernel { return &Kernel{limits: l} }
 func (k *Kernel) Scoped(l Limits) *Kernel { return &Kernel{limits: l, parent: k} }
 
 // Usage returns the current running tally.
-func (k *Kernel) Usage() Usage { return k.usage }
+func (k *Kernel) Usage() Usage {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.usage
+}
 
-// Limits returns the configured limits.
+// Limits returns the configured limits (immutable).
 func (k *Kernel) Limits() Limits { return k.limits }
 
 // Preflight checks, BEFORE a turn fires, whether an estimated number of
 // input/output tokens for model would breach a cap. It does not mutate usage.
 func (k *Kernel) Preflight(model string, estInputTokens, estOutputTokens int) error {
+	k.mu.Lock()
+	u := k.usage
+	k.mu.Unlock()
 	price, _ := pricing.Lookup(model)
-	projTokens := k.usage.TotalTokens() + estInputTokens + estOutputTokens
-	projUSD := k.usage.USD + price.CostUSD(estInputTokens, estOutputTokens)
+	projTokens := u.TotalTokens() + estInputTokens + estOutputTokens
+	projUSD := u.USD + price.CostUSD(estInputTokens, estOutputTokens)
 	if err := k.check(projTokens, projUSD, "preflight"); err != nil {
 		return err
 	}
@@ -89,16 +98,20 @@ func (k *Kernel) Preflight(model string, estInputTokens, estOutputTokens int) er
 // ancestor kernels so the session cap stays authoritative across subagents.
 func (k *Kernel) Record(model string, inputTokens, outputTokens int) error {
 	price, _ := pricing.Lookup(model)
+	k.mu.Lock()
 	k.usage.InputTokens += inputTokens
 	k.usage.OutputTokens += outputTokens
 	k.usage.USD += price.CostUSD(inputTokens, outputTokens)
+	snap := k.usage
+	k.mu.Unlock()
 	// Always bubble the charge so the root stays authoritative even when this
-	// level's cap trips; the local cap is the more specific error and wins.
+	// level's cap trips; the local cap is the more specific error and wins. Only
+	// one kernel's lock is held at a time, so concurrent subagents can't deadlock.
 	var perr error
 	if k.parent != nil {
 		perr = k.parent.Record(model, inputTokens, outputTokens)
 	}
-	if err := k.check(k.usage.TotalTokens(), k.usage.USD, "recorded"); err != nil {
+	if err := k.check(snap.TotalTokens(), snap.USD, "recorded"); err != nil {
 		return err
 	}
 	return perr
@@ -120,8 +133,11 @@ func (k *Kernel) check(tokens int, usd float64, stage string) error {
 func (k *Kernel) Remaining() (tokens int, usd float64) {
 	tok, dol := -1, -1.0 // -1 == unlimited so far
 	for cur := k; cur != nil; cur = cur.parent {
+		cur.mu.Lock()
+		u := cur.usage
+		cur.mu.Unlock()
 		if cur.limits.MaxTokens > 0 {
-			r := cur.limits.MaxTokens - cur.usage.TotalTokens()
+			r := cur.limits.MaxTokens - u.TotalTokens()
 			if r < 0 {
 				r = 0
 			}
@@ -130,7 +146,7 @@ func (k *Kernel) Remaining() (tokens int, usd float64) {
 			}
 		}
 		if cur.limits.MaxUSD > 0 {
-			r := cur.limits.MaxUSD - cur.usage.USD
+			r := cur.limits.MaxUSD - u.USD
 			if r < 0 {
 				r = 0
 			}

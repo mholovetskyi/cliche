@@ -76,6 +76,46 @@ func TestSubagentDelegationAndBudgetBubbling(t *testing.T) {
 	}
 }
 
+// parallelMock delegates to three concurrent subagents on the parent run.
+type parallelMock struct{}
+
+func (parallelMock) Name() string  { return "parallel" }
+func (parallelMock) Model() string { return "mock" }
+func (parallelMock) Complete(_ context.Context, req provider.Request) (provider.Response, error) {
+	if firstUserText(req.Messages) == "parent" {
+		if hasToolResult(req.Messages) {
+			return provider.Response{Text: "parent finished", Done: true, Usage: provider.Usage{InputTokens: 100, OutputTokens: 20}}, nil
+		}
+		return provider.Response{
+			Text: "fanning out",
+			ToolCalls: []provider.ToolCall{{
+				ID: "p1", Name: "spawn_subagents", Signature: "spawn_subagents:abc",
+				Args: map[string]string{"tasks": `[{"prompt":"a"},{"prompt":"b"},{"prompt":"c"}]`},
+			}},
+			Usage: provider.Usage{InputTokens: 200, OutputTokens: 30},
+		}, nil
+	}
+	return provider.Response{Text: "child done", Done: true, Usage: provider.Usage{InputTokens: 50, OutputTokens: 10}}, nil
+}
+
+func TestParallelSubagents(t *testing.T) {
+	led, _ := ledger.Open(t.TempDir())
+	bud := budget.New(budget.Limits{MaxTokens: 10_000_000, MaxUSD: 1000})
+	a := New(parallelMock{}, bud, governor.DefaultLimits(), led, tools.SimExecutor{},
+		Config{Model: "mock", MaxSubagentDepth: 2})
+	o, err := a.Run(context.Background(), "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Stop != StopCompleted || o.Reason != "parent finished" {
+		t.Fatalf("want completed/parent finished, got %s/%q", o.Stop, o.Reason)
+	}
+	// parent 230+120 + three children * 60 = 530, all bubbled into the session.
+	if got := bud.Usage().TotalTokens(); got != 530 {
+		t.Fatalf("parallel children spend should bubble to the session; got %d, want 530", got)
+	}
+}
+
 func TestSubagentDepthLimit(t *testing.T) {
 	led, _ := ledger.Open(t.TempDir())
 	a := New(provider.NewMock("mock", provider.NormalScript(), false),

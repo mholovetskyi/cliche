@@ -71,9 +71,10 @@ cliche chat
 
 Type a task and Cliche works it end-to-end — reading, editing (`edit_file`),
 running commands, and delegating isolated subtasks to **budget-scoped
-subagents** — streaming each step live, then waits for your next message (the
-conversation and the session-wide budget persist; a subagent's spend is drawn
-from, and bounded by, that same session cap). In a terminal,
+subagents** (one at a time, or several in **parallel**) — streaming each step
+live, then waits for your next message (the conversation and the session-wide
+budget persist; every subagent's spend is drawn from, and bounded by, that same
+session cap). In a terminal,
 writes and commands prompt `y/N/always` unless you pass `--allow-write` /
 `--allow-run` / `--yolo`. Slash commands: `/cost`, `/clear`, `/verify`,
 `/help`, `/exit`.
