@@ -25,6 +25,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/provider"
+	"github.com/mholovetskyi/cliche/internal/shell"
 	"github.com/mholovetskyi/cliche/internal/tools"
 )
 
@@ -407,7 +408,7 @@ func DefaultToolSpecs() []provider.ToolSpec {
 		},
 		{
 			Name:        "run_command",
-			Description: "Run a shell command in the project directory and return its output.",
+			Description: "Run a shell command in the project directory and return its output. Shell: " + shell.Describe() + ".",
 			Schema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{"command": strProp("the shell command to run")},
