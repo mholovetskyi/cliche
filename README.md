@@ -58,6 +58,9 @@ go build -o cliche ./cmd/cliche
 
 ## Quickstart
 
+New here? [SETUP.md](SETUP.md) walks you from zero to a running session
+(connect any provider, scaffold a project) in two minutes.
+
 **See the Trust Kernel work, offline, in 30 seconds:**
 
 ```sh
