@@ -43,7 +43,8 @@ func cmdLogin(_ []string, out, errOut io.Writer) int {
 // runLogin drives the wizard against the given reader: pick a provider, paste a
 // key (hidden), verify it works with a token-free API ping, then save it.
 func runLogin(r *bufio.Reader, out io.Writer) int {
-	fmt.Fprintln(out, "\n  "+wordmark()+style.Gray("  let's connect a model provider"))
+	clearScreen(out)
+	fmt.Fprintln(out, "\n  "+gradientWordmark()+style.Gray("  let's connect a model provider"))
 	fmt.Fprintln(out, "  "+style.Gray("Cliche is BYO-key — your key is stored locally (0600), never sent anywhere but the provider.\n"))
 
 	for i, c := range loginChoices {

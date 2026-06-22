@@ -11,9 +11,33 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
+	"github.com/mholovetskyi/cliche/internal/secrets"
 	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/tools"
 )
+
+// clearScreen wipes the terminal (including scrollback) and homes the cursor,
+// for a clean app-like start. No-op when styling is off (pipes/CI/tests).
+func clearScreen(w io.Writer) {
+	if style.Enabled {
+		fmt.Fprint(w, "\x1b[2J\x1b[3J\x1b[H")
+	}
+}
+
+// keyOverrideWarning returns a warning when an environment variable is shadowing
+// a different saved key — the usual cause of a sudden "rejected key" after a
+// successful `cliche login`.
+func keyOverrideWarning(provider string) string {
+	key, source := secrets.Lookup(provider)
+	if !strings.HasPrefix(source, "env:") {
+		return ""
+	}
+	if saved := secrets.Saved(provider); saved != "" && saved != key {
+		env := secrets.EnvVar(provider)
+		return env + " in your shell is overriding your saved key (it may be stale). Unset it to use the key from `cliche login`."
+	}
+	return ""
+}
 
 // noColor disables decorative glyphs (and color) for portability and dumb
 // terminals — aligned with the style package's enablement.
@@ -99,8 +123,17 @@ func (s *session) stopSpin() {
 }
 
 func (s *session) loop() int {
+	clearScreen(s.out)
 	fmt.Fprint(s.out, banner())
-	fmt.Fprintln(s.out, "  "+style.Gray(s.cfg.Provider+" · "+s.cfg.Model))
+	_, source := secrets.Lookup(s.cfg.Provider)
+	keySrc := "saved"
+	if strings.HasPrefix(source, "env:") {
+		keySrc = "env"
+	}
+	fmt.Fprintln(s.out, "  "+style.Gray(s.cfg.Provider+" · "+s.cfg.Model)+style.Dim("  · key: "+keySrc))
+	if w := keyOverrideWarning(s.cfg.Provider); w != "" {
+		fmt.Fprintln(s.out, "  "+style.Red(gl("⚠", "!"))+" "+style.White(w))
+	}
 	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /verify · /context · /clear · /help · /exit"))
 	for {
 		fmt.Fprint(s.out, "\n"+style.Color(gl("❯", ">"), style.Sample(0))+style.Color(gl("❯", ">"), style.Sample(0.5))+style.Color(gl("❯", ">"), style.Sample(1))+" ")

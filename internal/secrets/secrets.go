@@ -100,6 +100,20 @@ func Lookup(provider string) (key, source string) {
 	return "", ""
 }
 
+// Saved returns the key stored in the credentials file for a provider, ignoring
+// the environment, or "" if none. Used to detect an env var shadowing a saved
+// key (which silently overrides it and is a common source of confusion).
+func Saved(provider string) string {
+	if provider == "" {
+		provider = "anthropic"
+	}
+	creds, err := load()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(creds[provider])
+}
+
 // Save persists a provider's key to the credentials file (creating it 0600),
 // returning the path written.
 func Save(provider, key string) (string, error) {
