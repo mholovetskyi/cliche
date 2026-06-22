@@ -288,6 +288,7 @@ func (s *session) loop() int {
 		// current task (gracefully, structured) but leaves the session alive;
 		// Ctrl-C at the idle prompt uses the default behavior (quit).
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		start, u0 := time.Now(), s.a.Usage()
 		s.startSpin("thinking…") // shimmer while we wait on the first model response
 		o, runErr := s.a.Run(ctx, line)
 		s.stopSpin()
@@ -298,7 +299,7 @@ func (s *session) loop() int {
 			s.renderError(runErr.Error())
 			continue
 		}
-		s.afterTask(o)
+		s.afterTask(o, time.Since(start), s.a.Usage().USD-u0.USD)
 	}
 }
 
@@ -363,7 +364,7 @@ func pctOf(part, whole int) int {
 // hint for the common cases (bad key, no credits, rate limit, wrong model).
 func (s *session) renderError(msg string) {
 	fmt.Fprintf(s.out, "\n  %s %s\n", style.BoldRed(gl("■", "x")), style.BoldRed("error"))
-	fmt.Fprintln(s.out, "  "+style.Gray(msg))
+	fmt.Fprintln(s.out, "  "+style.Gray(boundMessage(msg)))
 	if hint := providerHint(msg); hint != "" {
 		fmt.Fprintln(s.out, "  "+style.Color(gl("→", ">"), style.Sample(0))+" "+style.White(hint))
 	}
@@ -385,20 +386,9 @@ func providerHint(msg string) string {
 	return ""
 }
 
-func (s *session) afterTask(o agent.Outcome) {
-	switch o.Stop {
-	case agent.StopCompleted:
-		fmt.Fprintf(s.out, "\n%s %s%s\n", style.BoldWhite(gl("✔", "[done]")), style.BoldWhite("done"),
-			style.Gray(fmt.Sprintf(" · %d turns", o.Turns)))
-	case agent.StopCancelled:
-		fmt.Fprintf(s.out, "\n%s\n", style.Red(gl("■", "[x]")+" interrupted"))
-	case agent.StopBudget:
-		fmt.Fprintf(s.out, "\n%s\n", style.Red(gl("■", "[x]")+" stopped: budget — "+o.Reason))
-	default:
-		fmt.Fprintf(s.out, "\n%s\n", style.Red(gl("■", "[x]")+" stopped: "+o.Stop+" — "+o.Reason))
-	}
+func (s *session) afterTask(o agent.Outcome, elapsed time.Duration, taskUSD float64) {
 	u := s.a.Usage()
-	fmt.Fprintln(s.out, "  "+style.Gray(fmt.Sprintf("session so far: %d tokens, ~$%.4f", u.TotalTokens(), u.USD)))
+	renderOutcome(s.out, o, outcomeMetrics{elapsed: elapsed, tokens: u.TotalTokens(), taskUSD: taskUSD, sessionUSD: u.USD})
 	if s.verify && o.Stop == agent.StopCompleted {
 		v := autoVerify(s.out, s.dir, s.cfg)
 		fmt.Fprintln(s.out, "  "+verdictStyled(v.Status))

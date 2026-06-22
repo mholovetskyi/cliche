@@ -304,6 +304,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	if f.branch {
 		startBranch(out, f.dir, "run-"+time.Now().UTC().Format("20060102-150405"))
 	}
+	runStart := time.Now()
 	o, runErr := a.Run(ctx, prompt)
 	closeStream()
 	if runErr == nil {
@@ -318,7 +319,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	if runErr == nil {
 		runStopHook(out, f.dir, cfg.Hooks.Stop, o.Stop, o.Verdict)
 	}
-	printOutcome(out, o)
+	printOutcome(out, o, time.Since(runStart))
 	if runErr != nil {
 		return 1
 	}
@@ -384,20 +385,10 @@ func printChangeSummary(out io.Writer, j *tools.EditJournal) {
 	}
 }
 
-func printOutcome(out io.Writer, o agent.Outcome) {
-	stop := style.BoldWhite(o.Stop)
-	if o.Stop != agent.StopCompleted {
-		stop = style.BoldRed(o.Stop)
-	}
-	fmt.Fprintf(out, "\n%s %s\n", style.Gray("stop:  "), stop)
-	if o.Reason != "" {
-		fmt.Fprintf(out, "%s %s\n", style.Gray("reason:"), o.Reason)
-	}
-	fmt.Fprintf(out, "%s %d\n", style.Gray("turns: "), o.Turns)
-	fmt.Fprintf(out, "%s %s\n", style.Gray("usage: "), style.White(fmt.Sprintf("%d tokens, ~$%.4f (estimated)", o.Usage.TotalTokens(), o.Usage.USD)))
-	if o.Verdict != "" {
-		fmt.Fprintln(out, verdictStyled(o.Verdict))
-	}
+func printOutcome(out io.Writer, o agent.Outcome, elapsed time.Duration) {
+	// One-shot run: the final assistant text is already streamed above, so the
+	// raw reason isn't repeated; this is the unified outcome summary.
+	renderOutcome(out, o, outcomeMetrics{elapsed: elapsed, tokens: o.Usage.TotalTokens(), taskUSD: o.Usage.USD, sessionUSD: -1})
 }
 
 // resolvePrompt resolves the prompt with a consistent precedence for both run

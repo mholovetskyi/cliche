@@ -102,14 +102,16 @@ func compactHeader(provider, model, mode, keySrc string) string {
 	return "  " + gradientWordmark() + "   " + meta
 }
 
-// verdictStyled colors a verify verdict: verified=white, flagged=red.
+// verdictStyled renders a verify verdict with an icon AND a color, so the
+// safety-critical "flagged" survives NO_COLOR / piping (uppercased, not just
+// red) rather than relying on color alone.
 func verdictStyled(status string) string {
 	switch status {
 	case verifier.StatusVerified:
-		return style.BoldWhite("verdict: verified")
+		return style.BoldGreen(gl("✓ ", "") + "verdict: verified")
 	case verifier.StatusFlagged:
-		return style.BoldRed("verdict: flagged")
+		return style.BoldRed(gl("✗ ", "") + "verdict: FLAGGED")
 	default:
-		return style.Gray("verdict: " + status)
+		return style.Gray(gl("• ", "") + "verdict: " + status)
 	}
 }
