@@ -83,6 +83,33 @@ func TestAllowOutsideRootEscapeHatch(t *testing.T) {
 	}
 }
 
+func TestReadOnlyPlanModeBlocksMutations(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// ReadOnly overrides even Yolo: writes/runs are hard-blocked, reads allowed.
+	e := OSExecutor{Root: root, Policy: Policy{ReadOnly: true, Yolo: true}}
+	if r := e.Execute(context.Background(), "read_file", map[string]string{"file": "a.txt"}); !r.Success {
+		t.Fatalf("plan mode must still allow reads: %s", r.Output)
+	}
+	for _, tc := range []struct {
+		name string
+		args map[string]string
+	}{
+		{"write_file", map[string]string{"file": "b.txt", "content": "y"}},
+		{"edit_file", map[string]string{"file": "a.txt", "old_string": "x", "new_string": "z"}},
+		{"run_command", map[string]string{"command": "echo hi"}},
+	} {
+		if r := e.Execute(context.Background(), tc.name, tc.args); r.Success {
+			t.Fatalf("plan mode must block %s, got success: %s", tc.name, r.Output)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "b.txt")); err == nil {
+		t.Fatal("plan mode must not have created the file")
+	}
+}
+
 func TestWriteFileCreatesParentDirs(t *testing.T) {
 	root := t.TempDir()
 	e := OSExecutor{Root: root, Policy: Policy{Yolo: true}}

@@ -62,6 +62,7 @@ type Policy struct {
 	AllowRun         bool
 	Yolo             bool
 	AllowOutsideRoot bool // permit file access outside the project root (escape hatch)
+	ReadOnly         bool // plan mode: hard-deny all mutations/commands (overrides everything)
 }
 
 // Approver is consulted when a Policy does not pre-authorize an action. It
@@ -161,6 +162,11 @@ func resolveExisting(p string) string {
 // Execute runs a tool call against the real filesystem/shell.
 func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]string) Result {
 	edit := isEditTool(name)
+	// Plan mode is a hard read-only boundary: mutations and commands are blocked
+	// outright (even under --yolo), so the agent proposes instead of acting.
+	if e.Policy.ReadOnly && (edit || name == "run_command") {
+		return Result{Output: "blocked: plan mode is read-only — describe the change, don't apply it", IsEdit: edit, Success: false}
+	}
 	switch name {
 	case "read_file":
 		if strings.TrimSpace(args["file"]) == "" {

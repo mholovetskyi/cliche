@@ -67,8 +67,16 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 
+	if !validMode(f.mode) {
+		fmt.Fprintf(errOut, "chat: unknown --mode %q (want plan | suggest | auto-edit | full)\n", f.mode)
+		return 2
+	}
+	mode := f.mode
+	if mode == "" {
+		mode = modeSuggest
+	}
 	reader := bufio.NewReader(os.Stdin)
-	app := &approver{r: reader, out: out}
+	app := &approver{r: reader, out: out, mode: mode}
 
 	// Seamless first run: if no provider key is configured yet, drop straight
 	// into the setup wizard instead of erroring out.
@@ -78,14 +86,14 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 		}
 	}
 
-	a, journal, cfg, cleanup, err := buildAgent(f, app.Approve)
+	a, journal, cfg, cleanup, err := buildAgent(f, app.Approve, false) // chat: mode governed by the approver (mutable via /mode)
 	if err != nil {
 		fmt.Fprintln(errOut, "chat: "+err.Error())
 		return 1
 	}
 	defer cleanup()
 
-	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal, created: time.Now()}
+	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal, created: time.Now(), app: app}
 	a.SetObserver(s.onEvent)
 
 	// Resume a saved session if requested (--continue = most recent, --resume <id>).
@@ -121,8 +129,9 @@ type session struct {
 	id        string   // session id for on-disk persistence
 	title     string   // first prompt, used as the session title
 	created   time.Time
-	resumed   int  // messages restored from a resumed session (0 if fresh)
-	streaming bool // currently mid live-streamed assistant block
+	resumed   int       // messages restored from a resumed session (0 if fresh)
+	streaming bool      // currently mid live-streamed assistant block
+	app       *approver // for /mode (mutates the approver's permission mode)
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -192,7 +201,11 @@ func (s *session) loop() int {
 	if strings.HasPrefix(source, "env:") {
 		keySrc = "env"
 	}
-	fmt.Fprintln(s.out, "  "+style.Gray(s.cfg.Provider+" · "+s.cfg.Model)+style.Dim("  · key: "+keySrc))
+	modeLabel := ""
+	if s.app != nil {
+		modeLabel = "  · mode: " + s.app.mode
+	}
+	fmt.Fprintln(s.out, "  "+style.Gray(s.cfg.Provider+" · "+s.cfg.Model)+style.Dim("  · key: "+keySrc+modeLabel))
 	if w := keyOverrideWarning(s.cfg.Provider); w != "" {
 		fmt.Fprintln(s.out, "  "+style.Red(gl("⚠", "!"))+" "+style.White(w))
 	}
@@ -200,7 +213,7 @@ func (s *session) loop() int {
 		u := s.a.Usage()
 		fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("resumed session %s · %d messages · ~$%.4f spent so far", s.id, s.resumed, u.USD)))
 	}
-	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /model · /verify · /context · /clear · /help · /exit"))
+	fmt.Fprintln(s.out, "  "+style.Gray("/cost · /diff · /undo · /model · /mode · /verify · /context · /clear · /help · /exit"))
 	for {
 		fmt.Fprint(s.out, "\n"+style.Color(gl("❯", ">"), style.Sample(0))+style.Color(gl("❯", ">"), style.Sample(0.5))+style.Color(gl("❯", ">"), style.Sample(1))+" ")
 		line, err := s.r.ReadString('\n')
@@ -322,14 +335,37 @@ func (s *session) slash(line string) bool {
 		s.undo()
 	case "/model":
 		s.switchModel(line)
+	case "/mode":
+		s.setMode(line)
 	case "/help":
 		fmt.Fprintln(s.out, "  /cost — spend so far    /context — context usage   /verify — re-run tests")
 		fmt.Fprintln(s.out, "  /diff — changes so far  /undo — revert last edit   /model — show/switch model")
-		fmt.Fprintln(s.out, "  /clear — reset context  /recover — undo compaction  /exit — quit")
+		fmt.Fprintln(s.out, "  /mode — permission mode /recover — undo compaction  /clear — reset context")
+		fmt.Fprintln(s.out, "  /exit — quit")
 	default:
 		fmt.Fprintf(s.out, "  unknown command (try /help)\n")
 	}
 	return false
+}
+
+// setMode shows or switches the permission mode for the rest of the session.
+// Fully effective when the session started in the default mode; legacy
+// --allow-write/--yolo flags pre-authorize at the executor and aren't undone.
+func (s *session) setMode(line string) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		fmt.Fprintf(s.out, "  mode: %s\n", style.White(s.app.mode))
+		fmt.Fprintln(s.out, "  "+style.Gray("plan — read-only · suggest — ask · auto-edit — auto edits, ask commands · full — auto all"))
+		fmt.Fprintln(s.out, "  "+style.Gray("switch with `/mode <name>`"))
+		return
+	}
+	m := fields[1]
+	if m == "" || !validMode(m) {
+		fmt.Fprintf(s.out, "  unknown mode %q (plan | suggest | auto-edit | full)\n", m)
+		return
+	}
+	s.app.setMode(m)
+	fmt.Fprintf(s.out, "  mode → %s\n", style.White(m))
 }
 
 // showDiff prints the cumulative before→after diff of every file the agent has

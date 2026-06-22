@@ -118,6 +118,8 @@ CHAT/RUN/EXEC FLAGS:
   --max-turns <n>     Governor turn limit (run/exec).
   --allow-write       Permit file writes without asking.
   --allow-run         Permit shell commands without asking.
+  --mode <m>          Permission mode: plan (read-only) | suggest (ask) |
+                      auto-edit (auto edits, ask commands) | full (auto all).
   --yolo              Skip approvals — but NEVER the budget cap or the governor.
   --verify            After completion, re-run tests and report a verdict.
   --allow-outside-root  Permit file access outside the project root (off by default).

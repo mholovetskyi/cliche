@@ -20,12 +20,33 @@ type approver struct {
 	out         io.Writer
 	alwaysWrite bool
 	alwaysRun   bool
+	mode        string // permission mode (mutable via /mode); "" == suggest
 }
 
-// Approve is passed to tools.OSExecutor as its Approver.
+// setMode changes the permission mode (mutex-guarded; Approve reads it under
+// the same lock).
+func (a *approver) setMode(m string) {
+	a.mu.Lock()
+	a.mode = m
+	a.mu.Unlock()
+}
+
+// Approve is passed to tools.OSExecutor as its Approver. The mode short-circuits
+// the prompt: plan denies, full allows, auto-edit auto-allows writes.
 func (a *approver) Approve(action, detail string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	switch a.mode {
+	case modePlan:
+		fmt.Fprintf(a.out, "  %s plan mode is read-only — %s blocked\n", gl("■", "x"), action)
+		return false
+	case modeFull:
+		return true
+	case modeAutoEdit:
+		if action == "write" {
+			return true
+		}
+	}
 	switch action {
 	case "write":
 		if a.alwaysWrite {

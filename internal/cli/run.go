@@ -40,6 +40,7 @@ type runFlags struct {
 	prompt           string // -p, used by exec
 	resume           string // chat: resume this session id
 	cont             bool   // chat: --continue the most recent session
+	mode             string // permission mode: plan | suggest | auto-edit | full
 }
 
 func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
@@ -61,6 +62,7 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.StringVar(&f.prompt, "p", "", "prompt (headless)")
 	fs.StringVar(&f.resume, "resume", "", "chat: resume a saved session by id")
 	fs.BoolVar(&f.cont, "continue", false, "chat: resume the most recent session")
+	fs.StringVar(&f.mode, "mode", "", "permission mode: plan | suggest | auto-edit | full")
 	return f, fs
 }
 
@@ -154,10 +156,11 @@ func buildProvider(b backend, key string) (provider.Provider, error) {
 	return provider.NewOpenAICompat(key, b.model, b.baseURL, 4096), nil
 }
 
-// buildAgent wires the selected provider through the Trust Kernel. The approve
-// callback (may be nil) handles permission prompts for actions the flags don't
-// pre-authorize.
-func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, *tools.EditJournal, config.Config, func(), error) {
+// buildAgent wires the provider through the Trust Kernel. staticMode bakes the
+// --mode preset into the executor Policy (for headless run/exec); when false
+// (interactive chat) the mode is governed by the approver instead, so it can be
+// switched mid-session with /mode.
+func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Agent, *tools.EditJournal, config.Config, func(), error) {
 	noop := func() {}
 	cfg, err := config.Load(f.dir)
 	if err != nil {
@@ -186,15 +189,22 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, *tools.EditJ
 	if err != nil {
 		return nil, nil, cfg, noop, err
 	}
+	if !validMode(f.mode) {
+		return nil, nil, cfg, noop, fmt.Errorf("unknown --mode %q (want plan | suggest | auto-edit | full)", f.mode)
+	}
 	journal := tools.NewEditJournal(f.dir)
+	pol := tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo, AllowOutsideRoot: f.allowOutsideRoot}
+	if staticMode {
+		pol = applyMode(pol, f.mode) // headless: bake the mode into the policy
+	}
 	exec := tools.OSExecutor{
 		Root:    f.dir,
-		Policy:  tools.Policy{AllowWrite: f.allowWrite, AllowRun: f.allowRun, Yolo: f.yolo, AllowOutsideRoot: f.allowOutsideRoot},
+		Policy:  pol,
 		Approve: approve,
 		Journal: journal,
 	}
 
-	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence."
+	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
 		System:             sys,
@@ -235,7 +245,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 		approve = (&approver{r: bufio.NewReader(os.Stdin), out: out}).Approve
 	}
 
-	a, journal, cfg, cleanup, err := buildAgent(f, approve)
+	a, journal, cfg, cleanup, err := buildAgent(f, approve, true) // run: static mode
 	if err != nil {
 		fmt.Fprintln(errOut, "run: "+err.Error())
 		return 1
@@ -279,7 +289,7 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 
-	a, _, cfg, cleanup, err := buildAgent(f, nil) // headless: no interactive approver
+	a, _, cfg, cleanup, err := buildAgent(f, nil, true) // headless: static mode, no approver
 	if err != nil {
 		writeJSON(errOut, map[string]any{"error": err.Error()})
 		return 1
