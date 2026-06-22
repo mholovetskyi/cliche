@@ -31,6 +31,12 @@ var table = map[string]Price{
 	"o4-mini":           {InputPerM: 1.1, OutputPerM: 4.4},
 	"gemini-2.5-pro":    {InputPerM: 2.5, OutputPerM: 15},
 	"mock":              {InputPerM: 1, OutputPerM: 1},
+	// OpenRouter-style model ids (illustrative defaults).
+	"openai/gpt-4o-mini":          {InputPerM: 0.15, OutputPerM: 0.60},
+	"openai/gpt-4o":               {InputPerM: 2.5, OutputPerM: 10},
+	"anthropic/claude-3.5-haiku":  {InputPerM: 0.80, OutputPerM: 4},
+	"anthropic/claude-3.5-sonnet": {InputPerM: 3, OutputPerM: 15},
+	"google/gemini-2.0-flash-001": {InputPerM: 0.10, OutputPerM: 0.40},
 }
 
 // fallback is used for unknown models: deliberately expensive so an unknown

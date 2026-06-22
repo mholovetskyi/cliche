@@ -103,9 +103,13 @@ func (e OSExecutor) resolve(path string) (string, error) {
 	if rp, err := filepath.EvalSymlinks(root); err == nil {
 		root = rp
 	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
+	// Resolve RELATIVE paths against the project root (not the process cwd), so
+	// file tools and run_command (which runs with cwd=root) agree on "where".
+	var abs string
+	if filepath.IsAbs(path) {
+		abs = filepath.Clean(path)
+	} else {
+		abs = filepath.Join(root, path)
 	}
 	// Check the symlink-resolved real location, but operate on abs (the OS
 	// follows the same symlinks). This catches symlink escapes.

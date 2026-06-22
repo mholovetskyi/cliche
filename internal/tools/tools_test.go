@@ -33,6 +33,24 @@ func TestConfinementBlocksOutsideRoot(t *testing.T) {
 	}
 }
 
+func TestRelativePathResolvesToRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "in.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	e := OSExecutor{Root: root, Policy: Policy{AllowWrite: true}}
+	// A RELATIVE path must resolve under the root, not the process cwd.
+	if r := e.Execute(context.Background(), "read_file", map[string]string{"file": "in.txt"}); !r.Success || r.Output != "hi" {
+		t.Fatalf("relative read should resolve under root: success=%v out=%q", r.Success, r.Output)
+	}
+	if r := e.Execute(context.Background(), "write_file", map[string]string{"file": "out.txt", "content": "x"}); !r.Success {
+		t.Fatalf("relative write should resolve under root: %s", r.Output)
+	}
+	if _, err := os.Stat(filepath.Join(root, "out.txt")); err != nil {
+		t.Fatalf("file should be written inside root: %v", err)
+	}
+}
+
 func TestConfinementBlocksSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outsideDir := t.TempDir()

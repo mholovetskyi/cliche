@@ -20,3 +20,7 @@ coverage*
 .idea/
 .vscode/
 .DS_Store
+
+api.txt
+*.key
+.cliche_key
