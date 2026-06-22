@@ -10,6 +10,8 @@ import (
 )
 
 func TestResolveBackendAutoDetect(t *testing.T) {
+	// Isolate from the real per-user credentials file so saved keys don't leak in.
+	t.Setenv("CLICHE_CONFIG_HOME", t.TempDir())
 	base := config.Default() // provider "anthropic", model "claude-sonnet-4-6"
 
 	t.Run("auto-detects openrouter when only its key is set", func(t *testing.T) {
