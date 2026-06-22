@@ -7,6 +7,11 @@
 # Go test artifacts
 *.test
 *.out
+/cliche
+cover
+cover_*
+coverage*
+*.coverprofile
 
 # Cliche's own per-project state
 .cliche/
