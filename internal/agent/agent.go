@@ -17,6 +17,7 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/budget"
 	"github.com/mholovetskyi/cliche/internal/governor"
+	"github.com/mholovetskyi/cliche/internal/history"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/provider"
@@ -33,6 +34,10 @@ type Config struct {
 	// MaxWallClock, when > 0, bounds the whole run (including any single tool
 	// command) so a hung shell command cannot outlast the wall-clock breaker.
 	MaxWallClock time.Duration
+	// ContextLimitTokens, when > 0, enables the Context Ledger: the transcript
+	// is compacted (never silently) when its estimate exceeds this.
+	ContextLimitTokens int
+	ContextKeepRecent  int
 }
 
 // Agent ties the Trust Kernel around a provider and tool executor.
@@ -44,6 +49,7 @@ type Agent struct {
 	exec      tools.Executor
 	cfg       Config
 	obs       Observer
+	hist      *history.Manager
 	messages  []provider.Message // persists across Run calls (the session transcript)
 }
 
@@ -56,7 +62,11 @@ func New(p provider.Provider, b *budget.Kernel, govLimits governor.Limits, l *le
 	if cfg.EstOutputTokens <= 0 {
 		cfg.EstOutputTokens = 1000
 	}
-	return &Agent{prov: p, bud: b, govLimits: govLimits, led: l, exec: e, cfg: cfg}
+	a := &Agent{prov: p, bud: b, govLimits: govLimits, led: l, exec: e, cfg: cfg}
+	if cfg.ContextLimitTokens > 0 {
+		a.hist = history.New(cfg.ContextLimitTokens, cfg.ContextKeepRecent)
+	}
+	return a
 }
 
 // SetObserver registers a streaming observer for live activity.
@@ -70,6 +80,28 @@ func (a *Agent) Limits() budget.Limits { return a.bud.Limits() }
 
 // Reset clears the conversation transcript (the budget is preserved).
 func (a *Agent) Reset() { a.messages = nil }
+
+// ContextStats returns the current estimated token size of the transcript and
+// how many times it has been compacted.
+func (a *Agent) ContextStats() (estTokens, compactions int) {
+	estTokens = history.EstimateTokens(a.messages)
+	if a.hist != nil {
+		compactions = a.hist.Stats().Compactions
+	}
+	return estTokens, compactions
+}
+
+// RecoverContext restores the transcript to its pre-compaction state, if any.
+func (a *Agent) RecoverContext() bool {
+	if a.hist == nil {
+		return false
+	}
+	if full, ok := a.hist.Recover(); ok {
+		a.messages = full
+		return true
+	}
+	return false
+}
 
 // Stop codes for an Outcome.
 const (
@@ -107,6 +139,16 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 		turn, halt := gov.BeginTurn()
 		if halt != nil {
 			return a.halted(*halt), nil
+		}
+
+		// Context Ledger: bound the transcript, never silently. Runs before the
+		// request is built so the smaller transcript is what gets sent.
+		if a.hist != nil {
+			if compacted, did, info := a.hist.MaybeCompact(a.messages); did {
+				a.messages = compacted
+				a.led.Append(ledger.Entry{Turn: turn, Event: ledger.EventInfo, Detail: "context compacted: " + info})
+				a.emit(Event{Kind: "context", Turn: turn, Detail: info})
+			}
 		}
 
 		// Gate 1 (preflight): conservative estimate before the model fires.

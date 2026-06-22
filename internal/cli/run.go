@@ -81,7 +81,14 @@ func buildAgent(f *runFlags, approve tools.Approver) (*agent.Agent, config.Confi
 	prov := provider.NewAnthropic(apiKey, model, 4096)
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence."
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
-	return agent.New(prov, bud, govLimits, led, exec, agent.Config{System: sys, Model: model, MaxWallClock: wallClock}), cfg, nil
+	acfg := agent.Config{
+		System:             sys,
+		Model:              model,
+		MaxWallClock:       wallClock,
+		ContextLimitTokens: cfg.Context.LimitTokens,
+		ContextKeepRecent:  cfg.Context.KeepRecent,
+	}
+	return agent.New(prov, bud, govLimits, led, exec, acfg), cfg, nil
 }
 
 // cmdRun is the human-facing run command.

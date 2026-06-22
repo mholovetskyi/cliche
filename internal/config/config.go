@@ -31,12 +31,19 @@ type Verify struct {
 	TestCommand string `json:"test_command"`
 }
 
+// Context configures the Context Ledger (bounded, recoverable compaction).
+type Context struct {
+	LimitTokens int `json:"limit_tokens"`
+	KeepRecent  int `json:"keep_recent"`
+}
+
 // Config is the full run configuration.
 type Config struct {
 	Model    string   `json:"model"`
 	Budget   Budget   `json:"budget"`
 	Governor Governor `json:"governor"`
 	Verify   Verify   `json:"verify"`
+	Context  Context  `json:"context"`
 }
 
 // Default returns conservative, trust-first defaults.
@@ -54,6 +61,10 @@ func Default() Config {
 			RepetitionWindow:          8,
 			RepetitionThreshold:       3,
 			NoProgressTurns:           12,
+		},
+		Context: Context{
+			LimitTokens: 120_000,
+			KeepRecent:  12,
 		},
 	}
 }

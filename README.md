@@ -196,9 +196,14 @@ project context — the cross-tool standard.
 - The **Verifier catches documented patterns** and honest mistakes, and can
   independently re-run your tests. It is **not** a security boundary against an
   adversary who knows the rules.
-- The real-model loop does **multi-turn tool use** with read/write/run tools
-  (gated by permissions). A reliable AST-aware diff/edit engine is roadmapped;
-  v0 edits via full-file writes.
+- The real-model loop does **multi-turn tool use** (read/edit/write/run, gated
+  by permissions). `edit_file` matches exact → whitespace-tolerant → a
+  confidence-scored fuzzy anchor (which refuses single-line or anchor-less
+  matches, because false edits are worse than no edit), and edits are
+  **AST-validated for Go** before writing (other languages: no-op for now).
+- The **Context Ledger** keeps the transcript bounded and recoverable; it
+  compacts only at safe task boundaries (within one long task the budget cap
+  governs) and never silently — every compaction is logged and undoable.
 
 We'd rather state the limits than oversell them. See [SECURITY.md](SECURITY.md).
 

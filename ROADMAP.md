@@ -43,10 +43,12 @@ unattended without a runaway, a blown budget, or a silently faked result.
 - ✅ Verifier independent test re-run (the keystone): `cliche verify` re-runs the
   project's tests (auto-detected or from `AGENTS.md`), and `verified` is only
   returned when a real re-run passes. False "tests pass" claims are flagged.
-- 🟡 Reliable diff/edit engine: `edit_file` does exact + whitespace-tolerant
-  line-block matching. Still ⬜: full AST-aware anchoring and confidence-scored
-  fuzzy matching.
-- ⬜ Context Ledger — bounded, recoverable, never-silent compaction.
+- 🟡 Reliable diff/edit engine: `edit_file` does exact → whitespace-tolerant →
+  confidence-scored anchored fuzzy matching (refuses single-line / anchor-less
+  matches), plus **Go AST syntax validation** that rejects edits which would
+  break the file. Still ⬜: per-language AST anchoring beyond Go's parser.
+- ✅ Context Ledger — bounded, recoverable, never-silent compaction. Compacts
+  only at safe task boundaries; `/context` shows usage, `/recover` undoes it.
 - ⬜ Secrets in OS keychain; signed/reproducible releases (Sigstore + SBOM).
 - ⬜ Network egress denied-by-default with allowlist.
 - ⬜ Team budget + verdict dashboard (the first paid wedge).

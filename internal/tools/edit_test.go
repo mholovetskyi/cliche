@@ -2,6 +2,7 @@ package tools
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,47 @@ func TestApplyEditReplaceAllNonOverlapping(t *testing.T) {
 	// remains. The result must be well-formed, not duplicated or truncated.
 	if out != "Y\n x\n" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestApplyEditFuzzyAnchorMinorTypo(t *testing.T) {
+	// The model's snippet has a small typo in the middle line but the block is
+	// otherwise distinctive and unique -> fuzzy anchor should locate it.
+	content := "alpha\nresult := compute(x)\nreturn result\nomega\n"
+	old := "result := compute(y)\nreturn result" // 'y' should be 'x'
+	out, err := applyEdit(content, old, "result := compute(z)\nreturn result", false)
+	if err != nil {
+		t.Fatalf("fuzzy anchor should match a near-identical block: %v", err)
+	}
+	if !strings.Contains(out, "compute(z)") || strings.Contains(out, "compute(x)") {
+		t.Fatalf("fuzzy edit not applied: %q", out)
+	}
+}
+
+func TestApplyEditFuzzyRefusesLowConfidence(t *testing.T) {
+	content := "package main\nfunc main() {}\n"
+	if _, err := applyEdit(content, "completely unrelated content here", "x", false); err == nil {
+		t.Fatal("fuzzy matcher must refuse a low-confidence match")
+	}
+}
+
+func TestApplyEditFuzzyRefusesSingleLine(t *testing.T) {
+	// A single similar line must NOT be fuzzy-matched — that's a wrong-location
+	// edit (regression guard). "return 1" doesn't exist; "return 2" does.
+	content := "func F() int {\n\treturn 2\n}\n"
+	if _, err := applyEdit(content, "return 1", "return 999", false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("single-line fuzzy must be refused, got err=%v", err)
+	}
+	if !strings.Contains(content, "return 2") {
+		t.Fatal("sanity")
+	}
+}
+
+func TestApplyEditFuzzyRequiresExactAnchor(t *testing.T) {
+	// Two lines, both slightly off, no exact anchor => refuse.
+	content := "x := 1\ny := 2\n"
+	if _, err := applyEdit(content, "x := 9\ny := 9", "z := 0\nz := 0", false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("fuzzy without an exact anchor must be refused, got %v", err)
 	}
 }
 

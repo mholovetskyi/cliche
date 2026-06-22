@@ -103,6 +103,9 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		if !e.permit("write", "write_file "+args["file"]) {
 			return Result{Output: "permission denied: write to " + args["file"], IsEdit: edit, Success: false}
 		}
+		if err := validateSyntax(args["file"], args["content"]); err != nil {
+			return Result{Output: "write rejected: " + err.Error(), IsEdit: edit, Success: false}
+		}
 		if err := os.WriteFile(args["file"], []byte(args["content"]), 0o644); err != nil {
 			return Result{Output: "write error: " + err.Error(), IsEdit: edit, Success: false}
 		}
@@ -122,6 +125,9 @@ func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]st
 		updated, err := applyEdit(string(data), args["old_string"], args["new_string"], args["replace_all"] == "true")
 		if err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
+		}
+		if err := validateSyntax(args["file"], updated); err != nil {
+			return Result{Output: "edit rejected (file left unchanged): " + err.Error(), IsEdit: edit, Success: false}
 		}
 		if err := os.WriteFile(args["file"], []byte(updated), 0o644); err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}

@@ -108,12 +108,21 @@ func (s *session) slash(line string) bool {
 	case "/clear":
 		s.a.Reset()
 		fmt.Fprintln(s.out, "  context cleared (budget preserved).")
+	case "/context":
+		est, compactions := s.a.ContextStats()
+		fmt.Fprintf(s.out, "  context: ~%d tokens, %d compaction(s) this session\n", est, compactions)
+	case "/recover":
+		if s.a.RecoverContext() {
+			fmt.Fprintln(s.out, "  restored the pre-compaction context.")
+		} else {
+			fmt.Fprintln(s.out, "  nothing to recover.")
+		}
 	case "/verify":
 		v := autoVerify(s.out, s.dir, s.cfg)
 		fmt.Fprintf(s.out, "  verdict: %s\n", v.Status)
 	case "/help":
-		fmt.Fprintln(s.out, "  /cost — spend so far   /clear — reset context   /verify — re-run tests")
-		fmt.Fprintln(s.out, "  /help — this           /exit — quit")
+		fmt.Fprintln(s.out, "  /cost — spend so far    /context — context usage   /verify — re-run tests")
+		fmt.Fprintln(s.out, "  /clear — reset context  /recover — undo compaction  /exit — quit")
 	default:
 		fmt.Fprintf(s.out, "  unknown command (try /help)\n")
 	}
@@ -141,5 +150,7 @@ func printEvent(out io.Writer, e agent.Event) {
 		fmt.Fprintf(out, "  ■ halted: %s\n", e.Detail)
 	case "budget":
 		fmt.Fprintf(out, "  ■ budget: %s\n", e.Detail)
+	case "context":
+		fmt.Fprintf(out, "  ◆ context compacted: %s\n", e.Detail)
 	}
 }
