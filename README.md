@@ -38,7 +38,8 @@ built for the part where you're not watching.
 Download a pre-built binary from [Releases](https://github.com/mholovetskyi/cliche/releases)
 — each release ships a single static binary per platform, a `checksums.txt`, an
 SBOM, and a cosign (keyless) signature over the checksums, so you can verify the
-supply chain end-to-end.
+supply chain end-to-end. Copy-paste verification steps are in
+[SECURITY.md → Verify your download](SECURITY.md#verify-your-download).
 
 Or with Go:
 
