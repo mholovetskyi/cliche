@@ -118,16 +118,35 @@ func loginBanner() string {
 }
 
 // compactHeader returns a three-line framed identity panel for the chat session
-// start: a gradient rule, the wordmark + session metadata, and a closing rule.
-// The full ASCII hero is reserved for the first-run splash / bare `cliche`.
+// start: a gradient rule, the wordmark + a mode badge + session metadata, and a
+// closing rule. The mode rides in a colored badge (not gray text) because it is
+// the active guardrail and should be the most scannable thing in the strip. The
+// full ASCII hero is reserved for the first-run splash / bare `cliche`.
 func compactHeader(provider, model, mode, keySrc string) string {
 	var b strings.Builder
-	meta := style.Gray(provider+" · "+model+" · "+mode) + style.Dim(" · key "+keySrc)
+	badge := style.Badge(strings.ToUpper(mode), style.InkRGB, modeColor(mode))
+	meta := style.Gray(provider+" · "+model) + style.Dim(" · key "+keySrc)
 	rule := "  " + style.GradientRule(artWidth)
 	b.WriteString(rule + "\n")
-	b.WriteString("  " + gradientWordmark() + "   " + meta + "\n")
+	b.WriteString("  " + gradientWordmark() + "   " + badge + "  " + meta + "\n")
 	b.WriteString(rule)
 	return b.String()
+}
+
+// modeColor escalates the mode badge's fill with how much rope the mode grants:
+// plan (gray, read-only) → suggest (white, asks first) → auto-edit (coral) →
+// full (red, auto-approves). The same ladder tints the prompt chevron.
+func modeColor(mode string) style.RGB {
+	switch mode {
+	case modePlan:
+		return style.GrayRGB
+	case modeAutoEdit:
+		return style.Sample(0.5)
+	case modeFull:
+		return style.RedRGB
+	default: // suggest
+		return style.WhiteRGB
+	}
 }
 
 // verdictStyled renders a verify verdict with an icon AND a color, so the

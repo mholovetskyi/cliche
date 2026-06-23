@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/style"
 )
 
@@ -114,4 +115,23 @@ func (s *session) showRules() {
 		hooks = append(hooks, "stop: "+s.cfg.Hooks.Stop)
 	}
 	line("hooks", join(hooks, "none"))
+}
+
+// showModels lists the priced model catalog in-session, marking the active model
+// and pointing at /model to switch — so a cost/quality swap doesn't require
+// leaving the session to edit config. Prices are the same maintained table that
+// turns the hard token cap into the estimated dollar cap (see `cliche models`).
+func (s *session) showModels() {
+	cur := s.a.Model()
+	fmt.Fprintln(s.out, "  "+style.White("models")+style.Gray("  ·  $/1M tokens (in / out)  ·  switch with `/model <id>`"))
+	fmt.Fprintln(s.out, "  "+style.Gray("current: ")+style.BoldGreen(cur))
+	for _, e := range pricing.Models() {
+		marker := "  "
+		name := style.White(style.Pad(e.Model, 30))
+		if e.Model == cur {
+			marker = style.BoldGreen(gl("›", ">")) + " "
+			name = style.BoldGreen(style.Pad(e.Model, 30))
+		}
+		fmt.Fprintf(s.out, "  %s%s %s\n", marker, name, style.Gray(fmt.Sprintf("%6.2f / %6.2f", e.Price.InputPerM, e.Price.OutputPerM)))
+	}
 }

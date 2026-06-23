@@ -109,6 +109,12 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 			a.Restore(rec.Messages, rec.Usage)
 			s.id, s.title, s.created = rec.ID, rec.Title, rec.Created
 			s.resumed = len(rec.Messages)
+			s.tasks = rec.Tasks
+			for _, t := range rec.Tasks {
+				if t.ID > s.nextTaskID {
+					s.nextTaskID = t.ID
+				}
+			}
 		}
 	}
 	if s.id == "" {
@@ -121,21 +127,23 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 }
 
 type session struct {
-	a         *agent.Agent
-	r         *bufio.Reader
-	out       io.Writer
-	dir       string
-	cfg       config.Config
-	verify    bool
-	journal   *tools.EditJournal
-	spin      *spinner // active "thinking" indicator during a model wait (main goroutine only)
-	id        string   // session id for on-disk persistence
-	title     string   // first prompt, used as the session title
-	created   time.Time
-	resumed   int         // messages restored from a resumed session (0 if fresh)
-	streaming bool        // currently mid live-streamed assistant block
-	stream    *mdStreamer // line-buffered markdown renderer for the streamed block
-	app       *approver   // for /mode (mutates the approver's permission mode)
+	a          *agent.Agent
+	r          *bufio.Reader
+	out        io.Writer
+	dir        string
+	cfg        config.Config
+	verify     bool
+	journal    *tools.EditJournal
+	spin       *spinner // active "thinking" indicator during a model wait (main goroutine only)
+	id         string   // session id for on-disk persistence
+	title      string   // first prompt, used as the session title
+	created    time.Time
+	resumed    int         // messages restored from a resumed session (0 if fresh)
+	streaming  bool        // currently mid live-streamed assistant block
+	stream     *mdStreamer // line-buffered markdown renderer for the streamed block
+	app        *approver   // for /mode (mutates the approver's permission mode)
+	tasks      []sess.Task // the session's lightweight plan (/plan, /tasks, /done)
+	nextTaskID int         // monotonic id for new plan tasks
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -153,6 +161,7 @@ func (s *session) persist() {
 		Updated:  time.Now(),
 		Usage:    s.a.Usage(),
 		Messages: s.a.Transcript(),
+		Tasks:    s.tasks,
 	})
 }
 
@@ -251,13 +260,12 @@ func (s *session) loop() int {
 			fmt.Fprintln(s.out, "  "+style.Dim(tip))
 		}
 		fmt.Fprint(s.out, "  "+s.prompt())
-		line, err := s.r.ReadString('\n')
-		if err != nil { // EOF (Ctrl-D)
+		line, err := s.readInput()
+		if err != nil { // EOF (Ctrl-D) at an empty prompt
 			fmt.Fprintln(s.out)
 			s.persist()
 			return 0
 		}
-		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -269,7 +277,15 @@ func (s *session) loop() int {
 			continue
 		}
 		if s.title == "" {
-			s.title = line // first prompt becomes the session title
+			// First prompt becomes the session title — its first line only, so a
+			// multi-line prompt doesn't sprawl across the session list.
+			s.title = strings.TrimSpace(strings.SplitN(line, "\n", 2)[0])
+		}
+		// Inline any @file references into the prompt the model sees, echoing a
+		// short note for each (the typed line stays the title/transcript anchor).
+		prompt, notes := s.expandFileRefs(line)
+		for _, n := range notes {
+			fmt.Fprintln(s.out, "  "+n)
 		}
 		// Install a SIGINT handler only while a task runs, so Ctrl-C aborts the
 		// current task (gracefully, structured) but leaves the session alive;
@@ -277,7 +293,7 @@ func (s *session) loop() int {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		start, u0 := time.Now(), s.a.Usage()
 		s.startSpin("thinking…") // shimmer while we wait on the first model response
-		o, runErr := s.a.Run(ctx, line)
+		o, runErr := s.a.Run(ctx, prompt)
 		s.stopSpin()
 		s.endStream() // close any open streamed block before the outcome line
 		stop()
@@ -288,6 +304,36 @@ func (s *session) loop() int {
 		}
 		s.afterTask(o, time.Since(start), s.a.Usage().USD-u0.USD)
 	}
+}
+
+// readInput reads one logical prompt, supporting backslash line continuation: a
+// line ending in '\' drops the backslash and continues on the next line, so a
+// multi-line prompt (or a pasted block entered line-by-line) can be composed
+// without sending early. Single-line entry is unchanged, and a slash command is
+// always read as a single line (so "/cmd …\" isn't swallowed). Returns the
+// joined, trimmed text; a non-nil error means EOF at an empty prompt.
+func (s *session) readInput() (string, error) {
+	first, err := s.r.ReadString('\n')
+	if first == "" && err != nil {
+		return "", err
+	}
+	line := strings.TrimRight(first, "\r\n")
+	if strings.HasPrefix(strings.TrimSpace(line), "/") {
+		return strings.TrimSpace(line), nil
+	}
+	var b strings.Builder
+	for strings.HasSuffix(line, "\\") {
+		b.WriteString(strings.TrimSuffix(line, "\\"))
+		b.WriteByte('\n')
+		fmt.Fprint(s.out, "  "+style.Dim(gl("┊", ":")+" ")) // continuation marker
+		next, nerr := s.r.ReadString('\n')
+		line = strings.TrimRight(next, "\r\n")
+		if next == "" && nerr != nil {
+			break // EOF mid-continuation: send what we have
+		}
+	}
+	b.WriteString(line)
+	return strings.TrimSpace(b.String()), nil
 }
 
 // modeName is the current permission mode (defaults to suggest).
@@ -311,16 +357,41 @@ func (s *session) statusStrip() string {
 
 // prompt is a single chevron whose color encodes permission risk: gray when the
 // agent must ask (plan/suggest), coral when it auto-edits, red when it auto-runs
-// everything (full) — so the prompt itself signals how much rope is out.
+// everything (full) — and red regardless of mode once budget or context headroom
+// runs low, so the prompt itself signals both how much rope is out and how close
+// a cap is.
 func (s *session) prompt() string {
-	c := style.GrayRGB
-	switch s.modeName() {
-	case modeAutoEdit:
-		c = style.Sample(0.5)
-	case modeFull:
-		c = style.RedRGB
+	u := s.a.Usage()
+	lim := s.a.Limits()
+	var budgetFrac, ctxFrac float64
+	if lim.MaxUSD > 0 {
+		budgetFrac = u.USD / lim.MaxUSD
 	}
-	return style.Color(gl("❯", ">"), c) + " "
+	if est, _ := s.a.ContextStats(); s.cfg.Context.LimitTokens > 0 {
+		ctxFrac = float64(est) / float64(s.cfg.Context.LimitTokens)
+	}
+	return style.Color(gl("❯", ">"), chevronColor(s.modeName(), budgetFrac, ctxFrac)) + " "
+}
+
+// chevronColor picks the prompt chevron's color: by mode normally, but biased to
+// red once budget or context usage crosses 80% — a near-cap warning that fires
+// in any mode.
+func chevronColor(mode string, budgetFrac, ctxFrac float64) style.RGB {
+	hi := budgetFrac
+	if ctxFrac > hi {
+		hi = ctxFrac
+	}
+	if hi >= 0.8 {
+		return style.RedRGB
+	}
+	switch mode {
+	case modeAutoEdit:
+		return style.Sample(0.5)
+	case modeFull:
+		return style.RedRGB
+	default:
+		return style.GrayRGB
+	}
 }
 
 // shortModel drops a provider prefix for the status strip (openai/gpt-4o-mini →
@@ -437,6 +508,12 @@ func (s *session) slash(line string) bool {
 	case "/verify":
 		v := autoVerify(s.out, s.dir, s.cfg)
 		fmt.Fprintf(s.out, "  verdict: %s\n", v.Status)
+	case "/plan":
+		s.addTask(line)
+	case "/tasks":
+		s.showTasks()
+	case "/done":
+		s.markTaskDone(line)
 	case "/diff":
 		s.showDiff()
 	case "/undo":
@@ -445,6 +522,8 @@ func (s *session) slash(line string) bool {
 		s.rewind()
 	case "/model":
 		s.switchModel(line)
+	case "/models":
+		s.showModels()
 	case "/mode":
 		s.setMode(line)
 	case "/commit":
@@ -534,22 +613,38 @@ func (s *session) switchModel(line string) {
 	fmt.Fprintf(s.out, "  model → %s\n", style.White(m))
 }
 
-// rewind reverts every file change made this session (undo the agent).
+// rewind reverts every file change made this session, after previewing the
+// footprint — a per-file summary so the user sees the blast radius before this
+// (powerful, easily mistriggered) command takes effect.
 func (s *session) rewind() {
+	changes := s.journal.Changes()
+	if len(changes) == 0 {
+		fmt.Fprintln(s.out, "  nothing to rewind.")
+		return
+	}
+	fmt.Fprintf(s.out, "  rewinding %d file(s):\n", len(changes))
+	for _, c := range changes {
+		tag := "~"
+		switch {
+		case c.Deleted:
+			tag = "-"
+		case c.WasNew:
+			tag = "+"
+		}
+		fmt.Fprintf(s.out, "    %s %s\n", style.Red(tag), style.White(c.Path))
+	}
 	reverted, err := s.journal.RewindAll()
 	if err != nil {
 		fmt.Fprintln(s.out, "  rewind failed: "+err.Error())
 		return
 	}
-	if len(reverted) == 0 {
-		fmt.Fprintln(s.out, "  nothing to rewind.")
-		return
-	}
-	fmt.Fprintf(s.out, "  rewound %d file(s): %s\n", len(reverted), style.Gray(strings.Join(reverted, ", ")))
+	fmt.Fprintf(s.out, "  rewound %d file(s).\n", len(reverted))
 }
 
-// undo reverts the most recent file mutation made this session.
+// undo reverts the most recent file mutation made this session, showing the
+// rollback diff so the user sees exactly what changed back.
 func (s *session) undo() {
+	_, restored, current, ok := s.journal.PendingUndo()
 	path, did, err := s.journal.Undo()
 	switch {
 	case err != nil:
@@ -558,6 +653,9 @@ func (s *session) undo() {
 		fmt.Fprintln(s.out, "  nothing to undo.")
 	default:
 		fmt.Fprintf(s.out, "  reverted %s\n", style.White(path))
+		if ok {
+			fmt.Fprintln(s.out, tools.PreviewChange(current, restored))
+		}
 	}
 }
 

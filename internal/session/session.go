@@ -19,6 +19,14 @@ import (
 	"github.com/mholovetskyi/cliche/internal/provider"
 )
 
+// Task is one item on the session's lightweight plan (the /plan, /tasks, /done
+// surface). Persisted with the record so resuming a session restores the plan.
+type Task struct {
+	ID    int    `json:"id"`
+	Title string `json:"title"`
+	Done  bool   `json:"done"`
+}
+
 // Record is a persisted session.
 type Record struct {
 	ID       string             `json:"id"`
@@ -29,6 +37,7 @@ type Record struct {
 	Updated  time.Time          `json:"updated"`
 	Usage    budget.Usage       `json:"usage"`
 	Messages []provider.Message `json:"messages"`
+	Tasks    []Task             `json:"tasks,omitempty"`
 }
 
 // Meta is a lightweight summary for listing.

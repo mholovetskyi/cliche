@@ -57,10 +57,29 @@ func TestCompactHeaderContent(t *testing.T) {
 	style.Enabled, noColor = false, true // plain mode: assert the text survives
 	defer func() { style.Enabled, noColor = oldE, oldNC }()
 	h := compactHeader("openrouter", "gpt-4o-mini", "suggest", "env")
-	for _, want := range []string{"cliché", "openrouter", "gpt-4o-mini", "suggest", "key env"} {
+	// The mode now rides in a badge (uppercased); under NO_COLOR it degrades to
+	// [SUGGEST] but the state still reads.
+	for _, want := range []string{"cliché", "openrouter", "gpt-4o-mini", "SUGGEST", "key env"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("compact header missing %q: %q", want, h)
 		}
+	}
+}
+
+func TestChevronColorBiasesToRedNearCaps(t *testing.T) {
+	// By mode when there's headroom…
+	if chevronColor(modeSuggest, 0.1, 0.1) != style.GrayRGB {
+		t.Error("suggest with headroom should be gray")
+	}
+	if chevronColor(modeFull, 0, 0) != style.RedRGB {
+		t.Error("full mode should be red")
+	}
+	// …but red once budget OR context crosses 80%, regardless of mode.
+	if chevronColor(modeSuggest, 0.85, 0) != style.RedRGB {
+		t.Error("high budget use should force the chevron red")
+	}
+	if chevronColor(modePlan, 0, 0.9) != style.RedRGB {
+		t.Error("high context use should force the chevron red even in plan mode")
 	}
 }
 

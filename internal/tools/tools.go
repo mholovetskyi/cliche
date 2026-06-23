@@ -133,6 +133,15 @@ func (e OSExecutor) ruleDecision(category, target string) ruleAction {
 // It resolves symlinks on the root and on the longest existing prefix of the
 // target, so an in-root symlink that points outside the root is also rejected.
 // It returns the absolute path to use for the operation.
+// ResolveWithin resolves path against root and confirms it does not escape root
+// (following symlinks), returning the absolute path. It is the standalone form
+// of the executor's confinement check, so callers outside the executor — like
+// the chat @file include — reuse the exact path-safety rules instead of
+// re-implementing them. An empty root disables confinement.
+func ResolveWithin(root, path string) (string, error) {
+	return OSExecutor{Root: root}.resolve(path)
+}
+
 func (e OSExecutor) resolve(path string) (string, error) {
 	// Sandbox forces confinement: --allow-outside-root is ignored in sandbox mode.
 	if e.Root == "" || (e.Policy.AllowOutsideRoot && !e.Policy.Sandbox) {

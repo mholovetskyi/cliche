@@ -102,6 +102,9 @@ func TestSessionDiffAndUndo(t *testing.T) {
 	if !strings.Contains(out.String(), "reverted a.txt") {
 		t.Fatalf("/undo should report the reverted file:\n%s", out.String())
 	}
+	if !strings.Contains(out.String(), "+ old") {
+		t.Fatalf("/undo should preview the rollback diff (restoring 'old'):\n%s", out.String())
+	}
 	if got, _ := os.ReadFile(file); string(got) != "old\n" {
 		t.Fatalf("/undo should restore the original content, got %q", got)
 	}

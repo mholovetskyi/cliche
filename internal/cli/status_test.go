@@ -67,3 +67,26 @@ func TestShowStatusAndRules(t *testing.T) {
 		}
 	}
 }
+
+func TestShowModels(t *testing.T) {
+	oldE, oldNC := style.Enabled, noColor
+	style.Enabled, noColor = false, true
+	defer func() { style.Enabled, noColor = oldE, oldNC }()
+
+	led, _ := ledger.Open(t.TempDir())
+	a := agent.New(
+		provider.NewMock("mock", provider.NormalScript(), false),
+		budget.New(budget.Limits{MaxTokens: 1_000_000}),
+		governor.DefaultLimits(),
+		led, tools.SimExecutor{}, agent.Config{Model: "gpt-4o-mini"},
+	)
+	var out bytes.Buffer
+	s := &session{a: a, out: &out, cfg: config.Config{Provider: "openai"}}
+	s.showModels()
+	got := out.String()
+	for _, want := range []string{"models", "current:", "gpt-4o-mini", "0.15"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("/models missing %q:\n%s", want, got)
+		}
+	}
+}

@@ -393,10 +393,13 @@ func (a *Agent) logf(turn int, event, detail string) {
 }
 
 // argSummary renders the primary target of a tool call for the activity feed:
-// the file path, command, or URL — no key= prefixes and no big blobs (the verb
-// column already names the action; a diff is shown at approval time).
+// the file, command, URL, search pattern, path, or subagent prompt — no key=
+// prefixes and no big blobs (the verb column already names the action; a diff is
+// shown at approval time). The key order is the salience order, and the curated
+// list covers every built-in tool so the feed and spinner always name a target
+// rather than showing a bare verb.
 func argSummary(args map[string]string) string {
-	for _, k := range []string{"file", "command", "url"} {
+	for _, k := range []string{"file", "command", "url", "pattern", "path", "prompt", "query"} {
 		if v := strings.TrimSpace(args[k]); v != "" {
 			return truncate(v, 64)
 		}

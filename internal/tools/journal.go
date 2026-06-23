@@ -120,6 +120,28 @@ func (j *EditJournal) Undo() (path string, did bool, err error) {
 	return j.relPath(c.path), true, nil
 }
 
+// PendingUndo previews the mutation Undo would revert next — WITHOUT reverting —
+// returning the file's display path, the content it would be restored to, its
+// current on-disk content, and ok=false when the journal is empty. Callers pass
+// (current, restored) to PreviewChange to show the rollback diff.
+func (j *EditJournal) PendingUndo() (path, restored, current string, ok bool) {
+	if j == nil {
+		return "", "", "", false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(j.stack) == 0 {
+		return "", "", "", false
+	}
+	c := j.stack[len(j.stack)-1]
+	restored = c.before
+	if !c.existed {
+		restored = "" // undo will delete a file this op created
+	}
+	data, _ := os.ReadFile(c.path)
+	return j.relPath(c.path), restored, string(data), true
+}
+
 // relPath reports p relative to the journal root for display. The executor
 // records absolute, symlink-resolved paths (see OSExecutor.resolve), so the
 // root is normalized the same way before relativizing — otherwise a journal
