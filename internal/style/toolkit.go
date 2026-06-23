@@ -188,10 +188,15 @@ func Badge(text string, fg, bg RGB) string {
 
 // Gauge renders a proportion as a small coral bar of the given cell width
 // (filled ▰ / empty ▱). Returns "" when styling is off, so callers pair it with
-// a numeric "NN%" that carries the meaning under NO_COLOR.
+// a numeric "NN%" that carries the meaning under NO_COLOR. The fill count is
+// round-half-up (int(frac*width + 0.5)); frac is clamped to [0,1] and a NaN
+// (e.g. 0/0 when a cap is unset) renders empty rather than panicking.
 func Gauge(frac float64, width int) string {
 	if !Enabled || width <= 0 {
 		return ""
+	}
+	if frac != frac { // NaN (no IEEE comparison is true for NaN)
+		frac = 0
 	}
 	if frac < 0 {
 		frac = 0
@@ -230,6 +235,141 @@ func ShowCursor(w io.Writer) {
 	if Enabled {
 		io.WriteString(w, "\x1b[?25h")
 	}
+}
+
+// ---- alignment & framing primitives ----
+
+// Align selects how TableRow positions a cell within its column width.
+type Align int
+
+const (
+	AlignLeft Align = iota
+	AlignRight
+	AlignCenter
+)
+
+// padLeft left-pads s to n display cells (the right-aligned counterpart to Pad).
+func padLeft(s string, n int) string {
+	if d := n - Width(s); d > 0 {
+		return strings.Repeat(" ", d) + s
+	}
+	return s
+}
+
+// PadCenter centers s within n display cells (no truncation): the slack splits
+// floor-left / ceil-right. Width-aware, so embedded ANSI escapes and wide runes
+// never skew the centering.
+func PadCenter(s string, n int) string {
+	slack := n - Width(s)
+	if slack <= 0 {
+		return s
+	}
+	left := slack / 2
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", slack-left)
+}
+
+// TruncateLeft clips s to at most n display cells by dropping runes from the
+// LEFT and prepending an ellipsis, so the tail survives — the right tool for a
+// long path whose filename matters most (…/internal/cli/session.go). Like
+// Truncate, it is meant for plain (unstyled) text and never severs a rune.
+func TruncateLeft(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if Width(s) <= n {
+		return s
+	}
+	rs := []rune(s)
+	w, budget := 0, n-1 // reserve one cell for the ellipsis
+	i := len(rs)
+	for i > 0 {
+		cw := runeWidth(rs[i-1])
+		if w+cw > budget {
+			break
+		}
+		w += cw
+		i--
+	}
+	return "…" + string(rs[i:])
+}
+
+// TableRow lays cols into fixed display-cell widths with per-column alignment,
+// joined by a single space. Cells are padded (never truncated) via Width(), so
+// ANSI-styled cells stay column-aligned. Missing widths/align entries default to
+// the cell's own width / left-aligned.
+func TableRow(cols []string, widths []int, align []Align) string {
+	parts := make([]string, len(cols))
+	for i, c := range cols {
+		w := 0
+		if i < len(widths) {
+			w = widths[i]
+		}
+		a := AlignLeft
+		if i < len(align) {
+			a = align[i]
+		}
+		switch a {
+		case AlignRight:
+			parts[i] = padLeft(c, w)
+		case AlignCenter:
+			parts[i] = PadCenter(c, w)
+		default:
+			parts[i] = Pad(c, w)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// Box frames body in a rounded rectangle sized to its widest line, with an
+// optional title inset into the top edge. The border takes color c; the title
+// and body keep whatever styling the caller gave them. Every emitted line is the
+// same display width (Width-aware), so the frame never skews around color or
+// wide runes. Under !Enabled it degrades to a "[title]" header over an indented
+// body, so the structure still reads when piped.
+func Box(title, body string, c RGB) string {
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	inner := 0
+	for _, ln := range lines {
+		if w := Width(ln); w > inner {
+			inner = w
+		}
+	}
+	if title != "" && Width(title)+2 > inner {
+		inner = Width(title) + 2 // guarantee at least one fill dash past the title
+	}
+	if !Enabled {
+		var b strings.Builder
+		if title != "" {
+			b.WriteString("[" + title + "]\n")
+		}
+		for i, ln := range lines {
+			b.WriteString("  " + ln)
+			if i < len(lines)-1 {
+				b.WriteByte('\n')
+			}
+		}
+		return b.String()
+	}
+	paint := func(s string) string { return Color(s, c) }
+	var b strings.Builder
+	// Top edge: ╭─ title ──────╮ (the interior between ╭ and ╮ is inner+2 cells).
+	used := 1 // the "─" right after ╭
+	top := paint("╭─")
+	if title != "" {
+		top += " " + title + " "
+		used += Width(title) + 2
+	}
+	fill := inner + 2 - used
+	if fill < 0 {
+		fill = 0
+	}
+	top += paint(strings.Repeat("─", fill) + "╮")
+	b.WriteString(top + "\n")
+	for _, ln := range lines {
+		b.WriteString(paint("│") + " " + Pad(ln, inner) + " " + paint("│") + "\n")
+	}
+	b.WriteString(paint("╰" + strings.Repeat("─", inner+2) + "╯"))
+	return b.String()
 }
 
 // ---- diagonal hero sweep ----

@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/verifier"
@@ -30,18 +29,30 @@ const artWidth = 43
 // over the final E block, which spans columns 35-42.
 const accentCol = 38
 
-// heroLogo renders the ANSI-Shadow "CLICHÉ" block. The letters sweep on a
-// diagonal (Gradient2D) so the stacked rows read as one corner-to-corner coral
-// sheen, and the acute accent over the final E is forced brand-RED — so the
-// wordmark's most distinctive element finally reads as "cliché".
+// eBlockCol is the column (0-based) where the final E block begins. The wordmark
+// is C-L-I-C-H-E with widths 8+8+3+8+8(+8), so "CLICH" occupies columns 0-34 and
+// the E spans 35-42. The hero forces that E brand-red — mirroring the red "é" in
+// the inline wordmark — so the eye reads CLICHÉ even where the accent stroke is
+// unavailable (NO_COLOR), instead of an ambiguous CLICHE.
+const eBlockCol = 35
+
+// heroLogo renders the ANSI-Shadow "CLICHÉ" block. "CLICH" sweeps on a diagonal
+// (Gradient2D) so the stacked rows read as one corner-to-corner coral sheen, the
+// final E is forced brand-red, and an acute accent rides above it. The accent is
+// routed through gl() so a dumb terminal degrades the box-drawing stroke to an
+// ASCII tick rather than emitting an unrenderable glyph.
 func heroLogo() string {
 	var b strings.Builder
-	b.WriteString("  " + style.Red(strings.Repeat(" ", accentCol)+"╱╱") + "\n")
+	rows := len(clicheLetters)
+	b.WriteString("  " + style.Red(strings.Repeat(" ", accentCol)+gl("╱╱", "'")) + "\n")
 	for i, row := range clicheLetters {
-		if pad := artWidth - utf8.RuneCountInString(row); pad > 0 {
-			row += strings.Repeat(" ", pad)
+		rs := []rune(row)
+		for len(rs) < artWidth {
+			rs = append(rs, ' ')
 		}
-		b.WriteString("  " + style.Gradient2D(row, i, len(clicheLetters)) + "\n")
+		head := style.Gradient2D(string(rs[:eBlockCol]), i, rows)
+		eBlock := style.Red(string(rs[eBlockCol:]))
+		b.WriteString("  " + head + eBlock + "\n")
 	}
 	return b.String()
 }
@@ -91,13 +102,32 @@ func gradientWordmark() string {
 	return style.Color(gl("⬡", "*"), style.Sample(0)) + " " + style.GradientBold("cliché")
 }
 
-// compactHeader is the one-line interactive-session identity: the gradient
-// wordmark plus a metadata strip. The full ASCII hero is reserved for the
-// first-run splash / bare `cliche`, so an everyday session opens with the prompt
-// near the top of the screen instead of behind 13 lines of wallpaper.
+// loginBanner renders the full hero wordmark + a "connect a provider" frame for
+// the `cliche login` wizard. The gradient rules give the provider list a clean
+// panel feel without needing to know the terminal width.
+func loginBanner() string {
+	var b strings.Builder
+	b.WriteByte('\n')
+	b.WriteString(heroLogo())
+	b.WriteByte('\n')
+	b.WriteString("  " + style.GradientRule(artWidth) + "\n")
+	b.WriteString("  " + style.White("connect a model provider") + "\n")
+	b.WriteString("  " + style.Gray("BYO-key · stored locally (0600) · never sent anywhere but the provider") + "\n")
+	b.WriteString("  " + style.GradientRule(artWidth) + "\n")
+	return b.String()
+}
+
+// compactHeader returns a three-line framed identity panel for the chat session
+// start: a gradient rule, the wordmark + session metadata, and a closing rule.
+// The full ASCII hero is reserved for the first-run splash / bare `cliche`.
 func compactHeader(provider, model, mode, keySrc string) string {
+	var b strings.Builder
 	meta := style.Gray(provider+" · "+model+" · "+mode) + style.Dim(" · key "+keySrc)
-	return "  " + gradientWordmark() + "   " + meta
+	rule := "  " + style.GradientRule(artWidth)
+	b.WriteString(rule + "\n")
+	b.WriteString("  " + gradientWordmark() + "   " + meta + "\n")
+	b.WriteString(rule)
+	return b.String()
 }
 
 // verdictStyled renders a verify verdict with an icon AND a color, so the

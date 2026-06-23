@@ -33,6 +33,15 @@ func (a *approver) setMode(m string) {
 	a.mu.Unlock()
 }
 
+// AlwaysFlags reports which "always allow" grants are active (write/run/web).
+// These are as consequential as the permission mode but otherwise invisible, so
+// /status surfaces them. Mutex-guarded to match Approve's writes.
+func (a *approver) AlwaysFlags() (write, run, web bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.alwaysWrite, a.alwaysRun, a.alwaysWeb
+}
+
 // Approve is passed to tools.OSExecutor as its Approver. The mode short-circuits
 // the prompt: plan denies, full allows, auto-edit auto-allows writes.
 func (a *approver) Approve(action, detail string) bool {

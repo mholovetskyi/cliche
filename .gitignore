@@ -3,6 +3,7 @@
 /cliche.exe
 /dist/
 *.exe
+*.exe~
 
 # Go test artifacts
 *.test

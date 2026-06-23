@@ -8,27 +8,43 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/style"
+	"github.com/mholovetskyi/cliche/internal/verifier"
 )
 
 // outcomeMetrics carries the per-mode numbers shown beside an outcome.
 type outcomeMetrics struct {
-	elapsed    time.Duration // 0 = omit
-	tokens     int           // total tokens to display
-	taskUSD    float64       // cost of this task / run
-	sessionUSD float64       // running session total; < 0 = omit (one-shot run)
+	elapsed    time.Duration      // 0 = omit
+	tokens     int                // total tokens to display
+	taskUSD    float64            // cost of this task / run
+	sessionUSD float64            // running session total; < 0 = omit (one-shot run)
+	findings   []verifier.Finding // reward-hack findings behind a flagged verdict
 }
 
 // renderOutcome is the single end-of-task summary shared by chat and run, so
-// both modes speak one visual language: an icon + status header, a humanized
-// remedy for any halt, a cost line, and the verdict. Indented on the gutter
-// (the done/stop lines used to print flush-left, breaking the rhythm).
+// both modes speak one visual language. It leads with the safety verdict (and,
+// when flagged, the specific findings) because the decision moment is "did it
+// finish safely?" — the trust signal belongs where the eye lands first, ahead of
+// the status, any halt remedy, and the cost. Indented on the gutter throughout.
 func renderOutcome(out io.Writer, o agent.Outcome, m outcomeMetrics) {
+	if o.Verdict != "" {
+		fmt.Fprintln(out, "\n  "+verdictStyled(o.Verdict))
+		for _, f := range m.findings {
+			fmt.Fprintf(out, "    %s %s\n", style.Red(gl("•", "-")), style.Gray(fmt.Sprintf("[%s] %s", f.Rule, f.Detail)))
+		}
+	}
+
 	icon, label, paint := outcomeBadge(o.Stop)
 	meta := pluralTurns(o.Turns)
 	if m.elapsed > 0 {
 		meta += " · " + humanDuration(m.elapsed)
 	}
-	fmt.Fprintf(out, "\n  %s %s\n", paint(icon+" "+label), style.Gray("· "+meta))
+	// Open the block with a blank line only when no verdict preceded it, so the
+	// summary stays a single visually-grouped unit either way.
+	lead := "\n  "
+	if o.Verdict != "" {
+		lead = "  "
+	}
+	fmt.Fprintf(out, "%s%s %s\n", lead, paint(icon+" "+label), style.Gray("· "+meta))
 
 	if h := humanStop(o); h != "" && o.Stop != agent.StopCompleted {
 		fmt.Fprintln(out, "  "+style.Gray(h))
@@ -39,10 +55,6 @@ func renderOutcome(out io.Writer, o agent.Outcome, m outcomeMetrics) {
 		cost = fmt.Sprintf("~%s tokens · $%.4f this task · $%.4f session", humanTokens(m.tokens), m.taskUSD, m.sessionUSD)
 	}
 	fmt.Fprintln(out, "  "+style.Gray(cost))
-
-	if o.Verdict != "" {
-		fmt.Fprintln(out, "  "+verdictStyled(o.Verdict))
-	}
 }
 
 // outcomeBadge returns the icon, label, and color for a stop state.

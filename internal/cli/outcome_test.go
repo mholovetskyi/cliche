@@ -75,3 +75,25 @@ func TestRenderOutcomeContent(t *testing.T) {
 		t.Errorf("budget halt should carry a humanized remedy:\n%s", budget.String())
 	}
 }
+
+func TestRenderOutcomeLeadsWithVerdictAndFindings(t *testing.T) {
+	oldE, oldNC := style.Enabled, noColor
+	style.Enabled, noColor = false, true
+	defer func() { style.Enabled, noColor = oldE, oldNC }()
+
+	var buf bytes.Buffer
+	renderOutcome(&buf, agent.Outcome{Stop: agent.StopCompleted, Turns: 2, Verdict: verifier.StatusFlagged},
+		outcomeMetrics{tokens: 100, taskUSD: 0.01, sessionUSD: -1,
+			findings: []verifier.Finding{{Rule: "tests_failed", Detail: "independent re-run failed"}}})
+	s := buf.String()
+	if !strings.Contains(s, "FLAGGED") {
+		t.Fatalf("outcome should show the verdict:\n%s", s)
+	}
+	if !strings.Contains(s, "tests_failed") || !strings.Contains(s, "independent re-run failed") {
+		t.Fatalf("flagged outcome should surface the finding rule + detail:\n%s", s)
+	}
+	// The verdict must lead — appear before the status badge ("done").
+	if vi, di := strings.Index(s, "FLAGGED"), strings.Index(s, "done"); vi < 0 || di < 0 || vi > di {
+		t.Fatalf("verdict should lead the outcome, before the status line:\n%s", s)
+	}
+}

@@ -1,6 +1,7 @@
 package style
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -106,5 +107,130 @@ func TestGaugeAndBadgeDegrade(t *testing.T) {
 	Enabled = true
 	if Width(Gauge(0.5, 6)) != 6 {
 		t.Fatalf("Gauge should be exactly width cells, got %d", Width(Gauge(0.5, 6)))
+	}
+}
+
+func TestGaugeEdgeCases(t *testing.T) {
+	old := Enabled
+	Enabled = true
+	defer func() { Enabled = old }()
+
+	// width 1, the boundary fractions, and out-of-range / non-finite inputs must
+	// all stay exactly `width` cells and never panic.
+	cases := []struct {
+		frac float64
+		w    int
+	}{
+		{0, 1}, {1, 1}, {0.5, 1},
+		{0, 8}, {1, 8}, {-0.3, 8}, {1.7, 8},
+		{math.NaN(), 8}, {math.Inf(1), 8}, {math.Inf(-1), 8},
+	}
+	for _, c := range cases {
+		got := Gauge(c.frac, c.w)
+		if Width(got) != c.w {
+			t.Errorf("Gauge(%v,%d) width = %d, want %d", c.frac, c.w, Width(got), c.w)
+		}
+	}
+	if Gauge(0, 0) != "" || Gauge(0.5, -1) != "" {
+		t.Fatal("Gauge must be empty for non-positive width")
+	}
+}
+
+func TestWidthMalformedOSC(t *testing.T) {
+	// An OSC sequence (ESC ]) with neither a BEL nor an ST terminator must be
+	// consumed without hanging and contribute no display cells.
+	if w := Width("\x1b]8;;no-terminator-here"); w != 0 {
+		t.Fatalf("unterminated OSC width = %d, want 0 (consumed)", w)
+	}
+	// A properly terminated OSC (BEL) followed by text counts only the text.
+	if w := Width("\x1b]0;title\x07hi"); w != 2 {
+		t.Fatalf("terminated OSC + text width = %d, want 2", w)
+	}
+}
+
+func TestWidthGradientPreservesCells(t *testing.T) {
+	old := Enabled
+	Enabled = true
+	defer func() { Enabled = old }()
+	// Gradient embeds a color escape before every non-space rune; Width must see
+	// straight through them, including CJK (2 cells) and a combining mark (0).
+	s := "café 世界"
+	if Width(Gradient(s)) != Width(s) {
+		t.Fatalf("Gradient changed measured width: %d vs %d", Width(Gradient(s)), Width(s))
+	}
+	if Width(s) != 4+1+4 { // café=4, space=1, 世界=4
+		t.Fatalf("baseline Width(%q) = %d, want 9", s, Width(s))
+	}
+}
+
+func TestPadCenterAndPadLeft(t *testing.T) {
+	if got := PadCenter("hi", 6); got != "  hi  " {
+		t.Fatalf("PadCenter = %q, want %q", got, "  hi  ")
+	}
+	// Odd slack: floor-left, ceil-right.
+	if got := PadCenter("hi", 5); got != " hi  " {
+		t.Fatalf("PadCenter odd = %q, want %q", got, " hi  ")
+	}
+	if PadCenter("toolong", 3) != "toolong" {
+		t.Fatal("PadCenter must not truncate")
+	}
+	if got := padLeft("x", 4); got != "   x" {
+		t.Fatalf("padLeft = %q, want %q", got, "   x")
+	}
+}
+
+func TestTruncateLeftKeepsTail(t *testing.T) {
+	got := TruncateLeft("/a/b/c/internal/cli/session.go", 12)
+	if !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, ".go") {
+		t.Fatalf("TruncateLeft should keep the tail behind an ellipsis: %q", got)
+	}
+	if Width(got) > 12 {
+		t.Fatalf("TruncateLeft exceeded budget: width %d (%q)", Width(got), got)
+	}
+	if TruncateLeft("short", 10) != "short" {
+		t.Fatal("TruncateLeft should pass through short strings")
+	}
+}
+
+func TestTableRowColumnAlignment(t *testing.T) {
+	old := Enabled
+	Enabled = true
+	defer func() { Enabled = old }()
+	// Styled cells must still land on fixed column boundaries.
+	row := TableRow([]string{Red("Read"), White("main.go")}, []int{8, 12}, []Align{AlignLeft, AlignLeft})
+	if Width(row) != 8+1+12 {
+		t.Fatalf("TableRow width = %d, want 21", Width(row))
+	}
+	// Right alignment pads on the left.
+	if got := TableRow([]string{"x"}, []int{5}, []Align{AlignRight}); got != "    x" {
+		t.Fatalf("right-aligned cell = %q, want %q", got, "    x")
+	}
+}
+
+func TestBoxFramesUniformWidth(t *testing.T) {
+	old := Enabled
+	defer func() { Enabled = old }()
+
+	Enabled = true
+	box := Box("status", "mode  suggest\nmodel "+White("gpt-4o-mini"), RGB{229, 72, 77})
+	lines := strings.Split(box, "\n")
+	if len(lines) != 4 { // top + 2 body + bottom
+		t.Fatalf("box should have 4 lines, got %d:\n%s", len(lines), box)
+	}
+	w0 := Width(lines[0])
+	for i, ln := range lines {
+		if Width(ln) != w0 {
+			t.Fatalf("box line %d width %d != top width %d:\n%s", i, Width(ln), w0, box)
+		}
+	}
+	if !strings.Contains(box, "status") {
+		t.Fatal("box should inset its title")
+	}
+
+	// NO_COLOR: degrade to a bracketed title over an indented body.
+	Enabled = false
+	plain := Box("status", "a\nb", RGB{1, 2, 3})
+	if !strings.Contains(plain, "[status]") || !strings.Contains(plain, "  a") {
+		t.Fatalf("NO_COLOR box should be [title] + indented body, got %q", plain)
 	}
 }

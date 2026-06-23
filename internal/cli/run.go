@@ -310,8 +310,10 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	if runErr == nil {
 		printChangeSummary(out, journal)
 	}
+	var findings []verifier.Finding
 	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
-		o.Verdict = autoVerify(out, f.dir, cfg).Status
+		v := autoVerify(out, f.dir, cfg)
+		o.Verdict, findings = v.Status, v.Findings
 	}
 	if runErr == nil && f.commit && o.Stop == agent.StopCompleted {
 		commitChanges(out, f.dir, prompt, cfg.Model, o.Usage.USD)
@@ -319,7 +321,7 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	if runErr == nil {
 		runStopHook(out, f.dir, cfg.Hooks.Stop, o.Stop, o.Verdict)
 	}
-	printOutcome(out, o, time.Since(runStart))
+	printOutcome(out, o, findings, time.Since(runStart))
 	if runErr != nil {
 		return 1
 	}
@@ -355,14 +357,25 @@ func cmdExec(args []string, out, errOut io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	o, runErr := a.Run(ctx, prompt)
+	res := execResult{Outcome: o}
 	if runErr == nil && f.verify && o.Stop == agent.StopCompleted {
-		o.Verdict = autoVerify(io.Discard, f.dir, cfg).Status // keep stdout clean JSON
+		v := autoVerify(io.Discard, f.dir, cfg) // keep stdout clean JSON
+		res.Outcome.Verdict = v.Status
+		res.VerdictFindings = v.Findings
 	}
-	writeJSON(out, o)
+	writeJSON(out, res)
 	if runErr != nil {
 		return 1
 	}
-	return exitCodeFor(o)
+	return exitCodeFor(res.Outcome)
+}
+
+// execResult is exec's JSON payload: the structured outcome plus any verifier
+// findings, so CI can branch on the specific reward-hack rule that fired — not
+// just the verdict status. VerdictFindings is omitted when there are none.
+type execResult struct {
+	agent.Outcome
+	VerdictFindings []verifier.Finding `json:"verdict_findings,omitempty"`
 }
 
 // printChangeSummary lists the files a run created/modified/deleted, so a
@@ -385,10 +398,10 @@ func printChangeSummary(out io.Writer, j *tools.EditJournal) {
 	}
 }
 
-func printOutcome(out io.Writer, o agent.Outcome, elapsed time.Duration) {
+func printOutcome(out io.Writer, o agent.Outcome, findings []verifier.Finding, elapsed time.Duration) {
 	// One-shot run: the final assistant text is already streamed above, so the
 	// raw reason isn't repeated; this is the unified outcome summary.
-	renderOutcome(out, o, outcomeMetrics{elapsed: elapsed, tokens: o.Usage.TotalTokens(), taskUSD: o.Usage.USD, sessionUSD: -1})
+	renderOutcome(out, o, outcomeMetrics{elapsed: elapsed, tokens: o.Usage.TotalTokens(), taskUSD: o.Usage.USD, sessionUSD: -1, findings: findings})
 }
 
 // resolvePrompt resolves the prompt with a consistent precedence for both run

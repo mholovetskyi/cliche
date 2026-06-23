@@ -48,18 +48,21 @@ func cmdLogin(_ []string, out, errOut io.Writer) int {
 // key (hidden), verify it works with a token-free API ping, then save it.
 func runLogin(r *bufio.Reader, out io.Writer) int {
 	clearScreen(out)
-	fmt.Fprintln(out, "\n  "+gradientWordmark()+style.Gray("  let's connect a model provider"))
-	fmt.Fprintln(out, "  "+style.Gray("Cliche is BYO-key — your key is stored locally (0600), never sent anywhere but the provider.\n"))
+	fmt.Fprint(out, loginBanner())
 
 	choices := loginChoices()
+	fmt.Fprintln(out)
 	for i, c := range choices {
-		mark := " "
+		check, num := "  ", style.Gray(fmt.Sprintf("%d", i+1))
 		if _, src := secrets.Lookup(c.key); src != "" {
-			mark = gl("✓", "*")
+			check = style.BoldGreen(gl("✓", "*")) + " "
 		}
-		fmt.Fprintf(out, "    %s %d) %s  %s\n", style.Red(mark), i+1, style.White(c.label), style.Gray(c.where))
+		fmt.Fprintf(out, "  %s%s  %s  %s\n",
+			check, num,
+			style.Pad(style.BoldWhite(c.label), 14),
+			style.Gray(c.where))
 	}
-	fmt.Fprintln(out, "    "+style.Gray("  (any other OpenAI-compatible API — incl. local Ollama/LM Studio — goes under `providers` in .cliche/config.json)"))
+	fmt.Fprintln(out, "\n  "+style.Gray("custom/local providers → `providers:` in .cliche/config.json"))
 
 	choice, ok := readChoice(r, out, choices)
 	if !ok {

@@ -242,10 +242,14 @@ func (s *session) loop() int {
 		fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("resumed %s · %d messages · ~$%.4f so far", s.id, s.resumed, u.USD)))
 	}
 	fmt.Fprintln(s.out, "  "+style.Dim(slashHint()))
-	for {
+	for i := 0; ; i++ {
 		// A fresh status strip at each prompt keeps trust state (mode, model,
-		// spend, context use) glanceable at the point of input.
+		// spend, context use) glanceable at the point of input; a rotating tip
+		// surfaces a feature every few prompts without nagging.
 		fmt.Fprintln(s.out, "\n  "+s.statusStrip())
+		if tip := promptTip(i); tip != "" {
+			fmt.Fprintln(s.out, "  "+style.Dim(tip))
+		}
 		fmt.Fprint(s.out, "  "+s.prompt())
 		line, err := s.r.ReadString('\n')
 		if err != nil { // EOF (Ctrl-D)
@@ -371,16 +375,30 @@ func providerHint(msg string) string {
 
 func (s *session) afterTask(o agent.Outcome, elapsed time.Duration, taskUSD float64) {
 	u := s.a.Usage()
-	renderOutcome(s.out, o, outcomeMetrics{elapsed: elapsed, tokens: u.TotalTokens(), taskUSD: taskUSD, sessionUSD: u.USD})
+	m := outcomeMetrics{elapsed: elapsed, tokens: u.TotalTokens(), taskUSD: taskUSD, sessionUSD: u.USD}
+	// Auto-verify before rendering so the outcome can lead with the verdict and
+	// surface the specific reward-hack findings behind a flagged result.
 	if s.verify && o.Stop == agent.StopCompleted {
 		v := autoVerify(s.out, s.dir, s.cfg)
-		fmt.Fprintln(s.out, "  "+verdictStyled(v.Status))
+		o.Verdict, m.findings = v.Status, v.Findings
 	}
+	renderOutcome(s.out, o, m)
 }
 
 // slash handles a slash command, returning true if the session should exit.
 func (s *session) slash(line string) bool {
-	switch strings.Fields(line)[0] {
+	fields := strings.Fields(line)
+	cmd := fields[0]
+	// Expand an unambiguous abbreviation (/s → /status, /di → /diff) so it runs
+	// directly; ambiguous and unknown inputs fall through to the default hint.
+	if !isCommand(cmd) {
+		if full := expandPrefix(cmd); full != "" {
+			fields[0] = full
+			line = strings.Join(fields, " ")
+			cmd = full
+		}
+	}
+	switch cmd {
 	case "/exit", "/quit":
 		fmt.Fprintln(s.out, "bye.")
 		return true
@@ -406,6 +424,10 @@ func (s *session) slash(line string) bool {
 		} else {
 			fmt.Fprintf(s.out, "  %s\n", style.Gray(fmt.Sprintf("~%s tokens · %d compaction(s)", humanTokens(est), compactions)))
 		}
+	case "/status":
+		s.showStatus()
+	case "/rules":
+		s.showRules()
 	case "/recover":
 		if s.a.RecoverContext() {
 			fmt.Fprintln(s.out, "  restored the pre-compaction context.")
@@ -434,8 +456,9 @@ func (s *session) slash(line string) bool {
 	case "/help":
 		s.help()
 	default:
-		cmd := strings.Fields(line)[0]
-		if guess := closestCommand(cmd); guess != "" {
+		if cands := prefixMatches(cmd); len(cands) > 1 {
+			fmt.Fprintf(s.out, "  %s is ambiguous — did you mean %s?\n", style.White(cmd), style.White(strings.Join(cands, ", ")))
+		} else if guess := closestCommand(cmd); guess != "" {
 			fmt.Fprintf(s.out, "  unknown command %s — did you mean %s?\n", style.White(cmd), style.White(guess))
 		} else {
 			fmt.Fprintf(s.out, "  unknown command %s (try /help)\n", style.White(cmd))

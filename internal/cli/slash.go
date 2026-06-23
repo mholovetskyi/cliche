@@ -14,8 +14,10 @@ type slashCmd struct {
 }
 
 var slashCommands = []slashCmd{
+	{"/status", "", "mode, budget, context & guardrails at a glance", "session"},
 	{"/cost", "", "spend so far vs the cap", "session"},
 	{"/context", "", "context usage vs the limit", "session"},
+	{"/rules", "", "active allow/deny rules, egress & hooks", "session"},
 	{"/diff", "", "changes made this session", "review"},
 	{"/undo", "", "revert the last edit", "review"},
 	{"/rewind", "", "undo every edit this session", "review"},
@@ -60,18 +62,45 @@ func slashHint() string {
 	return strings.Join(names, " · ")
 }
 
+// isCommand reports whether name is exactly a known slash command (including the
+// /quit alias of /exit, which the dispatch handles but the table omits).
+func isCommand(name string) bool {
+	for _, c := range slashCommands {
+		if c.name == name {
+			return true
+		}
+	}
+	return name == "/quit"
+}
+
+// prefixMatches returns every command name that input is a prefix of.
+func prefixMatches(input string) []string {
+	var out []string
+	for _, c := range slashCommands {
+		if strings.HasPrefix(c.name, input) {
+			out = append(out, c.name)
+		}
+	}
+	return out
+}
+
+// expandPrefix returns the single command input unambiguously abbreviates
+// (/s → /status, /di → /diff), or "" when it matches zero or several commands.
+// This is what lets unambiguous abbreviations execute directly, while ambiguous
+// ones (/c → cost|context|clear|commit) fall through to a disambiguation hint.
+func expandPrefix(input string) string {
+	if m := prefixMatches(input); len(m) == 1 {
+		return m[0]
+	}
+	return ""
+}
+
 // closestCommand suggests the command a typo most likely meant: a unique prefix
 // match, else the nearest by edit distance (≤1). Returns "" when nothing is
 // close enough (so we don't guess wildly).
 func closestCommand(input string) string {
-	var prefix []string
-	for _, c := range slashCommands {
-		if strings.HasPrefix(c.name, input) {
-			prefix = append(prefix, c.name)
-		}
-	}
-	if len(prefix) == 1 {
-		return prefix[0]
+	if g := expandPrefix(input); g != "" {
+		return g
 	}
 	best, bestD := "", 2
 	for _, c := range slashCommands {
@@ -83,6 +112,26 @@ func closestCommand(input string) string {
 		return best
 	}
 	return ""
+}
+
+// promptTips rotate at the idle prompt to teach features without nagging.
+var promptTips = []string{
+	"tip · /status shows budget, mode & guardrails at a glance",
+	"tip · /diff reviews changes · /undo reverts the last edit",
+	"tip · /mode plan makes the agent read-only",
+	"tip · /rules shows what's allowed, denied & where it can reach",
+}
+
+// promptTipEvery is how often (in prompts shown) a rotating tip appears.
+const promptTipEvery = 5
+
+// promptTip returns a rotating tip for the i-th prompt shown, or "" most of the
+// time (the first prompt and the gaps between rotations) so it stays subtle.
+func promptTip(i int) string {
+	if i <= 0 || i%promptTipEvery != 0 {
+		return ""
+	}
+	return promptTips[(i/promptTipEvery-1)%len(promptTips)]
 }
 
 // editDistance is the Levenshtein distance (small inputs; simple DP).
