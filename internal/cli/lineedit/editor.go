@@ -102,6 +102,10 @@ func (e *Editor) ReadLine(prompt string, promptW int) (string, error) {
 			}
 		case keydec.KeyRune:
 			e.insertRune(k.Rune)
+		case keydec.KeyPaste:
+			for _, r := range k.Text { // a multi-line paste keeps its newlines in the buffer
+				e.insertRune(r)
+			}
 		case keydec.KeyBackspace:
 			e.deleteLeft()
 		case keydec.KeyDelete:
@@ -213,7 +217,7 @@ func (e *Editor) render() {
 	var b strings.Builder
 	b.WriteString("\r\x1b[K") // input line: column 0, erase to EOL
 	b.WriteString(e.prompt)
-	b.WriteString(string(e.buf))
+	b.WriteString(displayLine(string(e.buf)))
 
 	rows := e.menuRows()
 	clearN := len(rows)
@@ -230,12 +234,19 @@ func (e *Editor) render() {
 		fmt.Fprintf(&b, "\x1b[%dA", clearN) // back up to the input line
 	}
 	b.WriteString("\r")
-	if col := e.promptW + style.Width(string(e.buf[:e.cursor])); col > 0 {
+	if col := e.promptW + style.Width(displayLine(string(e.buf[:e.cursor]))); col > 0 {
 		fmt.Fprintf(&b, "\x1b[%dC", col) // park the cursor at the edit column
 	}
 
 	io.WriteString(e.out, b.String())
 	e.rendered = len(rows)
+}
+
+// displayLine renders a (possibly multi-line, from a paste) buffer on a single
+// visual line: each newline becomes a ↵ marker so the in-place render stays
+// one-line. The buffer itself keeps real newlines (returned verbatim on submit).
+func displayLine(s string) string {
+	return strings.ReplaceAll(s, "\n", "↵")
 }
 
 // menuRows builds the (capped) styled dropdown rows, the selected row marked.

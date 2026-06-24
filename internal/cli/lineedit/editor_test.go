@@ -75,6 +75,14 @@ func TestEditorDropdownCompletion(t *testing.T) {
 	}
 }
 
+func TestEditorMultiLinePaste(t *testing.T) {
+	// Type "a", paste a two-line block, then Enter → the buffer keeps the newline.
+	line, err := runEditor(t, "a\x1b[200~x\ny\x1b[201~\r", nil)
+	if err != nil || line != "ax\ny" {
+		t.Fatalf("multi-line paste = %q, %v; want %q", line, err, "ax\ny")
+	}
+}
+
 func TestEditorShiftTabCyclesMode(t *testing.T) {
 	var out bytes.Buffer
 	calls := 0

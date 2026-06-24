@@ -10,6 +10,7 @@ package keydec
 import (
 	"bufio"
 	"io"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -42,13 +43,15 @@ const (
 	KeyCtrlP
 	KeyCtrlU
 	KeyCtrlW
+	KeyPaste   // a bracketed paste; the whole pasted text is in Key.Text
 	KeyUnknown // a recognized-but-unhandled escape sequence (fully consumed)
 )
 
 // Key is a single decoded keystroke.
 type Key struct {
 	Type KeyType
-	Rune rune // set only when Type == KeyRune
+	Rune rune   // set only when Type == KeyRune
+	Text string // set only when Type == KeyPaste (the pasted block, newlines normalized)
 }
 
 // ctrlKeys maps a control byte to its key type. Bytes handled specially in
@@ -168,11 +171,38 @@ func (d *Decoder) readCSI() (Key, error) {
 			}
 			continue
 		}
+		if string(params) == "200" && b == '~' { // bracketed-paste start
+			return d.readPaste()
+		}
 		if overflow { // runaway parameters: consumed, but unclassifiable
 			return Key{Type: KeyUnknown}, nil
 		}
 		return classifyCSI(params, b), nil
 	}
+}
+
+// readPaste reads a bracketed paste body up to the ESC[201~ terminator and
+// returns it as one KeyPaste, normalizing CRLF/CR to LF. On EOF before the
+// terminator it returns what it has (never hangs).
+func (d *Decoder) readPaste() (Key, error) {
+	const end = "\x1b[201~"
+	var b strings.Builder
+	for {
+		c, err := d.r.ReadByte()
+		if err != nil {
+			break
+		}
+		b.WriteByte(c)
+		if strings.HasSuffix(b.String(), end) {
+			body := b.String()[:b.Len()-len(end)]
+			return Key{Type: KeyPaste, Text: normalizeNewlines(body)}, nil
+		}
+	}
+	return Key{Type: KeyPaste, Text: normalizeNewlines(b.String())}, nil
+}
+
+func normalizeNewlines(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
 }
 
 // classifyCSI maps a CSI final byte (plus the leading numeric parameter for the

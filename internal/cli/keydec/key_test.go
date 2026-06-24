@@ -48,41 +48,41 @@ func TestDecoderTable(t *testing.T) {
 		in   []byte
 		want []Key
 	}{
-		{"ascii", []byte("ab"), []Key{{KeyRune, 'a'}, {KeyRune, 'b'}}},
-		{"enter cr", []byte("\r"), []Key{{KeyEnter, 0}}},
-		{"enter lf", []byte("\n"), []Key{{KeyEnter, 0}}},
-		{"backspace del", []byte("\x7f"), []Key{{KeyBackspace, 0}}},
-		{"backspace bs", []byte("\x08"), []Key{{KeyBackspace, 0}}},
-		{"tab", []byte("\t"), []Key{{KeyTab, 0}}},
-		{"ctrl-a", []byte("\x01"), []Key{{KeyCtrlA, 0}}},
-		{"ctrl-c", []byte("\x03"), []Key{{KeyCtrlC, 0}}},
-		{"ctrl-d", []byte("\x04"), []Key{{KeyCtrlD, 0}}},
-		{"ctrl-e", []byte("\x05"), []Key{{KeyCtrlE, 0}}},
-		{"ctrl-k", []byte("\x0b"), []Key{{KeyCtrlK, 0}}},
-		{"ctrl-l", []byte("\x0c"), []Key{{KeyCtrlL, 0}}},
-		{"ctrl-u", []byte("\x15"), []Key{{KeyCtrlU, 0}}},
-		{"ctrl-w", []byte("\x17"), []Key{{KeyCtrlW, 0}}},
-		{"utf8 2byte", []byte("é"), []Key{{KeyRune, 'é'}}},
-		{"utf8 3byte", []byte("世"), []Key{{KeyRune, '世'}}},
-		{"utf8 4byte", []byte("😀"), []Key{{KeyRune, '😀'}}},
-		{"csi up", []byte("\x1b[A"), []Key{{KeyUp, 0}}},
-		{"csi down", []byte("\x1b[B"), []Key{{KeyDown, 0}}},
-		{"csi right", []byte("\x1b[C"), []Key{{KeyRight, 0}}},
-		{"csi left", []byte("\x1b[D"), []Key{{KeyLeft, 0}}},
-		{"ss3 up", []byte("\x1bOA"), []Key{{KeyUp, 0}}},
-		{"home letter", []byte("\x1b[H"), []Key{{KeyHome, 0}}},
-		{"end letter", []byte("\x1b[F"), []Key{{KeyEnd, 0}}},
-		{"home tilde", []byte("\x1b[1~"), []Key{{KeyHome, 0}}},
-		{"end tilde", []byte("\x1b[4~"), []Key{{KeyEnd, 0}}},
-		{"delete tilde", []byte("\x1b[3~"), []Key{{KeyDelete, 0}}},
-		{"shift-tab", []byte("\x1b[Z"), []Key{{KeyShiftTab, 0}}},
-		{"modified arrow", []byte("\x1b[1;2A"), []Key{{KeyUp, 0}}},
-		{"lone esc", []byte("\x1b"), []Key{{KeyEsc, 0}}},
-		{"esc then x", []byte("\x1bx"), []Key{{KeyEsc, 0}, {KeyRune, 'x'}}},
-		{"pageup unknown", []byte("\x1b[5~"), []Key{{KeyUnknown, 0}}},
-		{"runaway params", []byte("\x1b[1234567890123456789~"), []Key{{KeyUnknown, 0}}},
-		{"truncated utf8", []byte{0xC3}, []Key{{KeyRune, utf8.RuneError}}},
-		{"rune after arrow", []byte("\x1b[Cx"), []Key{{KeyRight, 0}, {KeyRune, 'x'}}},
+		{"ascii", []byte("ab"), []Key{{Type: KeyRune, Rune: 'a'}, {Type: KeyRune, Rune: 'b'}}},
+		{"enter cr", []byte("\r"), []Key{{Type: KeyEnter}}},
+		{"enter lf", []byte("\n"), []Key{{Type: KeyEnter}}},
+		{"backspace del", []byte("\x7f"), []Key{{Type: KeyBackspace}}},
+		{"backspace bs", []byte("\x08"), []Key{{Type: KeyBackspace}}},
+		{"tab", []byte("\t"), []Key{{Type: KeyTab}}},
+		{"ctrl-a", []byte("\x01"), []Key{{Type: KeyCtrlA}}},
+		{"ctrl-c", []byte("\x03"), []Key{{Type: KeyCtrlC}}},
+		{"ctrl-d", []byte("\x04"), []Key{{Type: KeyCtrlD}}},
+		{"ctrl-e", []byte("\x05"), []Key{{Type: KeyCtrlE}}},
+		{"ctrl-k", []byte("\x0b"), []Key{{Type: KeyCtrlK}}},
+		{"ctrl-l", []byte("\x0c"), []Key{{Type: KeyCtrlL}}},
+		{"ctrl-u", []byte("\x15"), []Key{{Type: KeyCtrlU}}},
+		{"ctrl-w", []byte("\x17"), []Key{{Type: KeyCtrlW}}},
+		{"utf8 2byte", []byte("é"), []Key{{Type: KeyRune, Rune: 'é'}}},
+		{"utf8 3byte", []byte("世"), []Key{{Type: KeyRune, Rune: '世'}}},
+		{"utf8 4byte", []byte("😀"), []Key{{Type: KeyRune, Rune: '😀'}}},
+		{"csi up", []byte("\x1b[A"), []Key{{Type: KeyUp}}},
+		{"csi down", []byte("\x1b[B"), []Key{{Type: KeyDown}}},
+		{"csi right", []byte("\x1b[C"), []Key{{Type: KeyRight}}},
+		{"csi left", []byte("\x1b[D"), []Key{{Type: KeyLeft}}},
+		{"ss3 up", []byte("\x1bOA"), []Key{{Type: KeyUp}}},
+		{"home letter", []byte("\x1b[H"), []Key{{Type: KeyHome}}},
+		{"end letter", []byte("\x1b[F"), []Key{{Type: KeyEnd}}},
+		{"home tilde", []byte("\x1b[1~"), []Key{{Type: KeyHome}}},
+		{"end tilde", []byte("\x1b[4~"), []Key{{Type: KeyEnd}}},
+		{"delete tilde", []byte("\x1b[3~"), []Key{{Type: KeyDelete}}},
+		{"shift-tab", []byte("\x1b[Z"), []Key{{Type: KeyShiftTab}}},
+		{"modified arrow", []byte("\x1b[1;2A"), []Key{{Type: KeyUp}}},
+		{"lone esc", []byte("\x1b"), []Key{{Type: KeyEsc}}},
+		{"esc then x", []byte("\x1bx"), []Key{{Type: KeyEsc}, {Type: KeyRune, Rune: 'x'}}},
+		{"pageup unknown", []byte("\x1b[5~"), []Key{{Type: KeyUnknown}}},
+		{"runaway params", []byte("\x1b[1234567890123456789~"), []Key{{Type: KeyUnknown}}},
+		{"truncated utf8", []byte{0xC3}, []Key{{Type: KeyRune, Rune: utf8.RuneError}}},
+		{"rune after arrow", []byte("\x1b[Cx"), []Key{{Type: KeyRight}, {Type: KeyRune, Rune: 'x'}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -111,6 +111,19 @@ func equalKeys(a, b []Key) bool {
 		}
 	}
 	return true
+}
+
+func TestDecoderPaste(t *testing.T) {
+	in := "\x1b[200~line one\r\nline two\x1b[201~"
+	keys := keysOf(t, bytes.NewReader([]byte(in)))
+	if len(keys) != 1 || keys[0].Type != KeyPaste || keys[0].Text != "line one\nline two" {
+		t.Fatalf("paste decode = %+v", keys)
+	}
+	// A paste followed by Enter: two events, the paste then the submit.
+	keys = keysOf(t, bytes.NewReader([]byte("\x1b[200~hi\x1b[201~\r")))
+	if len(keys) != 2 || keys[0].Type != KeyPaste || keys[0].Text != "hi" || keys[1].Type != KeyEnter {
+		t.Fatalf("paste+enter = %+v", keys)
+	}
 }
 
 func TestDecoderCleanEOF(t *testing.T) {
