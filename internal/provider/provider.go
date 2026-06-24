@@ -52,12 +52,21 @@ type Usage struct {
 	CacheWriteTokens int
 }
 
+// Image is an inline image attached to a user message, for vision-capable
+// models. MediaType is an IANA type like "image/png"; Data is the raw bytes
+// (each backend base64-encodes as its wire format requires).
+type Image struct {
+	MediaType string
+	Data      []byte
+}
+
 // Message is one turn of the transcript in a provider-neutral form. An
 // assistant message carries Text and/or ToolCalls; a user message carries Text
-// or ToolResults.
+// (optionally with Images) or ToolResults.
 type Message struct {
 	Role        string
 	Text        string
+	Images      []Image
 	ToolCalls   []ToolCall
 	ToolResults []ToolResult
 }

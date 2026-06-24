@@ -3,9 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/style"
 	"github.com/mholovetskyi/cliche/internal/tools"
 )
@@ -13,6 +15,25 @@ import (
 // maxIncludeBytes caps how much of a single @-referenced file is inlined into the
 // prompt, so an accidental @huge.log can't blow the context window.
 const maxIncludeBytes = 50 * 1024
+
+// maxImageBytes caps a single attached image, so @huge.png can't bloat a request.
+const maxImageBytes = 5 << 20 // 5 MiB
+
+// imageMediaType returns the IANA image type for a path's extension, or "" if it
+// is not a recognized image (so it falls through to text inlining).
+func imageMediaType(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	}
+	return ""
+}
 
 // fileRefRe matches an @-prefixed path token (e.g. @internal/cli/session.go). It
 // requires at least one non-space, non-@ char after the @, so a bare "@" or an
@@ -27,15 +48,17 @@ var fileRefRe = regexp.MustCompile(`@([^\s@]+)`)
 // executor's confinement rules (no escaping the project root); tokens that don't
 // resolve to a readable file are left untouched (treated as literal text). The
 // user's typed line is preserved verbatim as the message body (and remains the
-// session title), so only the model sees the attached bodies. Returns the prompt
-// to send and styled notes to show the user.
-func (s *session) expandFileRefs(line string) (string, []string) {
+// session title), so only the model sees the attached bodies. Image references
+// (@photo.png) are attached as vision images instead of inlined text. Returns the
+// prompt to send, styled notes, and any attached images.
+func (s *session) expandFileRefs(line string) (string, []string, []provider.Image) {
 	matches := fileRefRe.FindAllStringSubmatch(line, -1)
 	if len(matches) == 0 {
-		return line, nil
+		return line, nil, nil
 	}
 	var preamble strings.Builder
 	var notes []string
+	var images []provider.Image
 	seen := map[string]bool{}
 	for _, m := range matches {
 		ref := m[1]
@@ -56,6 +79,16 @@ func (s *session) expandFileRefs(line string) (string, []string) {
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			notes = append(notes, style.Red(gl("⚠", "!")+" @"+ref)+style.Gray(" — unreadable; left as text"))
+			continue
+		}
+		// An image attaches for a vision model rather than inlining as text.
+		if mt := imageMediaType(ref); mt != "" {
+			if len(data) > maxImageBytes {
+				notes = append(notes, style.Red(gl("⚠", "!")+" @"+ref)+style.Gray(" — image over 5 MiB; skipped"))
+				continue
+			}
+			images = append(images, provider.Image{MediaType: mt, Data: data})
+			notes = append(notes, style.Gray(fmt.Sprintf("%s @%s · image attached (needs a vision model)", gl("🖼", "+"), ref)))
 			continue
 		}
 		truncated := false
@@ -81,8 +114,8 @@ func (s *session) expandFileRefs(line string) (string, []string) {
 		notes = append(notes, note)
 	}
 	if preamble.Len() == 0 {
-		return line, notes // nothing resolved to a real file
+		return line, notes, images // nothing inlined (maybe images were attached)
 	}
 	prompt := "The user attached these files with @ (their message follows):\n\n" + preamble.String() + line
-	return prompt, notes
+	return prompt, notes, images
 }

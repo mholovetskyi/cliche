@@ -54,20 +54,25 @@ type Config struct {
 
 // Agent ties the Trust Kernel around a provider and tool executor.
 type Agent struct {
-	prov         provider.Provider
-	bud          *budget.Kernel
-	govLimits    governor.Limits
-	led          *ledger.Ledger
-	exec         tools.Executor
-	cfg          Config
-	obs          Observer
-	hist         *history.Manager
-	messages     []provider.Message // persists across Run calls (the session transcript)
-	ledgerWarned bool               // emit at most one warning if audit writes fail
-	depth        int                // subagent nesting depth (0 = top-level)
-	emitMu       *sync.Mutex        // serializes observer output across parallel subagents
-	mcp          MCP                // optional external MCP tools (nil if none)
+	prov          provider.Provider
+	bud           *budget.Kernel
+	govLimits     governor.Limits
+	led           *ledger.Ledger
+	exec          tools.Executor
+	cfg           Config
+	obs           Observer
+	hist          *history.Manager
+	messages      []provider.Message // persists across Run calls (the session transcript)
+	ledgerWarned  bool               // emit at most one warning if audit writes fail
+	depth         int                // subagent nesting depth (0 = top-level)
+	emitMu        *sync.Mutex        // serializes observer output across parallel subagents
+	mcp           MCP                // optional external MCP tools (nil if none)
+	pendingImages []provider.Image   // images attached to the NEXT user turn, then cleared
 }
+
+// AttachImages queues images to ride on the next Run's user message (for
+// vision-capable models). Consumed and cleared by that Run.
+func (a *Agent) AttachImages(imgs []provider.Image) { a.pendingImages = imgs }
 
 // New builds an Agent. EstInputTokens/EstOutputTokens default to conservative
 // values if unset. A fresh Governor is created per Run from govLimits.
@@ -192,7 +197,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 	}
 
 	gov := governor.New(a.govLimits) // fresh per task
-	a.messages = append(a.messages, provider.Message{Role: "user", Text: prompt})
+	a.messages = append(a.messages, provider.Message{Role: "user", Text: prompt, Images: a.pendingImages})
+	a.pendingImages = nil // images ride exactly one turn
 
 	for {
 		turn, halt := gov.BeginTurn()

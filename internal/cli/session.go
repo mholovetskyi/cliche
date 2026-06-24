@@ -301,9 +301,12 @@ func (s *session) loop() int {
 		}
 		// Inline any @file references into the prompt the model sees, echoing a
 		// short note for each (the typed line stays the title/transcript anchor).
-		prompt, notes := s.expandFileRefs(line)
+		prompt, notes, images := s.expandFileRefs(line)
 		for _, n := range notes {
 			fmt.Fprintln(s.out, "  "+n)
+		}
+		if len(images) > 0 {
+			s.a.AttachImages(images) // ride the next Run for a vision model
 		}
 		// Install a SIGINT handler only while a task runs, so Ctrl-C aborts the
 		// current task (gracefully, structured) but leaves the session alive;

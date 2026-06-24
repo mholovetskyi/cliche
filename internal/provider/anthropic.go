@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,8 +77,17 @@ type contentBlock struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   string `json:"content,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+	// image
+	Source *imageSource `json:"source,omitempty"`
 	// caching
 	CacheControl *cacheControl `json:"cache_control,omitempty"`
+}
+
+// imageSource is a base64-encoded image for a vision content block.
+type imageSource struct {
+	Type      string `json:"type"` // "base64"
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"` // base64
 }
 
 // sysBlock is a system-prompt text block; carrying cache_control on the last
@@ -162,8 +172,15 @@ func (a *Anthropic) buildRequestBody(req Request, stream bool) ([]byte, error) {
 					}
 					blocks = append(blocks, contentBlock{Type: "tool_result", ToolUseID: tr.ID, Content: content, IsError: tr.IsError})
 				}
-			} else if m.Text != "" {
-				blocks = append(blocks, contentBlock{Type: "text", Text: m.Text})
+			} else {
+				for _, img := range m.Images {
+					blocks = append(blocks, contentBlock{Type: "image", Source: &imageSource{
+						Type: "base64", MediaType: img.MediaType, Data: base64.StdEncoding.EncodeToString(img.Data),
+					}})
+				}
+				if m.Text != "" {
+					blocks = append(blocks, contentBlock{Type: "text", Text: m.Text})
+				}
 			}
 		}
 		if len(blocks) == 0 {

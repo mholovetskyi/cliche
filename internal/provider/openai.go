@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,10 +65,23 @@ type oaiToolCall struct {
 }
 
 type oaiMessage struct {
-	Role       string        `json:"role"`
-	Content    *string       `json:"content"` // nullable (assistant tool-call turns)
+	Role string `json:"role"`
+	// Content is a string for plain text, an array of parts for a vision message
+	// (text + image_url), or null for an assistant tool-call turn.
+	Content    any           `json:"content"`
 	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
+}
+
+// oaiContentPart is one element of a multi-part (vision) message content array.
+type oaiContentPart struct {
+	Type     string       `json:"type"` // "text" | "image_url"
+	Text     string       `json:"text,omitempty"`
+	ImageURL *oaiImageURL `json:"image_url,omitempty"`
+}
+
+type oaiImageURL struct {
+	URL string `json:"url"` // a data: URI (data:<media-type>;base64,<data>)
 }
 
 type oaiToolDef struct {
@@ -136,6 +150,17 @@ func (o *OpenAICompat) buildRequestBody(req Request, stream bool) ([]byte, error
 					}
 					msgs = append(msgs, oaiMessage{Role: "tool", ToolCallID: tr.ID, Content: strPtr(content)})
 				}
+			} else if len(m.Images) > 0 {
+				// Vision message: content is an array of text + image_url parts.
+				parts := make([]oaiContentPart, 0, len(m.Images)+1)
+				if m.Text != "" {
+					parts = append(parts, oaiContentPart{Type: "text", Text: m.Text})
+				}
+				for _, img := range m.Images {
+					uri := "data:" + img.MediaType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
+					parts = append(parts, oaiContentPart{Type: "image_url", ImageURL: &oaiImageURL{URL: uri}})
+				}
+				msgs = append(msgs, oaiMessage{Role: "user", Content: parts})
 			} else if m.Text != "" {
 				msgs = append(msgs, oaiMessage{Role: "user", Content: strPtr(m.Text)})
 			}
@@ -195,8 +220,8 @@ func parseOpenAIResponse(raw []byte) (Response, error) {
 	}
 	msg := p.Choices[0].Message
 	text := ""
-	if msg.Content != nil {
-		text = *msg.Content
+	if s, ok := msg.Content.(string); ok { // responses carry content as a string
+		text = s
 	}
 	var calls []ToolCall
 	for _, tc := range msg.ToolCalls {
