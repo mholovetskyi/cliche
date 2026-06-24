@@ -10,8 +10,10 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mholovetskyi/cliche/internal/config"
+	"github.com/mholovetskyi/cliche/internal/mcp"
 	"github.com/mholovetskyi/cliche/internal/oauth"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	"github.com/mholovetskyi/cliche/internal/style"
@@ -70,12 +72,44 @@ func connectorMCP() []config.MCPServer {
 	return out
 }
 
-// connect is the in-chat /connect: run the connector OAuth flow, then note that
-// it goes live next session (MCP servers are started once, at session start).
+// connect is the in-chat /connect: run the connector OAuth flow, then HOT-ATTACH
+// the new connector to the live session so its tools are usable immediately — no
+// restart. Falls back to "next session" if the live attach fails.
 func (s *session) connect(args []string) {
-	if cmdConnect(args, s.out, s.out) == 0 && len(args) > 0 {
-		fmt.Fprintln(s.out, "  "+style.Gray("· it activates in your next session (MCP servers start at launch)"))
+	if cmdConnect(args, s.out, s.out) != 0 || len(args) == 0 {
+		return
 	}
+	name := args[0]
+	c, ok := knownConnectors[name]
+	if !ok {
+		return
+	}
+	tok, ok := secrets.Connector(name)
+	if !ok || tok.Token == "" {
+		return
+	}
+	conn := mcp.StartHTTPWithHeaders(name, c.mcpURL, map[string]string{"Authorization": "Bearer " + tok.Token})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var err error
+	if ad, ok := s.a.MCP().(*mcpAdapter); ok && ad != nil {
+		err = ad.attach(ctx, conn) // merge into the live manager
+	} else {
+		// No MCP attached yet this session — stand one up with just this connector.
+		mgr, merr := mcp.NewManager(ctx, []mcp.Conn{conn})
+		if merr != nil {
+			err = merr
+		} else {
+			s.a.SetMCP(&mcpAdapter{mgr: mgr, allow: s.mcpAllow, approve: s.app.Approve})
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(s.out, "  %s connected, but couldn't attach live (%s)\n", style.Gray("·"), err.Error())
+		fmt.Fprintln(s.out, "  "+style.Gray("it'll load in your next session"))
+		return
+	}
+	fmt.Fprintf(s.out, "  %s %s is live now %s\n", style.Green(gl("✓", "ok")), style.White(name), style.Gray("· its tools are available this session"))
 }
 
 // cmdConnect runs the OAuth device flow for a connector and stores the token.

@@ -39,6 +39,9 @@ func (a *mcpAdapter) Call(ctx context.Context, name string, raw json.RawMessage)
 	return tools.Result{Output: out, Success: !isErr}
 }
 
+// attach adds one more live MCP server to the adapter's manager.
+func (a *mcpAdapter) attach(ctx context.Context, c mcp.Conn) error { return a.mgr.Add(ctx, c) }
+
 func (a *mcpAdapter) permit(name string) bool {
 	if a.allow {
 		return true

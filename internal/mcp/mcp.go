@@ -259,6 +259,7 @@ type routed struct {
 // Manager aggregates several MCP servers and exposes their tools under
 // "mcp__<server>__<tool>" names.
 type Manager struct {
+	mu      sync.Mutex // guards clients/tools/route (Add can mutate while Call/Tools read)
 	clients []Conn
 	tools   []Tool
 	route   map[string]routed
@@ -287,20 +288,50 @@ func NewManager(ctx context.Context, clients []Conn) (*Manager, error) {
 	return m, nil
 }
 
-// Tools returns the namespaced tools across all servers.
-func (m *Manager) Tools() []Tool { return m.tools }
+// Add attaches one more server to a live Manager — initializing it and merging
+// its namespaced tools — without disturbing the servers already connected. This
+// is what lets `/connect` hot-attach a new connector mid-session (no restart).
+func (m *Manager) Add(ctx context.Context, c Conn) error {
+	if err := c.Initialize(ctx); err != nil {
+		return fmt.Errorf("initializing mcp server %q: %w", c.Name(), err)
+	}
+	ts, err := c.ListTools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing tools for mcp server %q: %w", c.Name(), err)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clients = append(m.clients, c)
+	for _, t := range ts {
+		ns := "mcp__" + c.Name() + "__" + t.Name
+		m.tools = append(m.tools, Tool{Name: ns, Description: t.Description, InputSchema: t.InputSchema})
+		m.route[ns] = routed{client: c, tool: t.Name}
+	}
+	return nil
+}
+
+// Tools returns the namespaced tools across all servers (a snapshot copy).
+func (m *Manager) Tools() []Tool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]Tool(nil), m.tools...)
+}
 
 // Call routes a namespaced tool call to the owning server.
 func (m *Manager) Call(ctx context.Context, name string, args json.RawMessage) (string, bool, error) {
+	m.mu.Lock()
 	r, ok := m.route[name]
+	m.mu.Unlock()
 	if !ok {
 		return "", true, fmt.Errorf("unknown mcp tool %q", name)
 	}
-	return r.client.CallTool(ctx, r.tool, args)
+	return r.client.CallTool(ctx, r.tool, args) // network call outside the lock
 }
 
 // Close tears down every server connection.
 func (m *Manager) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, c := range m.clients {
 		_ = c.Close()
 	}

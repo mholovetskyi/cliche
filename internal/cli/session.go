@@ -96,7 +96,7 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	}
 	defer cleanup()
 
-	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal, created: time.Now(), app: app}
+	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal, created: time.Now(), app: app, mcpAllow: f.yolo || f.allowMCP}
 	s.customCmds = loadCommands(f.dir) // user prompt shortcuts
 	s.skills = skillMap(f.dir)         // explicit /skill <name> targets
 	a.SetObserver(s.onEvent)
@@ -148,6 +148,7 @@ type session struct {
 	spinMu           sync.Mutex // guards spin + awaitingApproval: the emit path (onEvent) and the approval path (Approve) touch them from different goroutines under different locks
 	awaitingApproval bool       // true while a y/N prompt is on screen — suppresses spinners so they can't repaint over it
 	tuiActive        bool       // true while the full-screen /tui chat owns the screen — suppresses inline spinners
+	mcpAllow         bool       // whether MCP tool calls auto-approve (for a hot-attached connector's adapter)
 	id               string     // session id for on-disk persistence
 	title            string     // first prompt, used as the session title
 	created          time.Time

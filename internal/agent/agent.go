@@ -118,6 +118,10 @@ func (a *Agent) Model() string { return a.cfg.Model }
 // SetMCP attaches an MCP tool source (its tools are advertised and routed).
 func (a *Agent) SetMCP(m MCP) { a.mcp = m }
 
+// MCP returns the agent's current MCP source (nil if none), so the CLI can
+// hot-attach a newly connected server to the live session.
+func (a *Agent) MCP() MCP { return a.mcp }
+
 // Usage returns the session-cumulative budget usage.
 func (a *Agent) Usage() budget.Usage { return a.bud.Usage() }
 
