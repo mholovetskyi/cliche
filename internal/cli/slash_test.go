@@ -24,14 +24,15 @@ func TestClosestCommand(t *testing.T) {
 
 func TestExpandPrefixAndTip(t *testing.T) {
 	cases := map[string]string{
-		"/s":    "/status", // unique single-letter abbreviations expand…
+		"/st":   "/status", // unique prefixes expand…
 		"/di":   "/diff",
 		"/u":    "/undo",
 		"/h":    "/help",
 		"/cost": "/cost", // a full name is its own unique prefix
-		"/c":    "",      // …ambiguous ones do not (cost|context|clear|commit)
-		"/r":    "",      // rules|rewind|recover
-		"/m":    "",      // model|mode
+		"/s":    "",      // …ambiguous ones do not (status|sessions)
+		"/c":    "",      // cost|context|clear|commit
+		"/r":    "",      // rules|rewind|recover|resume
+		"/m":    "",      // model|models|mode
 		"/zzz":  "",
 	}
 	for in, want := range cases {

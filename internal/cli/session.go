@@ -252,14 +252,15 @@ func (s *session) loop() int {
 	}
 	fmt.Fprintln(s.out, "  "+style.Dim(slashHint()))
 	for i := 0; ; i++ {
-		// A fresh status strip at each prompt keeps trust state (mode, model,
-		// spend, context use) glanceable at the point of input; a rotating tip
-		// surfaces a feature every few prompts without nagging.
-		fmt.Fprintln(s.out, "\n  "+s.statusStrip())
+		// A framed input bar at each prompt keeps trust state (mode, model, spend,
+		// context) glanceable right where you type; a rotating tip surfaces a
+		// feature every few prompts without nagging.
+		fmt.Fprintln(s.out)
 		if tip := promptTip(i); tip != "" {
 			fmt.Fprintln(s.out, "  "+style.Dim(tip))
 		}
-		fmt.Fprint(s.out, "  "+s.prompt())
+		fmt.Fprintln(s.out, "  "+s.barTop())
+		fmt.Fprint(s.out, "  "+s.barPrompt())
 		line, err := s.readInput()
 		if err != nil { // EOF (Ctrl-D) at an empty prompt
 			fmt.Fprintln(s.out)
@@ -344,8 +345,29 @@ func (s *session) modeName() string {
 	return modeSuggest
 }
 
-// statusStrip is the dim one-liner above the prompt: the trust-critical state at
-// a glance — mode, model, spend, and how full the context is.
+// barWidth is the display width of the framed input bar's top border.
+const barWidth = 64
+
+// barTop renders the top edge of the input bar, inlaying the trust state (mode,
+// model, spend, context) into a rounded border — so the most-watched numbers sit
+// right at the point of input. Width-aware, so the frame never skews.
+func (s *session) barTop() string {
+	status := s.statusStrip()
+	pad := barWidth - 5 - style.Width(status) // "╭─ " (3) + " " (1) + "╮" (1)
+	if pad < 0 {
+		pad = 0
+	}
+	return style.Gray("╭─ ") + status + style.Gray(" "+strings.Repeat("─", pad)+"╮")
+}
+
+// barPrompt renders the input line of the bar: a left border plus the
+// risk-colored chevron. The user types after it (cooked-mode line input).
+func (s *session) barPrompt() string {
+	return style.Gray("│") + " " + s.prompt()
+}
+
+// statusStrip is the trust-critical state at a glance — mode, model, spend, and
+// how full the context is — inlaid into the input bar's top border.
 func (s *session) statusStrip() string {
 	u := s.a.Usage()
 	parts := s.modeName() + " · " + shortModel(s.a.Model()) + fmt.Sprintf(" · $%.4f", u.USD)
@@ -499,6 +521,12 @@ func (s *session) slash(line string) bool {
 		s.showStatus()
 	case "/rules":
 		s.showRules()
+	case "/sessions":
+		s.showSessions()
+	case "/new":
+		s.newSession()
+	case "/resume":
+		s.resumeSession(line)
 	case "/recover":
 		if s.a.RecoverContext() {
 			fmt.Fprintln(s.out, "  restored the pre-compaction context.")

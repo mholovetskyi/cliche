@@ -119,6 +119,14 @@ func (a *Agent) Restore(msgs []provider.Message, usage budget.Usage) {
 	a.bud.Preload(usage)
 }
 
+// RestoreTranscript swaps in a saved transcript WITHOUT touching the budget —
+// for switching sessions mid-process (e.g. /resume in chat). The live spend cap
+// must keep counting this process's cumulative usage and can never be reset
+// downward by loading a cheaper session, or the hard cap would be defeatable.
+func (a *Agent) RestoreTranscript(msgs []provider.Message) {
+	a.messages = msgs
+}
+
 // Limits returns the budget limits.
 func (a *Agent) Limits() budget.Limits { return a.bud.Limits() }
 

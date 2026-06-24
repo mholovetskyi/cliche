@@ -1,154 +1,134 @@
-# Cliche
+<div align="center">
 
-**The AI coding agent you can actually leave running.**
+```
+ ██████╗██╗     ██╗ ██████╗██╗  ██╗███████╗
+██╔════╝██║     ██║██╔════╝██║  ██║██╔════╝
+██║     ██║     ██║██║     ███████║█████╗
+██║     ██║     ██║██║     ██╔══██║██╔══╝
+╚██████╗███████╗██║╚██████╗██║  ██║███████╗
+ ╚═════╝╚══════╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝
+```
 
-Cliche wraps any model in a deterministic **Trust Kernel**: a hard token cap
-(with an estimated dollar cap on top), a loop circuit-breaker, an append-only
-cost ledger, and a reward-hacking verifier. All on by default. Open source.
-Auditable to the token.
+### the AI coding agent you can actually leave running
 
-> Every other coding CLI competes on capability. Cliche rides the same frontier
-> models you already use — bring your own key — and competes on the thing none
-> of them ship: guardrails the model **cannot** argue its way past, because
-> they're code wrapped around the loop, not a prompt the model can ignore.
+Cliche rides the same frontier models you already use — **bring your own key** — and wraps the agent loop in a deterministic **Trust Kernel**: hard spend caps, a runaway breaker, an append-only audit ledger, and a verifier that re-runs your tests. All on by default.
 
-This is **v0**: the deterministic core is real, tested, and runnable today. The
-real-model path does **multi-turn tool use** (read/write files, search code, run commands)
-via Anthropic, and the **Verifier independently re-runs your tests**. See
-[ROADMAP.md](ROADMAP.md) for what's next and [why it exists](docs/landing.md).
+[![Go](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Dependencies](https://img.shields.io/badge/dependencies-zero-success)](go.mod)
+[![Releases](https://img.shields.io/badge/releases-signed%20%2B%20SBOM-8957e5)](https://github.com/mholovetskyi/cliche/releases)
+
+</div>
 
 ---
 
-## Why
+> Every other coding CLI competes on capability. Cliche competes on the thing none of them ship: **guardrails the model cannot argue its way past** — because they're code wrapped around the loop, not a prompt the model can ignore. A `--yolo` flag may skip approvals, but it can **never** bypass the budget cap, the governor, a deny rule, plan mode, the egress allowlist, or a pre-tool-use hook.
 
-The category is racing toward agents you start and walk away from — async, in
-CI, many at once. The harness wasn't built for that:
+## Why it exists
+
+The category is racing toward agents you start and walk away from — async, in CI, many at once. The harness wasn't built for that:
 
 - A documented runaway ran **809 turns / ~$438** with no circuit breaker.
 - A single review spiraled **$0.10 → $7.59** in an 8.5M-token loop.
 - Agents quietly **delete tests** and **swallow errors** to make the bar go green.
 
-None of these are model problems. They're harness problems. Cliche is a harness
-built for the part where you're not watching.
+None of these are model problems. They're harness problems. **Cliche is the harness for the part where you're not watching.**
 
 ---
 
 ## Install
 
-Download a pre-built binary from [Releases](https://github.com/mholovetskyi/cliche/releases)
-— each release ships a single static binary per platform, a `checksums.txt`, an
-SBOM, and a cosign (keyless) signature over the checksums, so you can verify the
-supply chain end-to-end. Copy-paste verification steps are in
-[SECURITY.md → Verify your download](SECURITY.md#verify-your-download).
-
-Or with Go:
-
 ```sh
 go install github.com/mholovetskyi/cliche/cmd/cliche@latest
 ```
 
-Or build from source (Go 1.23+):
+Or grab a signed binary from [Releases](https://github.com/mholovetskyi/cliche/releases) — one static binary per platform, plus `checksums.txt`, an SBOM, and a keyless cosign signature so you can verify the supply chain end to end ([how](SECURITY.md#verify-your-download)). Or build from source (Go 1.23+):
 
 ```sh
-git clone https://github.com/mholovetskyi/cliche
-cd cliche
+git clone https://github.com/mholovetskyi/cliche && cd cliche
 go build -o cliche ./cmd/cliche
 ```
 
 ---
 
-## Quickstart
+## 60-second tour
 
-New here? [SETUP.md](SETUP.md) walks you from zero to a running session
-(connect any provider, scaffold a project) in two minutes.
-
-**See the Trust Kernel work, offline, in 30 seconds:**
+**See the Trust Kernel fire — offline, no key:**
 
 ```sh
 cliche demo
 ```
 
-It runs four deterministic scenarios — a healthy task that completes cleanly, a
-runaway loop the Governor halts, a budget blowout caught mid-stream, and a diff
-where the agent deleted a test (flagged). The numbers printed are real program
-output.
+Four deterministic scenarios: a clean task, a runaway the Governor halts, a budget blowout caught mid-stream, and a diff where the agent deleted a test (flagged). Every number printed is real program output.
 
-**Cook interactively (AI-first session, BYO key):**
+**Connect a provider and start cooking:**
 
 ```sh
-cliche login                      # pick a provider, paste your key — verified & saved
+cliche login      # pick a provider, paste your key — verified & saved (0600, never in the repo)
 cliche chat
 ```
 
-`cliche login` is a one-time guided setup: choose a provider, paste your key
-(hidden input), and Cliche verifies it works before saving it to your per-user
-config dir (`0600`, never in the repo). Running `cliche chat` with no key
-configured drops you straight into the same wizard. For scripts/CI use
-`cliche auth <provider> --from-file <path>` (or `--key`, or stdin); the matching
-`ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` / `OPENAI_API_KEY` environment
-variable always overrides a saved key when set.
+A session opens on a framed input bar with your trust state always in view:
 
-Bring any model — Cliche is provider-neutral and **auto-detects the backend**
-from whichever key you export (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or
-`OPENAI_API_KEY`), so `cliche chat` just works with the key you have. Pin one
-explicitly with `--provider anthropic|openrouter|openai` (`--model` to override
-the model). The end-to-end agent loop is currently proven against OpenRouter;
-the native Anthropic path shares the same loop and is unit-tested.
-
-Type a task and Cliche works it end-to-end — reading, editing (`edit_file`),
-running commands, and delegating isolated subtasks to **budget-scoped
-subagents** (one at a time, or several in **parallel**) — streaming each step
-live, then waits for your next message (the conversation and the session-wide
-budget persist; every subagent's spend is drawn from, and bounded by, that same
-session cap). In a terminal,
-writes and commands prompt `y/N/always` (showing a diff preview of the change)
-unless you pass `--allow-write` / `--allow-run` / `--yolo`. Slash commands:
-`/cost`, `/diff` (everything changed this session), `/undo` (revert the last
-edit), `/verify`, `/context`, `/clear`, `/help`, `/exit`.
-
-**One-shot run (scriptable):**
-
-```sh
-cliche run --max-usd 0.50 --allow-write --verify "fix the failing test in ./api"
+```
+  ╭─ suggest · gpt-4o-mini · $0.0000 · ctx 0% ───────────────────╮
+  │ ❯ refactor the auth handler and @internal/auth/session.go
 ```
 
-`--verify` re-runs your tests after the agent finishes and attaches a verdict.
+Type and it works end-to-end — reads, edits, runs commands, streams every step live (with **Go syntax-highlighted** code), then waits for your next message. Writes and commands prompt `y/N/always` with a colored diff preview, unless you raise the permission mode.
 
-**Use it headless in CI:**
+**One-shot, scriptable:**
+
+```sh
+cliche run --max-usd 0.50 --mode auto-edit --branch --verify "fix the failing test in ./api"
+```
+
+**Headless in CI** (JSON out, clean exit codes):
 
 ```sh
 git diff | cliche exec -p "review this change" --max-usd 0.10
 ```
 
-`exec` emits JSON and returns clean exit codes:
+| Code | Meaning |  | Code | Meaning |
+|--|--|--|--|--|
+| `0` | completed |  | `3` | budget cap reached |
+| `1` | error |  | `4` | a governor breaker tripped |
+| `2` | bad usage |  | `5` | completed but **verifier flagged** |
 
-| Code | Meaning |
-|------|---------|
-| `0`  | completed |
-| `1`  | error (e.g. missing key) |
-| `2`  | bad usage |
-| `3`  | budget cap reached |
-| `4`  | a governor breaker tripped |
+---
 
-**Independently verify a change (the keystone):**
+## What's in the session
 
-`verify` re-runs your project's tests itself and combines the result with
-reward-hacking detectors over the diff — so a "tests pass" claim is checked, not
-trusted:
+A modern terminal cockpit, all zero-dependency Go:
 
-```sh
-git diff | cliche verify --claim-pass
-```
+| | |
+|--|--|
+| **Framed input bar** | a bordered prompt carrying live mode · model · spend · context; the chevron turns red as you near a cap |
+| **`@file` includes** | `@path/to/file.go` inlines the file for the model — confined to the project root, no read round-trip |
+| **Permission modes** | `plan` (read-only) · `suggest` (asks) · `auto-edit` (auto edits, asks commands) · `full` (auto) — shown as a colored badge |
+| **Live activity feed** | every tool call named with its target; quiet ✓/loud ✗ results; a phase-narrating spinner |
+| **Multi-session** | `/sessions` to list, `/new` to branch off, `/resume` to pick up where you left — persisted to disk |
+| **Trust at a glance** | `/status` (budget, context, governor caps, standing grants) · `/rules` (allow/deny, egress, hooks) |
+| **Plan surface** | `/plan`, `/tasks`, `/done` — a lightweight to-do list that survives resume |
+| **Review & undo** | `/diff`, `/undo` and `/rewind` with a rollback preview, `/commit` to git |
+| **Models** | `/models` lists the priced catalog; `/model <id>` hops models mid-chat |
 
-It auto-detects the test command (`go test ./...`, `pytest`, `npm test`,
-`cargo test`) or reads a `## verify` / `test:` line from `AGENTS.md`. Exit
-codes: `0` verified, `5` flagged, `0`/`2` unverified (with `--strict`).
+Unambiguous abbreviations just work (`/s` → `/status`, `/di` → `/diff`); end a line with `\` to compose a multi-line prompt.
 
-**See where the money went:**
+---
 
-```sh
-cliche cost
-```
+## Bring any model
+
+Cliche is provider-neutral and **auto-detects the backend** from whichever key you have. Built-in presets:
+
+| Provider | Notes |
+|---|---|
+| **Anthropic** | native Messages API, prompt caching |
+| **OpenRouter** | one key, hundreds of models |
+| **OpenAI** · **Groq** · **DeepSeek** · **Mistral** · **Together** · **xAI** | OpenAI-compatible |
+| **Any OpenAI-compatible / local** | Ollama, LM Studio, vLLM — add under `providers` in config |
+
+`cliche login` walks you through it; the matching `*_API_KEY` env var always overrides a saved key. Route delegated subtasks to a cheaper model with `subagents.model`.
 
 ---
 
@@ -162,7 +142,7 @@ cliche cost
               │  Budget.Preflight  ─ estimate before the turn │
               │        │                                      │
               │        ▼                                      │
-              │   provider.Complete  (BYO model)              │
+              │   provider.Complete  (BYO model, streamed)    │
               │        │                                      │
               │        ▼                                      │
               │  Budget.Record     ─ ACTUAL usage, mid-stream │
@@ -172,31 +152,36 @@ cliche cost
               └──────────────────────────────────────────────┘
 ```
 
-The Trust Kernel is deterministic: **no LLM is ever in the limit, accounting,
-or verdict path.** A `--yolo` flag can skip approvals, but it can **never**
-bypass the Budget Kernel or the Governor. That is the brand.
-
-Package layout:
+The Trust Kernel is deterministic: **no LLM is ever in the limit, accounting, or verdict path.**
 
 | Package | Role |
 |---------|------|
-| `internal/budget`   | token-hard + dollar-estimated spend caps (two-gate enforcement) |
-| `internal/governor` | loop / runaway breakers (turns, wall-clock, repetition, failed edits, no-progress) |
-| `internal/ledger`   | append-only JSONL audit trail + summary |
-| `internal/verifier` | deterministic reward-hacking detectors over a diff |
-| `internal/provider` | model-agnostic interface + Anthropic + offline Mock |
-| `internal/tools`    | tool execution behind a graduated permission gate |
-| `internal/agent`    | the loop wiring it all together |
-| `internal/pricing`  | maintained per-model price table (conservative, high fallback) |
-| `internal/config`   | `.cliche/config.json` over safe defaults + `AGENTS.md` detection |
-| `internal/cli`      | zero-dependency command dispatcher |
+| `internal/budget` | token-hard + dollar-estimated spend caps (two-gate enforcement) |
+| `internal/governor` | runaway breakers (turns, wall-clock, repetition, failed edits, no-progress) |
+| `internal/ledger` | append-only JSONL audit trail + summary |
+| `internal/verifier` | deterministic reward-hacking detectors + independent test re-run |
+| `internal/provider` | model-agnostic interface — Anthropic, OpenAI-compatible, offline Mock |
+| `internal/tools` | tool execution behind a graduated permission gate + path confinement |
+| `internal/agent` | the loop wiring it all together |
+| `internal/style` | the Width-aware terminal UI toolkit (gradients, gauges, boxes) |
+
+---
+
+## The moat: sandbox, egress, hooks
+
+Beyond approvals, Cliche can enforce policy the model can't reach:
+
+- **`--sandbox`** — confines file access to the project root, **denies network** unless allowlisted, and **scrubs secrets** (`*_KEY`, `*TOKEN`, …) from the environment of shell commands.
+- **Egress allowlist** — `egress.allow` host patterns are re-checked on **every redirect hop** (no SSRF past the allowlist).
+- **Allow/deny rules** — `Tool(pattern)` policy-as-code; **deny wins** over allow and over `--yolo`.
+- **Hooks** — a `pre_tool_use` command can block any tool call (non-zero exit fails **closed**); a `stop` hook observes completion. Policy you write, enforced by a program.
+- **MCP** — stdio and HTTP Model Context Protocol servers; their tools are permission-gated and governed by the same caps, governor, and ledger as built-ins.
 
 ---
 
 ## Configuration
 
-Drop a `.cliche/config.json` in your project root to set defaults (flags
-override per-run):
+Drop a `.cliche/config.json` in your project root (flags override per-run):
 
 ```json
 {
@@ -209,50 +194,34 @@ override per-run):
     "repetition_window": 8,
     "repetition_threshold": 3,
     "no_progress_turns": 12
-  }
+  },
+  "permissions": { "allow": ["Read(**)"], "deny": ["Bash(rm -rf *)"] },
+  "egress": { "allow": ["api.github.com", "*.openai.com"] }
 }
 ```
 
-Config is validated on load — a 0/negative cap or a window smaller than the
-repetition threshold fails loudly rather than silently disarming a guardrail.
-See [docs/config.example.json](docs/config.example.json) for the full shape.
+Config is validated on load — a 0/negative cap, or a window smaller than the repetition threshold, fails loudly rather than silently disarming a guardrail. Cliche also reads `AGENTS.md` (falling back to `CLAUDE.md` / `GEMINI.md`) for project context, including a `## verify` / `test:` line that sets the Verifier's command. Full shape: [docs/config.example.json](docs/config.example.json).
 
-Cliche reads `AGENTS.md` (and falls back to `CLAUDE.md` / `GEMINI.md`) for
-project context — the cross-tool standard, including an optional `## verify` /
-`test:` line that sets the Verifier's test command.
+---
 
-**MCP servers:** list Model Context Protocol servers under the `mcp` config
-array (`{name, command, args}`); their tools appear to the agent as
-`mcp__<server>__<tool>`, are permission-gated (`--allow-mcp` or approval), and
-are governed by the same caps, governor, and ledger as built-in tools.
+## The keystone: independent verification
 
-**Safety defaults:** file tools are confined to the `--dir` project root (no
-reading/writing outside it without `--allow-outside-root`); writes, commands,
-and MCP calls are off until allowed or approved; transient API errors (429/5xx)
-are retried with backoff; a stalled MCP server can't hang a run (calls respect
-cancellation); and `Ctrl-C` cancels the current task with a structured outcome
-rather than a hard kill.
+`verify` re-runs your project's tests **itself** and combines the result with reward-hacking detectors over the diff — so a "tests pass" claim is checked, not trusted:
+
+```sh
+git diff | cliche verify --claim-pass
+```
+
+It auto-detects the test command (`go test ./...`, `pytest`, `npm test`, `cargo test`) or reads it from `AGENTS.md`. Exit codes: `0` verified, `5` flagged, `0`/`2` unverified (with `--strict`).
 
 ---
 
 ## Honest non-claims
 
-- The **token cap is the hard guarantee**; the **dollar cap is an estimate**
-  derived from a maintained price table (rounded conservatively, with a high
-  unknown-model fallback).
-- The **Verifier catches documented patterns** and honest mistakes, and can
-  independently re-run your tests. It is **not** a security boundary against an
-  adversary who knows the rules.
-- The real-model loop does **multi-turn tool use** (read/edit/write/run plus
-  confined code search — `search_files` grep, `find_files` glob, `list_files` —
-  gated by permissions). `edit_file` matches exact → whitespace-tolerant → a
-  confidence-scored fuzzy anchor (which refuses single-line or anchor-less
-  matches, because false edits are worse than no edit), and edits are
-  **syntax-validated before writing** (Go via go/parser, JSON via encoding/json;
-  other languages: no-op for now).
-- The **Context Ledger** keeps the transcript bounded and recoverable; it
-  compacts only at safe task boundaries (within one long task the budget cap
-  governs) and never silently — every compaction is logged and undoable.
+- The **token cap is the hard guarantee**; the **dollar cap is an estimate** from a maintained price table (rounded conservatively, with a high unknown-model fallback).
+- The **Verifier catches documented patterns** and honest mistakes and can independently re-run your tests. It is **not** a security boundary against an adversary who knows the rules.
+- The **sandbox is app-level** confinement (root confinement, network-deny, credential scrubbing), not a kernel jail — deliberately, to stay zero-dependency.
+- The **Context Ledger** keeps the transcript bounded and recoverable; it compacts only at safe task boundaries, never silently — every compaction is logged and undoable.
 
 We'd rather state the limits than oversell them. See [SECURITY.md](SECURITY.md).
 
@@ -262,7 +231,7 @@ We'd rather state the limits than oversell them. See [SECURITY.md](SECURITY.md).
 
 ```sh
 go vet ./...
-go test ./...
+go test ./...          # 18 packages, zero third-party deps
 go build -o cliche ./cmd/cliche
 ```
 
@@ -272,5 +241,4 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[Apache-2.0](LICENSE). The kernel and CLI are fully open: a trust tool you
-can't read isn't one.
+[Apache-2.0](LICENSE). The kernel and CLI are fully open — a trust tool you can't read isn't one.
