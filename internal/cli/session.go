@@ -14,6 +14,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/cli/lineedit"
 	"github.com/mholovetskyi/cliche/internal/config"
+	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/style"
@@ -749,6 +750,19 @@ func (s *session) showDiff() {
 func (s *session) switchModel(line string) {
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
+		// Bare /model opens an arrow-key picker over the priced catalog (type to
+		// filter, e.g. "sonnet"; ↑/↓ + Enter) — no typing the full id.
+		models := pricing.Models()
+		items := make([]lineedit.SelectItem, len(models))
+		for i, e := range models {
+			items[i] = lineedit.SelectItem{Label: e.Model, Desc: fmt.Sprintf("$%.2f in · $%.2f out /1M", e.Price.InputPerM, e.Price.OutputPerM)}
+		}
+		if idx, ok := s.pick("pick a model · "+s.cfg.Provider, items); ok {
+			s.a.SetModel(models[idx].Model)
+			s.cfg.Model = models[idx].Model
+			fmt.Fprintf(s.out, "  model → %s\n", style.White(models[idx].Model))
+			return
+		}
 		fmt.Fprintf(s.out, "  model: %s %s\n", style.White(s.a.Model()), style.Gray("(provider "+s.cfg.Provider+")"))
 		fmt.Fprintln(s.out, "  "+style.Gray("switch with `/model <id>` · `cliche models` lists priced ids"))
 		return

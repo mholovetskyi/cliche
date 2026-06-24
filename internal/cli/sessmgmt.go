@@ -5,9 +5,39 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mholovetskyi/cliche/internal/cli/lineedit"
 	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/style"
 )
+
+// pickSession opens the arrow-key picker over this project's saved sessions and
+// returns the chosen id. ok=false on cancel, when there are none, or when raw
+// mode is unavailable (callers fall back to typed input / the latest session).
+func (s *session) pickSession(header string) (string, bool) {
+	metas, err := sess.List(s.dir)
+	if err != nil || len(metas) == 0 {
+		return "", false
+	}
+	items := make([]lineedit.SelectItem, len(metas))
+	for i, m := range metas {
+		title := m.Title
+		if title == "" {
+			title = "(untitled)"
+		}
+		label := m.ID
+		if m.ID == s.id {
+			label += " (current)"
+		}
+		items[i] = lineedit.SelectItem{
+			Label: label,
+			Desc:  fmt.Sprintf("%s · %d msgs · %s", style.Truncate(title, 32), m.Messages, m.Updated.Local().Format("Jan 2 15:04")),
+		}
+	}
+	if idx, ok := s.pick(header, items); ok {
+		return metas[idx].ID, true
+	}
+	return "", false
+}
 
 // showSessions (/sessions) lists this project's saved sessions, marking the
 // current one, so the user can /resume any of them without leaving chat.
@@ -43,8 +73,12 @@ func (s *session) showSessions() {
 func (s *session) killSession(line string) {
 	id := strings.TrimSpace(strings.TrimPrefix(line, "/kill"))
 	if id == "" {
-		fmt.Fprintln(s.out, "  usage: /kill <id>  (see /sessions)")
-		return
+		picked, ok := s.pickSession("kill a session")
+		if !ok {
+			fmt.Fprintln(s.out, "  usage: /kill <id>  (see /sessions)")
+			return
+		}
+		id = picked
 	}
 	if err := sess.Delete(s.dir, id); err != nil {
 		fmt.Fprintln(s.out, "  kill: "+err.Error())
@@ -90,7 +124,13 @@ func (s *session) newSession() {
 func (s *session) resumeSession(line string) {
 	id := strings.TrimSpace(strings.TrimPrefix(line, "/resume"))
 	if id == "" {
-		id = sess.Latest(s.dir)
+		// Bare /resume opens the picker; fall back to the most recent if raw mode
+		// is unavailable or the picker is cancelled.
+		if picked, ok := s.pickSession("resume a session"); ok {
+			id = picked
+		} else {
+			id = sess.Latest(s.dir)
+		}
 	}
 	if id == "" {
 		fmt.Fprintln(s.out, "  no saved session to resume (see /sessions).")

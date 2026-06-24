@@ -92,6 +92,26 @@ func (s *session) readLineInteractive() (string, error) {
 	}
 }
 
+// pick runs an interactive arrow-key picker over items, returning the chosen
+// index (or ok=false on cancel / when raw mode is unavailable, so the caller can
+// fall back to the typed path). It mirrors readLineInteractive's raw-mode
+// lifecycle: enable, run, restore.
+func (s *session) pick(header string, items []lineedit.SelectItem) (int, bool) {
+	if !style.Enabled || os.Getenv("CLICHE_NO_RAW") != "" || stdinIsPiped() || !rawmode.IsTerminal(os.Stdin) {
+		return -1, false
+	}
+	st, err := rawmode.Enable(os.Stdin, os.Stdout)
+	if err != nil {
+		return -1, false
+	}
+	defer st.Disable()
+	s.ensureEditor()
+	if cols, _ := rawmode.Size(os.Stdout); cols > 0 {
+		s.editor.SetWidth(cols)
+	}
+	return s.editor.Select(header, items)
+}
+
 // ensureEditor lazily builds the persistent raw-mode editor (one decoder for the
 // whole session, so buffered read-ahead survives between lines) and wires
 // Shift-Tab to cycle the permission mode.
