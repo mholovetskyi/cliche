@@ -214,8 +214,15 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		return nil, nil, cfg, noop, err
 	}
 
-	bud := buildBudget(cfg, f.maxUSD, f.maxTokens)
-	govLimits := buildGovernorLimits(cfg, f.maxTurns)
+	// Fold CLI cap flags + apply org policy (tighten-only, fail-closed). Shared
+	// with the swarm builder so neither path can bypass org governance. Flags are
+	// folded into cfg here, so buildBudget/Governor take -1 (no re-override).
+	cfg, err = applyOrgPolicy(cfg, f)
+	if err != nil {
+		return nil, nil, cfg, noop, err
+	}
+	bud := buildBudget(cfg, -1, -1)
+	govLimits := buildGovernorLimits(cfg, -1)
 	led, err := ledger.Open(config.Dir(f.dir))
 	if err != nil {
 		return nil, nil, cfg, noop, err

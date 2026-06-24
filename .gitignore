@@ -25,3 +25,6 @@ coverage*
 api.txt
 *.key
 .cliche_key
+
+# Private commercial planning (backend / control-plane / Stripe spec) — never public.
+/private/

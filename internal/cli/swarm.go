@@ -236,8 +236,14 @@ func buildSwarmRunner(f *runFlags, approve tools.Approver) (swarmRunner, config.
 	if err != nil {
 		return nil, cfg, err
 	}
-	bud := buildBudget(cfg, f.maxUSD, f.maxTokens) // ONE cap shared by every swarm agent
-	govLimits := buildGovernorLimits(cfg, f.maxTurns)
+	// Org policy applies to the swarm too (else it'd be a governance bypass):
+	// folds cap flags + tighten-only merge, fail-closed.
+	cfg, err = applyOrgPolicy(cfg, f)
+	if err != nil {
+		return nil, cfg, err
+	}
+	bud := buildBudget(cfg, -1, -1) // ONE cap shared by every swarm agent
+	govLimits := buildGovernorLimits(cfg, -1)
 	led, err := ledger.Open(config.Dir(f.dir))
 	if err != nil {
 		return nil, cfg, err

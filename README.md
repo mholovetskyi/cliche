@@ -282,9 +282,8 @@ kernel enforces (tighten-only, `--yolo` still can't bypass it), **aggregate
 every signed ledger** into one tamper-evident audit, and **govern spend** across
 the team. That's the commercial layer; the kernel underneath stays open.
 
-See [COMMERCIAL.md](COMMERCIAL.md) for tiers, and
-[docs/control-plane.md](docs/control-plane.md) for the architecture. Sponsor the
-open-source core via the Sponsor button.
+See [COMMERCIAL.md](COMMERCIAL.md) for tiers, or run `cliche org` to connect.
+Sponsor the open-source core via the Sponsor button.
 
 ---
 

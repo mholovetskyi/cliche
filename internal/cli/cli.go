@@ -112,6 +112,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdConnect(rest, stdout, stderr)
 	case "connectors":
 		return cmdConnectors(rest, stdout, stderr)
+	case "org":
+		return cmdOrg(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cliche: unknown command %q\n\n", cmd)
 		usage(stderr)
@@ -175,6 +177,9 @@ COMMANDS:
                      (e.g. 'connect github' → open a link, enter a code). Token
                      saved globally; the connector is then available in every chat.
   connectors         List connectors and which are connected ('connectors rm <name>').
+  org                 Connect to a Cliche control plane (Team tier): 'org login'
+                     pins a signed policy the Trust Kernel enforces on every run
+                     (tighten-only); 'org show' / 'org logout'. See COMMERCIAL.md.
                      'mcp install <name>' builds + wires one in (no Docker needed).
                      Available: github
   insights           Usage & spend report from the ledger and saved sessions.

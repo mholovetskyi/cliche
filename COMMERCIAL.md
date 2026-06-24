@@ -67,10 +67,10 @@ your own runs for free, forever. You pay when you need to audit and govern
 *everyone's*, and prove it to an auditor.
 
 The design that makes this possible is already shipped: the ledger is
-hash-chained and ed25519-signed (`internal/seal`, `cliche audit`), and the
-kernel's guardrails are code around the loop, not prompt text. The control plane
-is the distribution + aggregation surface on top — see
-[docs/control-plane.md](docs/control-plane.md) for the architecture.
+hash-chained and ed25519-signed (`internal/seal`, `cliche audit`), the kernel's
+guardrails are code around the loop (not prompt text), and the open `orgpolicy`
+client enforces a signed, tighten-only org policy (`cliche org`). The control
+plane — the policy/billing/aggregation backend — is a separate hosted service.
 
 ---
 
