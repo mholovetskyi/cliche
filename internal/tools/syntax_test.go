@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestValidateSyntaxShowsOffendingLine(t *testing.T) {
+	// A missing '(' on line 3 — the rejection must show the model that line.
+	content := "package x\n\nfunc Add a, b int) int {\n\treturn a + b\n}\n"
+	err := validateSyntax("x.go", content)
+	if err == nil {
+		t.Fatal("expected a parse error")
+	}
+	if !strings.Contains(err.Error(), "func Add a, b int) int {") {
+		t.Fatalf("rejection should quote the offending line:\n%s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "line 3") {
+		t.Fatalf("rejection should cite the line number:\n%s", err.Error())
+	}
+}
+
 func TestValidateSyntaxGo(t *testing.T) {
 	if err := validateSyntax("x.go", "package x\n\nfunc F() int { return 1 }\n"); err != nil {
 		t.Fatalf("valid Go should pass: %v", err)

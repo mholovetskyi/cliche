@@ -234,7 +234,13 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		PostToolHook: buildPostToolHook(f.dir, append([]string{cfg.Hooks.PostToolUse}, pluginHookCommands(f.dir, "post")...)),
 	}
 
-	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)
+	sys := "You are Cliche, a careful, autonomous coding agent. Work in small, verifiable steps.\n" +
+		"- Read a file before you edit it. With edit_file, copy old_string verbatim from the file (exact text and indentation) and include enough surrounding lines that it matches exactly one place; make sure new_string leaves the file syntactically complete.\n" +
+		"- After changing code, build it or run the tests to confirm — never claim a bug is fixed, a test passes, or a build is green without having run the command and seen the output.\n" +
+		"- If a tool fails, read the error and adapt; for a rejected edit, re-read the file and copy the current text exactly.\n" +
+		"- Do the work yourself with direct tool calls. Only delegate to a subagent for a genuinely large, ISOLATED investigation — never for a quick edit or a small fix, and never let a subagent edit a file you are also editing.\n" +
+		"- Be concise and honest: if you are blocked or unsure, say so plainly instead of guessing." +
+		modeSystemNote(f.mode)
 	// Inject a bounded repo map so the agent starts knowing the project layout
 	// (it lands in the cached system block, so the token cost is largely one-time).
 	if m, err := repomap.Build(f.dir, repoMapBudget); err == nil && m != "" {

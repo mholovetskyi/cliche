@@ -512,7 +512,7 @@ func DefaultToolSpecs() []provider.ToolSpec {
 		},
 		{
 			Name:        "edit_file",
-			Description: "Replace an exact snippet in a file. Prefer this over write_file for edits. old_string must match a unique block; whitespace-only differences are tolerated.",
+			Description: "Replace an exact snippet in a file. Prefer this over write_file for edits. Read the file first and copy old_string verbatim (it must match a unique block; whitespace-only differences are tolerated). Keep new_string syntactically complete — a result that doesn't parse is rejected and the file is left unchanged.",
 			Schema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
