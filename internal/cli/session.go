@@ -677,6 +677,8 @@ func (s *session) slash(line string) bool {
 		s.rewind()
 	case "/model":
 		s.switchModel(line)
+	case "/provider":
+		s.switchProvider(line)
 	case "/models":
 		s.showModels()
 	case "/theme":

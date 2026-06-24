@@ -46,6 +46,7 @@ var slashCommands = []slashCmd{
 	{"/verify", "", "re-run the project tests", "review"},
 	{"/model", "[id]", "show or switch the model", "control"},
 	{"/models", "", "list priced models (switch with /model)", "control"},
+	{"/provider", "[name]", "switch provider (login inline if needed)", "control"},
 	{"/theme", "[name]", "show or switch the UI palette", "control"},
 	{"/mode", "[name]", "show or switch permission mode", "control"},
 	{"/clear", "", "reset the conversation context", "control"},

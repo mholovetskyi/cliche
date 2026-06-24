@@ -104,6 +104,14 @@ func (a *Agent) SetObserver(obs Observer) { a.obs = obs }
 // /model switch). The budget/governor are unaffected.
 func (a *Agent) SetModel(model string) { a.cfg.Model = model }
 
+// SetProvider swaps the model backend mid-session (used by /provider to switch
+// providers without restarting). The transcript, budget, and governor are
+// untouched — only where completions are sent changes.
+func (a *Agent) SetProvider(p provider.Provider, model string) {
+	a.prov = p
+	a.cfg.Model = model
+}
+
 // Model returns the model currently in use.
 func (a *Agent) Model() string { return a.cfg.Model }
 

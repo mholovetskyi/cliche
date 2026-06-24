@@ -37,6 +37,13 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		style.ApplyTheme(t) // env theme applies globally, before any rendering
 	}
 	if len(args) < 2 {
+		// No subcommand: on a real terminal, drop straight into chat — one running
+		// app (it runs first-time login inline; /provider switches mid-session), so
+		// users don't juggle login/chat as separate commands. Piped/CI: just the
+		// splash + hint (chat is interactive).
+		if !stdinIsPiped() {
+			return cmdChat(nil, stdout, stderr)
+		}
 		fmt.Fprint(stdout, splash())
 		fmt.Fprintln(stdout, "  "+style.Gray("run `cliche help` for every command and flag."))
 		return 0
