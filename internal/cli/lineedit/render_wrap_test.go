@@ -18,6 +18,33 @@ func TestPhysicalRows(t *testing.T) {
 	}
 }
 
+func TestFooterShownWhenMenuClosedHiddenWhenOpen(t *testing.T) {
+	var buf bytes.Buffer
+	e := NewEditor(strings.NewReader(""), &buf, []Command{{Name: "/status"}}, NewHistory(nil))
+	e.Footer = "FOOTER_HINT"
+	e.prompt, e.promptW = "> ", 2
+
+	// Menu closed → footer is drawn below the input.
+	e.buf, e.cursor = []rune("hi"), 2
+	e.render()
+	if !strings.Contains(buf.String(), "FOOTER_HINT") {
+		t.Fatalf("footer should render while the dropdown is closed:\n%q", buf.String())
+	}
+
+	// Dropdown open ("/") → it replaces the footer.
+	buf.Reset()
+	e.buf, e.cursor = []rune("/"), 1
+	e.menu.update("/")
+	e.render()
+	out := buf.String()
+	if strings.Contains(out, "FOOTER_HINT") {
+		t.Fatalf("footer must yield to the dropdown when open:\n%q", out)
+	}
+	if !strings.Contains(out, "/status") {
+		t.Fatalf("dropdown should list commands:\n%q", out)
+	}
+}
+
 func TestRenderWrapsWideLine(t *testing.T) {
 	var buf bytes.Buffer
 	e := NewEditor(strings.NewReader(""), &buf, nil, NewHistory(nil))

@@ -38,6 +38,11 @@ type Editor struct {
 	cols          int // terminal width in cells (for wrap-aware redraw); 0 → 80
 	prevCursorRow int // cursor's physical row within the block at the last render
 
+	// Footer, if set, is a hint line drawn just below the input whenever the "/"
+	// dropdown is closed (the dropdown takes its place when open). It must include
+	// its own leading indent/styling — render writes it verbatim.
+	Footer string
+
 	// CycleMode, if set, is invoked on Shift-Tab to cycle the permission mode; it
 	// returns the new prompt (and its display width) so the chevron updates live.
 	CycleMode func() (prompt string, promptW int)
@@ -148,7 +153,7 @@ func (e *Editor) ReadLine(prompt string, promptW int) (string, error) {
 			e.deleteWordLeft()
 		case keydec.KeyCtrlL:
 			io.WriteString(e.out, "\x1b[2J\x1b[H")
-			e.rendered = 0
+			e.rendered, e.prevCursorRow = 0, 0 // screen cleared: don't climb into it on the next redraw
 		case keydec.KeyUp, keydec.KeyCtrlP:
 			if e.menu.open {
 				e.menu.up()
@@ -223,8 +228,11 @@ func (e *Editor) deleteWordLeft() {
 // stays and subsequent output starts clean.
 func (e *Editor) commit() {
 	e.menu.reset()
+	f := e.Footer
+	e.Footer = ""         // the committed line keeps no footer
 	e.cursor = len(e.buf) // park at the end so the trailing newline lands BELOW the whole (possibly wrapped) line
-	e.render()            // wipes any dropdown rows, leaves the cursor at the line end
+	e.render()            // wipes any dropdown/footer rows, leaves the cursor at the line end
+	e.Footer = f
 	io.WriteString(e.out, "\r\n")
 }
 
@@ -252,8 +260,12 @@ func (e *Editor) render() {
 	b.WriteString(e.prompt)
 	b.WriteString(displayLine(string(e.buf)))
 
-	// Dropdown rows, each on its own physical line below the (wrapped) input.
+	// Below the (wrapped) input: the "/" dropdown, or — when it's closed — the
+	// footer hint line, so the box always has a bottom edge while idle.
 	rows := e.menuRows()
+	if len(rows) == 0 && e.Footer != "" {
+		rows = []string{e.Footer}
+	}
 	for _, r := range rows {
 		b.WriteString("\r\n")
 		b.WriteString(r)

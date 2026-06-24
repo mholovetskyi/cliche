@@ -104,6 +104,7 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	// nor a concurrent subagent's events repaint over the y/N card.
 	app.onPromptStart = s.beginPrompt
 	app.onPromptEnd = s.endPrompt
+	app.choose = s.chooseApproval // arrow-key approve/reject/always (y/n/a still work)
 
 	// Resume a saved session if requested (--continue = most recent, --resume <id>).
 	if id := f.resume; id != "" || f.cont {

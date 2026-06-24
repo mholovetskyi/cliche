@@ -112,6 +112,22 @@ func (s *session) pick(header string, items []lineedit.SelectItem) (int, bool) {
 	return s.editor.Select(header, items)
 }
 
+// chooseApproval renders the arrow-key approval choice row in raw mode, returning
+// the chosen index (handled=true). handled=false when raw mode is unavailable, so
+// the approver falls back to the typed y/N prompt. -1 (cancel) maps to deny.
+func (s *session) chooseApproval(choices []string) (int, bool) {
+	if !style.Enabled || os.Getenv("CLICHE_NO_RAW") != "" || stdinIsPiped() || !rawmode.IsTerminal(os.Stdin) {
+		return 0, false
+	}
+	st, err := rawmode.Enable(os.Stdin, os.Stdout)
+	if err != nil {
+		return 0, false
+	}
+	defer st.Disable()
+	s.ensureEditor()
+	return s.editor.Choose(choices), true
+}
+
 // ensureEditor lazily builds the persistent raw-mode editor (one decoder for the
 // whole session, so buffered read-ahead survives between lines) and wires
 // Shift-Tab to cycle the permission mode.
@@ -127,6 +143,10 @@ func (s *session) ensureEditor() {
 		cmds = append(cmds, lineedit.Command{Name: c.Name, Desc: c.Desc})
 	}
 	s.editor = lineedit.NewEditor(os.Stdin, os.Stdout, cmds, lineedit.NewHistory(loadHistory(s.dir)))
+	// A footer hint line closes the input box and surfaces the navigation keys
+	// (shown while the "/" dropdown is closed). The leading "  ╰╴" aligns under
+	// the bar's "│" left edge for a boxed feel.
+	s.editor.Footer = "  " + style.Gray("╰╴") + style.Dim("↑↓ history · / commands · ⇥ complete · ⇧⇥ mode · ^C stop")
 	s.editor.CycleMode = func() (string, int) {
 		if s.app != nil {
 			s.app.setMode(nextMode(s.modeName()))

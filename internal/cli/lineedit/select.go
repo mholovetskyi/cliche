@@ -9,6 +9,67 @@ import (
 	"github.com/mholovetskyi/cliche/internal/style"
 )
 
+// Choose renders a one-line horizontal selector over choices: ←/→ (or Tab) move,
+// Enter confirms, Esc/Ctrl-C cancels (→ -1). The quick keys y/n/a jump to the
+// first / second / last choice (so y/N muscle memory still works for an approval
+// card whose choices are approve · reject · always). Returns the selected index,
+// or -1 on cancel. Assumes raw mode (the caller toggles it).
+func (e *Editor) Choose(choices []string) int {
+	if len(choices) == 0 {
+		return -1
+	}
+	sel := 0
+	render := func() {
+		var b strings.Builder
+		b.WriteString("\r\x1b[K  ")
+		for i, c := range choices {
+			if i > 0 {
+				b.WriteString("  ")
+			}
+			if i == sel {
+				b.WriteString(style.BoldGreen("▸ " + c))
+			} else {
+				b.WriteString(style.Dim(c))
+			}
+		}
+		b.WriteString(style.Dim("   ←/→ · enter"))
+		io.WriteString(e.out, b.String())
+	}
+	done := func(i int) int { io.WriteString(e.out, "\r\x1b[K"); return i }
+
+	render()
+	for {
+		k, err := e.dec.ReadKey()
+		if err != nil {
+			return done(-1)
+		}
+		switch k.Type {
+		case keydec.KeyEnter:
+			return done(sel)
+		case keydec.KeyEsc, keydec.KeyCtrlC:
+			return done(-1)
+		case keydec.KeyLeft, keydec.KeyCtrlB:
+			if sel > 0 {
+				sel--
+			}
+		case keydec.KeyRight, keydec.KeyCtrlF, keydec.KeyTab:
+			if sel < len(choices)-1 {
+				sel++
+			}
+		case keydec.KeyRune:
+			switch k.Rune {
+			case 'y', 'Y':
+				return done(0)
+			case 'n', 'N':
+				return done(min(1, len(choices)-1))
+			case 'a', 'A':
+				return done(len(choices) - 1)
+			}
+		}
+		render()
+	}
+}
+
 // SelectItem is one row in a Select picker. Label is the value (returned by
 // index, shown prominently); Desc is dim secondary text. Both are matched by the
 // type-to-filter search.

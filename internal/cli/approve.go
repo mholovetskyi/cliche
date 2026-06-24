@@ -21,10 +21,14 @@ type approver struct {
 	out           io.Writer
 	onPromptStart func() // called right before an interactive prompt is drawn (pause spinners)
 	onPromptEnd   func() // called once the prompt read returns (resume spinners)
-	alwaysWrite   bool
-	alwaysRun     bool
-	alwaysWeb     bool
-	mode          string // permission mode (mutable via /mode); "" == suggest
+	// choose, if set, renders an arrow-key choice row (approve/reject/always) and
+	// returns the chosen index; handled=false means it couldn't run (no raw mode)
+	// so Approve falls back to the typed y/N read. idx 0=approve, 2=always, else deny.
+	choose      func(choices []string) (idx int, handled bool)
+	alwaysWrite bool
+	alwaysRun   bool
+	alwaysWeb   bool
+	mode        string // permission mode (mutable via /mode); "" == suggest
 }
 
 // setMode changes the permission mode (mutex-guarded; Approve reads it under
@@ -99,6 +103,31 @@ func (a *approver) Approve(action, detail string) bool {
 	if reason := riskyReason(action, head); reason != "" {
 		fmt.Fprintf(a.out, "  %s\n", style.Red(gl("⚠", "!")+" "+reason))
 	}
+	// Arrow-key choice card (interactive raw-mode session): approve · reject ·
+	// always, navigable with ←/→ and Enter (y/n/a still work). Reading through the
+	// raw decoder also avoids the cooked-ReadString hazards (Ctrl-C is a key event;
+	// no type-ahead stranded in a second buffer). Falls back to the typed read
+	// below when raw mode is unavailable.
+	if a.choose != nil {
+		if idx, handled := a.choose(choiceLabels(action)); handled {
+			switch idx {
+			case 0:
+				return true
+			case 2:
+				switch action {
+				case "write":
+					a.alwaysWrite = true
+				case "fetch":
+					a.alwaysWeb = true
+				default:
+					a.alwaysRun = true
+				}
+				return true
+			default:
+				return false
+			}
+		}
+	}
 	fmt.Fprint(a.out, "  "+style.Dim(choiceRow(action))+" ")
 	line, err := a.r.ReadString('\n')
 	if err != nil && line == "" {
@@ -144,6 +173,19 @@ func approvalHeader(action, head string) (verb, target string) {
 	default:
 		return strings.ToUpper(action), head
 	}
+}
+
+// choiceLabels are the arrow-card options per action: index 0 approves (verb
+// varies), 1 rejects, 2 grants "always". The verb mirrors choiceRow.
+func choiceLabels(action string) []string {
+	yes := "approve"
+	switch action {
+	case "run":
+		yes = "run"
+	case "fetch":
+		yes = "fetch"
+	}
+	return []string{yes, "reject", "always"}
 }
 
 // choiceRow spells out the y/N/a choices with the scope of "always" per action,
