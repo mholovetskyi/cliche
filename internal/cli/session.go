@@ -627,6 +627,8 @@ func (s *session) slash(line string) bool {
 		s.showMemory()
 	case "/browse":
 		s.browseSessions()
+	case "/changes":
+		s.browseChanges()
 	case "/sessions":
 		s.showSessions()
 	case "/new":

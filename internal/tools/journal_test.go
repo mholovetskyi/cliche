@@ -42,6 +42,39 @@ func TestJournalRecordsAndDiffs(t *testing.T) {
 	}
 }
 
+func TestJournalRevertPerFile(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(existing, []byte("orig\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	j := NewEditJournal(root)
+	e := OSExecutor{Root: root, Policy: Policy{Yolo: true}, Journal: j}
+	e.Execute(context.Background(), "edit_file", map[string]string{"file": "a.txt", "old_string": "orig", "new_string": "CHANGED"})
+	e.Execute(context.Background(), "write_file", map[string]string{"file": "b.txt", "content": "created\n"})
+
+	// Revert the edited file → restored to original, and dropped from Changes.
+	if found, err := j.Revert("a.txt"); !found || err != nil {
+		t.Fatalf("Revert(a.txt) = %v, %v", found, err)
+	}
+	if data, _ := os.ReadFile(existing); string(data) != "orig\n" {
+		t.Fatalf("a.txt should be restored, got %q", data)
+	}
+	// Revert the created file → deleted, and dropped from Changes.
+	if found, _ := j.Revert("b.txt"); !found {
+		t.Fatal("Revert(b.txt) should find it")
+	}
+	if _, err := os.Stat(filepath.Join(root, "b.txt")); !os.IsNotExist(err) {
+		t.Fatal("b.txt (session-created) should be deleted on revert")
+	}
+	if c := j.Changes(); len(c) != 0 {
+		t.Fatalf("after reverting both, no changes should remain, got %+v", c)
+	}
+	if found, _ := j.Revert("nope.txt"); found {
+		t.Fatal("reverting an untracked file should report not-found")
+	}
+}
+
 func TestJournalNetNoOpOmitted(t *testing.T) {
 	root := t.TempDir()
 	f := filepath.Join(root, "a.txt")

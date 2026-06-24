@@ -12,7 +12,7 @@ func TestRenderFrameStructure(t *testing.T) {
 		{Label: "gamma", Preview: []string{"gamma details"}},
 	}
 	l := NewList(len(items))
-	lines := renderFrame(l, items, 60, 8, "HEADER")
+	lines := renderFrame(l, items, 60, 8, "HEADER", "open")
 
 	if len(lines) != 8 {
 		t.Fatalf("frame should be exactly height (8) lines, got %d", len(lines))
@@ -40,7 +40,7 @@ func TestRenderFramePreviewFollowsSelection(t *testing.T) {
 	}
 	l := NewList(len(items))
 	l.Down() // select b
-	out := strings.Join(renderFrame(l, items, 50, 6, "h"), "\n")
+	out := strings.Join(renderFrame(l, items, 50, 6, "h", "open"), "\n")
 	if !strings.Contains(out, "PREVIEW_B") || strings.Contains(out, "PREVIEW_A") {
 		t.Fatalf("preview should track the selection (expected B, not A):\n%s", out)
 	}

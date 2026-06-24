@@ -183,6 +183,45 @@ func (j *EditJournal) RewindAll() ([]string, error) {
 	return reverted, nil
 }
 
+// Revert restores a single file (by display path) to its pre-session state —
+// writing the content it had when the session first touched it, or deleting it
+// if the session created it — and drops its entries from the journal so it no
+// longer shows as changed. Returns whether a matching tracked file was found.
+func (j *EditJournal) Revert(rel string) (found bool, err error) {
+	if j == nil {
+		return false, nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	originIdx := -1
+	for i := range j.stack {
+		if j.relPath(j.stack[i].path) == rel {
+			originIdx = i
+			break
+		}
+	}
+	if originIdx < 0 {
+		return false, nil
+	}
+	origin := j.stack[originIdx]
+	if origin.existed {
+		err = os.WriteFile(origin.path, []byte(origin.before), 0o644)
+	} else if rmErr := os.Remove(origin.path); rmErr != nil && !os.IsNotExist(rmErr) {
+		err = rmErr
+	}
+	if err != nil {
+		return true, err
+	}
+	kept := j.stack[:0]
+	for _, c := range j.stack {
+		if c.path != origin.path {
+			kept = append(kept, c)
+		}
+	}
+	j.stack = kept
+	return true, nil
+}
+
 func (j *EditJournal) relPath(p string) string {
 	root := j.root
 	if abs, err := filepath.Abs(root); err == nil {

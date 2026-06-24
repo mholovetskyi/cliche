@@ -28,7 +28,7 @@ func cell(s string, w int) string {
 // renderFrame builds exactly `height` screen lines for the two-pane browser:
 // a header row, then a split body (left = scrollable list, right = the selected
 // item's preview), then a footer of keys. Pure — unit-tested.
-func renderFrame(l *List, items []Item, width, height int, header string) []string {
+func renderFrame(l *List, items []Item, width, height int, header, openLabel string) []string {
 	leftW := width / 3
 	if leftW < 16 {
 		leftW = 16
@@ -75,7 +75,10 @@ func renderFrame(l *List, items []Item, width, height int, header string) []stri
 		}
 		lines = append(lines, cell(left, leftW)+style.Gray(" │ ")+right)
 	}
-	lines = append(lines, style.Dim(cell("↑↓/wheel move · click select · enter open · q quit", width)))
+	if openLabel == "" {
+		openLabel = "open"
+	}
+	lines = append(lines, style.Dim(cell("↑↓/wheel move · click select · enter "+openLabel+" · q quit", width)))
 	return lines
 }
 
@@ -85,7 +88,7 @@ func renderFrame(l *List, items []Item, width, height int, header string) []stri
 // selects a row, Enter opens the selection, q/Esc cancels. It owns the alternate
 // screen + mouse reporting (restored on return). Returns the chosen index + true,
 // or (-1, false) on cancel.
-func Browse(dec *keydec.Decoder, out io.Writer, width, height int, header string, items []Item) (int, bool) {
+func Browse(dec *keydec.Decoder, out io.Writer, width, height int, header, openLabel string, items []Item) (int, bool) {
 	if len(items) == 0 || dec == nil {
 		return -1, false
 	}
@@ -104,7 +107,7 @@ func Browse(dec *keydec.Decoder, out io.Writer, width, height int, header string
 
 	l := NewList(len(items))
 	draw := func() {
-		frame := renderFrame(l, items, width, height, header)
+		frame := renderFrame(l, items, width, height, header, openLabel)
 		var b strings.Builder
 		b.WriteString("\x1b[H") // cursor home
 		for i, ln := range frame {

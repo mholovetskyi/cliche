@@ -37,6 +37,7 @@ var slashCommands = []slashCmd{
 	{"/memory", "", "show what the agent remembers about this project", "control"},
 	{"/bug", "[note]", "write a bug report", "control"},
 	{"/diff", "", "changes made this session", "review"},
+	{"/changes", "", "browse + revert file changes (full-screen)", "review"},
 	{"/undo", "", "revert the last edit", "review"},
 	{"/rewind", "", "undo every edit this session", "review"},
 	{"/commit", "[msg]", "git commit the work", "review"},

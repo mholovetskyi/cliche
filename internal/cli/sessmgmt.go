@@ -11,7 +11,57 @@ import (
 	"github.com/mholovetskyi/cliche/internal/cli/tui"
 	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/style"
+	"github.com/mholovetskyi/cliche/internal/tools"
 )
+
+// browseChanges (/changes) opens the full-screen diff browser: files changed
+// this session on the left, the selected file's colored diff on the right. Enter
+// reverts the highlighted file to its pre-session state. Falls back to the inline
+// /diff when raw mode is unavailable.
+func (s *session) browseChanges() {
+	changes := s.journal.Changes()
+	if len(changes) == 0 {
+		fmt.Fprintln(s.out, "  no file changes this session.")
+		return
+	}
+	if !style.Enabled || os.Getenv("CLICHE_NO_RAW") != "" || stdinIsPiped() || !rawmode.IsTerminal(os.Stdin) {
+		s.showDiff()
+		return
+	}
+	st, err := rawmode.Enable(os.Stdin, os.Stdout)
+	if err != nil {
+		s.showDiff()
+		return
+	}
+	cols, rows := rawmode.Size(os.Stdout)
+	s.ensureEditor()
+
+	items := make([]tui.Item, len(changes))
+	for i, c := range changes {
+		tag := "~"
+		switch {
+		case c.Deleted:
+			tag = "-"
+		case c.WasNew:
+			tag = "+"
+		}
+		items[i] = tui.Item{
+			Label:   tag + " " + c.Path,
+			Preview: strings.Split(tools.PreviewChange(c.Before, c.After), "\n"),
+		}
+	}
+	idx, ok := tui.Browse(s.editor.Decoder(), os.Stdout, cols, rows, "  changes · "+s.dir, "revert file", items)
+	_ = st.Disable()
+	if !ok {
+		return
+	}
+	c := changes[idx]
+	if found, err := s.journal.Revert(c.Path); err != nil {
+		fmt.Fprintf(s.out, "  %s revert %s: %s\n", style.Red(gl("✗", "x")), c.Path, err.Error())
+	} else if found {
+		fmt.Fprintf(s.out, "  %s reverted %s %s\n", style.Green(gl("↺", "*")), style.White(c.Path), style.Gray("· restored to its pre-session state"))
+	}
+}
 
 // browseSessions (/browse) opens the full-screen, mouse-driven session browser:
 // a scrollable list on the left, the selected session's details on the right.
@@ -56,7 +106,7 @@ func (s *session) browseSessions() {
 			},
 		}
 	}
-	idx, ok := tui.Browse(s.editor.Decoder(), os.Stdout, cols, rows, "  sessions · "+s.dir, items)
+	idx, ok := tui.Browse(s.editor.Decoder(), os.Stdout, cols, rows, "  sessions · "+s.dir, "resume", items)
 	_ = st.Disable()
 	if ok {
 		s.resumeSession("/resume " + metas[idx].ID)
