@@ -241,8 +241,7 @@ func (s *session) loop() int {
 	if strings.HasPrefix(source, "env:") {
 		keySrc = "env"
 	}
-	fmt.Fprintln(s.out)
-	fmt.Fprintln(s.out, compactHeader(s.cfg.Provider, s.cfg.Model, s.modeName(), keySrc))
+	s.intro(s.cfg.Provider, s.cfg.Model, s.modeName(), keySrc)
 	if w := keyOverrideWarning(s.cfg.Provider); w != "" {
 		fmt.Fprintln(s.out, "  "+style.Red(gl("⚠", "!"))+" "+style.White(w))
 	}
@@ -293,6 +292,7 @@ func (s *session) loop() int {
 		// Ctrl-C at the idle prompt uses the default behavior (quit).
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		start, u0 := time.Now(), s.a.Usage()
+		dispatchSweep(s.out)     // a quick "sending" flourish before the wait
 		s.startSpin("thinking…") // shimmer while we wait on the first model response
 		o, runErr := s.a.Run(ctx, prompt)
 		s.stopSpin()
@@ -335,6 +335,47 @@ func (s *session) readInput() (string, error) {
 	}
 	b.WriteString(line)
 	return strings.TrimSpace(b.String()), nil
+}
+
+// intro renders the session opener: an animated wordmark reveal, a trust-kernel
+// boot sequence, and a typewriter tagline on a TTY — or the static compact header
+// when animations are off (pipes / CI / NO_COLOR / CLICHE_NO_ANIM / tests).
+func (s *session) intro(provider, model, mode, keySrc string) {
+	if !animOn() {
+		fmt.Fprintln(s.out, compactHeader(provider, model, mode, keySrc))
+		return
+	}
+	lim := s.a.Limits()
+	budgetStr := "uncapped"
+	if lim.MaxUSD > 0 || lim.MaxTokens > 0 {
+		var p []string
+		if lim.MaxUSD > 0 {
+			p = append(p, fmt.Sprintf("$%.2f", lim.MaxUSD))
+		}
+		switch t := lim.MaxTokens; {
+		case t >= 1_000_000:
+			p = append(p, fmt.Sprintf("%.1fM tokens", float64(t)/1e6))
+		case t >= 1000:
+			p = append(p, fmt.Sprintf("%.0fk tokens", float64(t)/1000))
+		case t > 0:
+			p = append(p, fmt.Sprintf("%d tokens", t))
+		}
+		budgetStr = strings.Join(p, " · ")
+	}
+	g := s.cfg.Governor
+
+	fmt.Fprintln(s.out)
+	fmt.Fprintln(s.out, heroAccentLine())
+	revealWordmark(s.out)
+	fmt.Fprintln(s.out)
+	revealLines(s.out, []string{
+		bootLine("trust kernel", "armed"),
+		bootLine("budget", budgetStr),
+		bootLine("governor", fmt.Sprintf("%d turns · %ds wall", g.MaxTurns, g.MaxWallClockSeconds)),
+		bootLine("provider", provider+" · "+shortModel(model)+" · "+mode+" · key "+keySrc),
+	}, 55*time.Millisecond)
+	fmt.Fprintln(s.out)
+	typeLine(s.out, "  ", "the AI coding agent you can actually leave running.", style.WhiteRGB)
 }
 
 // modeName is the current permission mode (defaults to suggest).

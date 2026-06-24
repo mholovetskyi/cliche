@@ -374,6 +374,21 @@ func Box(title, body string, c RGB) string {
 
 // ---- diagonal hero sweep ----
 
+// GradientAt returns the brand-gradient color for a diagonal-sweep position —
+// the color Gradient2D would paint at (col,row) of a cols×rows block. Exposed so
+// callers can build custom per-cell animations (e.g. the splash reveal) that
+// settle seamlessly into the static Gradient2D render.
+func GradientAt(col, row, cols, rows int, stops ...RGB) RGB {
+	if len(stops) == 0 {
+		stops = BrandGradient
+	}
+	denom := float64((cols - 1) + (rows - 1))
+	if denom <= 0 {
+		denom = 1
+	}
+	return colorAt(stops, float64(col+row)/denom)
+}
+
 // Gradient2D colors s as one row of a stacked block, sampling the gradient on a
 // diagonal (t advances with both column and row) so that rows rendered together
 // form a single corner-to-corner sheen rather than identical horizontal sweeps.

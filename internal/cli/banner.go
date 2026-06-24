@@ -36,23 +36,48 @@ const accentCol = 38
 // unavailable (NO_COLOR), instead of an ambiguous CLICHE.
 const eBlockCol = 35
 
-// heroLogo renders the ANSI-Shadow "CLICHÉ" block. "CLICH" sweeps on a diagonal
-// (Gradient2D) so the stacked rows read as one corner-to-corner coral sheen, the
-// final E is forced brand-red, and an acute accent rides above it. The accent is
-// routed through gl() so a dumb terminal degrades the box-drawing stroke to an
-// ASCII tick rather than emitting an unrenderable glyph.
-func heroLogo() string {
-	var b strings.Builder
-	rows := len(clicheLetters)
-	b.WriteString("  " + style.Red(strings.Repeat(" ", accentCol)+gl("╱╱", "'")) + "\n")
+// heroAccentLine is the gutter-indented acute-accent row that rides above the
+// wordmark. Routed through gl() so a dumb terminal degrades the box-drawing
+// stroke to an ASCII tick rather than emitting an unrenderable glyph.
+func heroAccentLine() string {
+	return "  " + style.Red(strings.Repeat(" ", accentCol)+gl("╱╱", "'"))
+}
+
+// paddedLetterRows returns the six wordmark rows as rune slices, each padded to
+// artWidth — the substrate both the static render and the reveal animation draw.
+func paddedLetterRows() [][]rune {
+	out := make([][]rune, len(clicheLetters))
 	for i, row := range clicheLetters {
 		rs := []rune(row)
 		for len(rs) < artWidth {
 			rs = append(rs, ' ')
 		}
-		head := style.Gradient2D(string(rs[:eBlockCol]), i, rows)
+		out[i] = rs
+	}
+	return out
+}
+
+// heroLetterLines renders the six gutter-indented wordmark rows: "CLICH" sweeps
+// on a diagonal (Gradient2D) so the stacked rows read as one corner-to-corner
+// coral sheen, while the final E is forced brand-red so the eye reads CLICHÉ.
+func heroLetterLines() []string {
+	rows := paddedLetterRows()
+	out := make([]string, len(rows))
+	for i, rs := range rows {
+		head := style.Gradient2D(string(rs[:eBlockCol]), i, len(rows))
 		eBlock := style.Red(string(rs[eBlockCol:]))
-		b.WriteString("  " + head + eBlock + "\n")
+		out[i] = "  " + head + eBlock
+	}
+	return out
+}
+
+// heroLogo renders the full ANSI-Shadow "CLICHÉ" block: the acute accent over
+// the diagonal-swept wordmark.
+func heroLogo() string {
+	var b strings.Builder
+	b.WriteString(heroAccentLine() + "\n")
+	for _, ln := range heroLetterLines() {
+		b.WriteString(ln + "\n")
 	}
 	return b.String()
 }

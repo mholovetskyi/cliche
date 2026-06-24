@@ -48,7 +48,7 @@ func cmdLogin(_ []string, out, errOut io.Writer) int {
 // key (hidden), verify it works with a token-free API ping, then save it.
 func runLogin(r *bufio.Reader, out io.Writer) int {
 	clearScreen(out)
-	fmt.Fprint(out, loginBanner())
+	loginIntro(out)
 
 	choices := loginChoices()
 	fmt.Fprintln(out)
