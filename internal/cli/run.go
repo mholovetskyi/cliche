@@ -183,6 +183,9 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, cfg, noop, fmt.Errorf("invalid config (.cliche/config.json): %w", err)
 	}
+	if os.Getenv("CLICHE_THEME") == "" && cfg.Theme != "" {
+		style.ApplyTheme(cfg.Theme) // config palette (an explicit env theme wins)
+	}
 	b, err := resolveBackend(cfg, f)
 	if err != nil {
 		return nil, nil, cfg, noop, err

@@ -6,6 +6,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"runtime/debug"
 	"time"
 
@@ -32,6 +33,9 @@ func versionString() string {
 
 // Main is the entrypoint. It returns a process exit code.
 func Main(args []string, stdout, stderr io.Writer) int {
+	if t := os.Getenv("CLICHE_THEME"); t != "" {
+		style.ApplyTheme(t) // env theme applies globally, before any rendering
+	}
 	if len(args) < 2 {
 		fmt.Fprint(stdout, splash())
 		fmt.Fprintln(stdout, "  "+style.Gray("run `cliche help` for every command and flag."))
@@ -69,6 +73,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdSkills(rest, stdout, stderr)
 	case "plugins":
 		return cmdPlugins(rest, stdout, stderr)
+	case "themes":
+		return cmdThemes(rest, stdout, stderr)
 	case "bug":
 		return cmdBug(rest, stdout, stderr)
 	case "insights":
@@ -132,6 +138,7 @@ COMMANDS:
                      'skills new <name>' → .cliche/skills/<name>/SKILL.md.
   plugins            Installable bundles (skills + commands + hooks + MCP): list,
                      or 'plugins new <name>' → .cliche/plugins/<name>/.
+  themes             List UI palettes (set via CLICHE_THEME or "theme" in config).
   insights           Usage & spend report from the ledger and saved sessions.
   bug                Write a bug report (environment + context) + a GitHub link.
   config             Print and validate the effective configuration.

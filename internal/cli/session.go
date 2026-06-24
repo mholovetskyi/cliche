@@ -626,6 +626,8 @@ func (s *session) slash(line string) bool {
 		s.switchModel(line)
 	case "/models":
 		s.showModels()
+	case "/theme":
+		s.themeCmd(line)
 	case "/mode":
 		s.setMode(line)
 	case "/commit":

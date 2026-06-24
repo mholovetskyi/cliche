@@ -105,6 +105,7 @@ type Config struct {
 	Permissions Permissions   `json:"permissions,omitempty"`
 	Egress      Egress        `json:"egress,omitempty"`
 	Hooks       Hooks         `json:"hooks,omitempty"`
+	Theme       string        `json:"theme,omitempty"` // UI palette: coral | mono | ocean | matrix | grape
 }
 
 // Default returns conservative, trust-first defaults.
