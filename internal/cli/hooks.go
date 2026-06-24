@@ -47,24 +47,39 @@ func runHook(ctx context.Context, dir, command string, extra map[string]string) 
 	return 1, out // could not even run the hook → fail closed
 }
 
-// buildPreToolHook returns a PreToolHook that runs the configured command before
-// each tool call; a non-zero exit blocks the call, with the hook's output as the
-// reason. nil when no hook is configured.
+// buildPreToolHook returns a PreToolHook for a single command (kept for the
+// single-hook callers/tests); it delegates to the chain.
 func buildPreToolHook(dir, command string) func(name string, args map[string]string) (bool, string) {
-	if strings.TrimSpace(command) == "" {
+	return buildPreToolHookChain(dir, []string{command})
+}
+
+// buildPreToolHookChain runs each command before a tool call (the project hook
+// plus every plugin's pre-tool hook); the FIRST non-zero exit BLOCKS the call,
+// with that hook's output as the reason — fail closed. Empty commands are
+// skipped; nil when none remain.
+func buildPreToolHookChain(dir string, commands []string) func(name string, args map[string]string) (bool, string) {
+	var cmds []string
+	for _, c := range commands {
+		if strings.TrimSpace(c) != "" {
+			cmds = append(cmds, c)
+		}
+	}
+	if len(cmds) == 0 {
 		return nil
 	}
 	return func(name string, args map[string]string) (bool, string) {
-		exit, out := runHook(context.Background(), dir, command, map[string]string{
+		env := map[string]string{
 			"CLICHE_TOOL":         name,
 			"CLICHE_TOOL_FILE":    args["file"],
 			"CLICHE_TOOL_COMMAND": args["command"],
 			"CLICHE_TOOL_URL":     args["url"],
-		})
-		if exit == 0 {
-			return true, ""
 		}
-		return false, out
+		for _, c := range cmds {
+			if exit, out := runHook(context.Background(), dir, c, env); exit != 0 {
+				return false, out // a single deny blocks the call
+			}
+		}
+		return true, ""
 	}
 }
 

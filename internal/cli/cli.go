@@ -67,6 +67,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdCommands(rest, stdout, stderr)
 	case "skills":
 		return cmdSkills(rest, stdout, stderr)
+	case "plugins":
+		return cmdPlugins(rest, stdout, stderr)
 	case "bug":
 		return cmdBug(rest, stdout, stderr)
 	case "insights":
@@ -128,6 +130,8 @@ COMMANDS:
                      'commands new <name>' → .cliche/commands/<name>.md (run /<name>).
   skills             Skills the agent uses automatically: list, or
                      'skills new <name>' → .cliche/skills/<name>/SKILL.md.
+  plugins            Installable bundles (skills + commands + hooks + MCP): list,
+                     or 'plugins new <name>' → .cliche/plugins/<name>/.
   insights           Usage & spend report from the ledger and saved sessions.
   bug                Write a bug report (environment + context) + a GitHub link.
   config             Print and validate the effective configuration.

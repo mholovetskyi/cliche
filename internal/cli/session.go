@@ -592,6 +592,8 @@ func (s *session) slash(line string) bool {
 		s.showSkills()
 	case "/commands":
 		s.showCommands()
+	case "/plugins":
+		s.showPlugins()
 	case "/insights":
 		s.showInsights()
 	case "/bug":

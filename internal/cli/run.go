@@ -216,13 +216,14 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		pol = applyMode(pol, f.mode) // headless: bake the mode into the policy
 	}
 	exec := tools.OSExecutor{
-		Root:        f.dir,
-		Policy:      pol,
-		Approve:     approve,
-		Journal:     journal,
-		Rules:       rules,
-		Egress:      tools.ParseEgress(cfg.Egress.Allow),
-		PreToolHook: buildPreToolHook(f.dir, cfg.Hooks.PreToolUse),
+		Root:    f.dir,
+		Policy:  pol,
+		Approve: approve,
+		Journal: journal,
+		Rules:   rules,
+		Egress:  tools.ParseEgress(cfg.Egress.Allow),
+		// The project's pre-tool hook plus every plugin's, composed (any deny blocks).
+		PreToolHook: buildPreToolHookChain(f.dir, append([]string{cfg.Hooks.PreToolUse}, pluginHookCommands(f.dir, "pre")...)),
 	}
 
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)
@@ -244,7 +245,9 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	}
 	a := agent.New(prov, bud, govLimits, led, exec, acfg)
 
-	mcpSrc, cleanup, err := startMCP(cfg.MCP, f.yolo || f.allowMCP, approve)
+	// Project MCP servers plus any contributed by installed plugins.
+	mcpServers := append(append([]config.MCPServer(nil), cfg.MCP...), pluginMCP(f.dir)...)
+	mcpSrc, cleanup, err := startMCP(mcpServers, f.yolo || f.allowMCP, approve)
 	if err != nil {
 		return nil, nil, cfg, noop, fmt.Errorf("mcp: %w", err)
 	}
@@ -321,6 +324,9 @@ func cmdRun(args []string, out, errOut io.Writer) int {
 	}
 	if runErr == nil {
 		runStopHook(out, f.dir, cfg.Hooks.Stop, o.Stop, o.Verdict)
+		for _, c := range pluginHookCommands(f.dir, "stop") { // plugin stop hooks too
+			runStopHook(out, f.dir, c, o.Stop, o.Verdict)
+		}
 	}
 	printOutcome(out, o, findings, time.Since(runStart))
 	if runErr != nil {

@@ -25,9 +25,21 @@ type skill struct {
 
 func skillsDir(root string) string { return filepath.Join(config.Dir(root), "skills") }
 
-// loadSkills discovers .cliche/skills/<name>/SKILL.md, sorted by name.
+// loadSkills discovers skills from .cliche/skills/ AND every installed plugin's
+// skills/ bundle, sorted by name.
 func loadSkills(root string) []skill {
-	entries, err := os.ReadDir(skillsDir(root))
+	out := loadSkillsFrom(skillsDir(root), root)
+	for _, p := range loadPlugins(root) {
+		out = append(out, loadSkillsFrom(filepath.Join(p.Dir, "skills"), root)...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// loadSkillsFrom reads the <name>/SKILL.md skills directly under dir, computing
+// each Rel relative to root (so the agent can read it with read_file).
+func loadSkillsFrom(dir, root string) []skill {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -36,7 +48,7 @@ func loadSkills(root string) []skill {
 		if !e.IsDir() {
 			continue
 		}
-		p := filepath.Join(skillsDir(root), e.Name(), "SKILL.md")
+		p := filepath.Join(dir, e.Name(), "SKILL.md")
 		data, err := os.ReadFile(p)
 		if err != nil {
 			continue
@@ -53,7 +65,6 @@ func loadSkills(root string) []skill {
 		rel, _ := filepath.Rel(root, p)
 		out = append(out, skill{Name: name, Desc: desc, Rel: filepath.ToSlash(rel), Body: strings.TrimSpace(body)})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

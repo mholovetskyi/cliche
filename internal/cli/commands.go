@@ -23,18 +23,28 @@ type userCommand struct {
 
 func commandsDir(root string) string { return filepath.Join(config.Dir(root), "commands") }
 
-// loadCommands reads .cliche/commands/*.md into a map keyed by "/name".
+// loadCommands reads .cliche/commands/*.md AND every plugin's commands/ bundle
+// into a map keyed by "/name". Plugins load first so a project command of the
+// same name takes precedence.
 func loadCommands(root string) map[string]userCommand {
 	out := map[string]userCommand{}
-	entries, err := os.ReadDir(commandsDir(root))
+	for _, p := range loadPlugins(root) {
+		mergeCommands(out, filepath.Join(p.Dir, "commands"))
+	}
+	mergeCommands(out, commandsDir(root))
+	return out
+}
+
+func mergeCommands(out map[string]userCommand, dir string) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return out
+		return
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(commandsDir(root), e.Name()))
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue
 		}
@@ -46,7 +56,6 @@ func loadCommands(root string) map[string]userCommand {
 		}
 		out[name] = userCommand{Name: name, Desc: desc, Body: strings.TrimSpace(body)}
 	}
-	return out
 }
 
 // expand substitutes $ARGUMENTS (all args, space-joined) and $1..$9 (positional)

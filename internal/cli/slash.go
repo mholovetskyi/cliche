@@ -29,6 +29,7 @@ var slashCommands = []slashCmd{
 	{"/skills", "", "list installed skills", "control"},
 	{"/skill", "<name>", "run a skill", "control"},
 	{"/commands", "", "list custom commands", "control"},
+	{"/plugins", "", "list installed plugins", "control"},
 	{"/bug", "[note]", "write a bug report", "control"},
 	{"/diff", "", "changes made this session", "review"},
 	{"/undo", "", "revert the last edit", "review"},
