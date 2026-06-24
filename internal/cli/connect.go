@@ -31,19 +31,32 @@ type knownConnector struct {
 	scopes    []string
 	clientEnv string // env var supplying the BYO OAuth-app client id
 	register  string // where to create the OAuth app (shown when the id is missing)
+	// directToken, if set, tries to obtain a token WITHOUT any OAuth dance — e.g.
+	// from an already-authenticated CLI (`gh`) or an env var. This is the seamless
+	// path: when it succeeds, no client id / browser / device code is needed.
+	directToken func(out io.Writer) (string, bool)
 }
 
 var knownConnectors = map[string]knownConnector{
 	"github": {
-		name:      "github",
-		desc:      "GitHub MCP — repos, issues, pull requests",
-		mcpURL:    "https://api.githubcopilot.com/mcp/",
-		deviceURL: "https://github.com/login/device/code",
-		tokenURL:  "https://github.com/login/oauth/access_token",
-		scopes:    []string{"repo", "read:org", "read:user"},
-		clientEnv: "CLICHE_GITHUB_CLIENT_ID",
-		register:  "github.com/settings/applications/new (OAuth app; enable Device Flow)",
+		name:        "github",
+		desc:        "GitHub MCP — repos, issues, pull requests",
+		mcpURL:      "https://api.githubcopilot.com/mcp/",
+		deviceURL:   "https://github.com/login/device/code",
+		tokenURL:    "https://github.com/login/oauth/access_token",
+		scopes:      []string{"repo", "read:org", "read:user"},
+		clientEnv:   "CLICHE_GITHUB_CLIENT_ID",
+		register:    "github.com/settings/applications/new (OAuth app; enable Device Flow)",
+		directToken: ghDirectToken,
 	},
+}
+
+// ghDirectToken is GitHub's seamless path: reuse a token from the `gh` CLI, an
+// env var, or saved cliche creds — so `connect github` Just Works for the many
+// developers who already have the GitHub CLI authenticated (no OAuth app needed).
+func ghDirectToken(out io.Writer) (string, bool) {
+	t, err := resolveGitHubToken(out)
+	return t, err == nil && t != ""
 }
 
 func connectorClientID(c knownConnector) string { return strings.TrimSpace(os.Getenv(c.clientEnv)) }
@@ -125,9 +138,26 @@ func cmdConnect(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "connect: unknown connector %q (see `cliche connectors`)\n", name)
 		return 1
 	}
+	// Seamless path first: if we can reuse an existing token (e.g. the `gh` CLI),
+	// connect with zero setup — no OAuth app, no browser, no device code.
+	if c.directToken != nil {
+		if tok, ok := c.directToken(out); ok {
+			if err := secrets.SaveConnector(name, secrets.ConnectorToken{Token: tok, Type: "bearer"}); err != nil {
+				fmt.Fprintln(errOut, "connect: "+err.Error())
+				return 1
+			}
+			fmt.Fprintf(out, "  %s connected %s %s\n", style.Green(gl("✓", "ok")), style.White(name), style.Gray("· available in every chat"))
+			return 0
+		}
+	}
+
 	clientID := connectorClientID(c)
 	if clientID == "" {
-		fmt.Fprintf(errOut, "connect: %s needs a one-time OAuth app. Create one at\n  %s\nthen export %s and re-run.\n", name, c.register, c.clientEnv)
+		fmt.Fprintf(errOut, "connect: no %s token found.\n", name)
+		if c.directToken != nil {
+			fmt.Fprintf(errOut, "  easiest: run `gh auth login`, then `cliche connect %s` again.\n", name)
+		}
+		fmt.Fprintf(errOut, "  or set up a one-time OAuth app at %s,\n  then export %s and re-run.\n", c.register, c.clientEnv)
 		return 1
 	}
 
