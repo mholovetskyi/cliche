@@ -39,7 +39,9 @@ func (o *OpenAICompat) SetHeaders(h map[string]string) { o.headers = h }
 // setHeaders applies the standard headers plus any custom ones to a request.
 func (o *OpenAICompat) setHeaders(req *http.Request, stream bool) {
 	req.Header.Set("content-type", "application/json")
-	req.Header.Set("authorization", "Bearer "+o.apiKey)
+	if o.apiKey != "" { // local servers (Ollama, LM Studio) need no auth — don't send an empty Bearer
+		req.Header.Set("authorization", "Bearer "+o.apiKey)
+	}
 	if stream {
 		req.Header.Set("accept", "text/event-stream")
 	}

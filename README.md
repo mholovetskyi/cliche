@@ -154,8 +154,12 @@ Cliche is provider-neutral and **auto-detects the backend** from whichever key y
 |---|---|
 | **Anthropic** | native Messages API, prompt caching |
 | **OpenRouter** | one key, hundreds of models |
-| **OpenAI** · **Groq** · **DeepSeek** · **Mistral** · **Together** · **xAI** | OpenAI-compatible |
-| **Any OpenAI-compatible / local** | Ollama, LM Studio, vLLM — add under `providers` in config |
+| **OpenAI · Google (Gemini) · xAI · DeepSeek · Mistral · Cohere · Perplexity · Moonshot · Zhipu · GitHub Models** | first-party, OpenAI-compatible |
+| **Groq · Cerebras · Together · Fireworks · DeepInfra · NVIDIA · SambaNova · Hyperbolic · Novita** | fast open-weight inference clouds |
+| **Ollama · LM Studio · vLLM** | local servers — **no API key required**, built-in presets |
+| **Anything else** | any OpenAI-compatible endpoint — add under `providers` in config or pass `--base-url` |
+
+~25 providers are built in: `cliche login` lists them, or just `--provider <name>` (the matching `*_API_KEY` env var works too). OAuth connectors like GitHub: `cliche connect github`.
 
 `cliche login` walks you through it; the matching `*_API_KEY` env var always overrides a saved key. Route delegated subtasks to a cheaper model with `subagents.model`.
 

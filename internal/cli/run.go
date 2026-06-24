@@ -127,19 +127,23 @@ func resolveBackend(cfg config.Config, f *runFlags) (backend, error) {
 	if name == "" {
 		name = "anthropic"
 	}
-	if !explicit && !hasProviderKey(name) {
-		if alt := firstProviderWithKey(cfg); alt != "" {
-			name = alt
+	info, known := lookupProvider(cfg, name)
+	// Local servers (Ollama, LM Studio, …) need no key. Everything else is
+	// BYO-key: auto-detect from a configured key when the default lacks one.
+	if !info.local {
+		if !explicit && !hasProviderKey(name) {
+			if alt := firstProviderWithKey(cfg); alt != "" {
+				name = alt
+				info, known = lookupProvider(cfg, name)
+			}
+		}
+		if !hasProviderKey(name) {
+			return backend{}, fmt.Errorf(
+				"no API key configured for %q. Cliche is BYO-key — set one up once with `cliche login`\n"+
+					"  (or `cliche auth %s`), or export %s for this shell.",
+				name, name, secrets.EnvVar(name))
 		}
 	}
-	if !hasProviderKey(name) {
-		return backend{}, fmt.Errorf(
-			"no API key configured for %q. Cliche is BYO-key — set one up once with `cliche login`\n"+
-				"  (or `cliche auth %s`), or export %s for this shell.",
-			name, name, secrets.EnvVar(name))
-	}
-
-	info, known := lookupProvider(cfg, name)
 	baseURL := info.baseURL
 	if f.baseURL != "" {
 		baseURL = f.baseURL
