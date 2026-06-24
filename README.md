@@ -273,6 +273,21 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
+## For teams
+
+The CLI is free and Apache-2.0, forever. Once more than one person is running
+agents against a shared codebase — and someone is accountable for what they do
+— the same guardrails go org-wide: **push a signed policy** every developer's
+kernel enforces (tighten-only, `--yolo` still can't bypass it), **aggregate
+every signed ledger** into one tamper-evident audit, and **govern spend** across
+the team. That's the commercial layer; the kernel underneath stays open.
+
+See [COMMERCIAL.md](COMMERCIAL.md) for tiers, and
+[docs/control-plane.md](docs/control-plane.md) for the architecture. Sponsor the
+open-source core via the Sponsor button.
+
+---
+
 ## License
 
 [Apache-2.0](LICENSE). The kernel and CLI are fully open — a trust tool you can't read isn't one.
