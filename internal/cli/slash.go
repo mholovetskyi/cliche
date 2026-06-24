@@ -36,6 +36,7 @@ var slashCommands = []slashCmd{
 	{"/commands", "", "list custom commands", "control"},
 	{"/plugins", "", "list installed plugins", "control"},
 	{"/mcp", "", "list configured MCP servers", "control"},
+	{"/connect", "[name]", "connect an OAuth MCP connector (e.g. github)", "control"},
 	{"/memory", "", "show what the agent remembers about this project", "control"},
 	{"/bug", "[note]", "write a bug report", "control"},
 	{"/diff", "", "changes made this session", "review"},
@@ -174,9 +175,12 @@ func closestCommand(input string) string {
 // promptTips rotate at the idle prompt to teach features without nagging.
 var promptTips = []string{
 	"tip · /status shows budget, mode & guardrails at a glance",
+	"tip · /provider switches model providers mid-chat (no restart)",
 	"tip · /diff reviews changes · /undo reverts the last edit",
 	"tip · /mode plan makes the agent read-only",
+	"tip · /connect github adds an OAuth connector right here",
 	"tip · /rules shows what's allowed, denied & where it can reach",
+	"tip · /tui opens the full-screen multi-pane view",
 }
 
 // promptTipEvery is how often (in prompts shown) a rotating tip appears.

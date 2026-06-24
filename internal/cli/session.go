@@ -624,6 +624,8 @@ func (s *session) slash(line string) bool {
 		s.showRules()
 	case "/mcp":
 		s.showMCP()
+	case "/connect":
+		s.connect(strings.Fields(line)[1:])
 	case "/memory":
 		s.showMemory()
 	case "/browse":

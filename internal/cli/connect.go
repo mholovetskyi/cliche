@@ -70,6 +70,14 @@ func connectorMCP() []config.MCPServer {
 	return out
 }
 
+// connect is the in-chat /connect: run the connector OAuth flow, then note that
+// it goes live next session (MCP servers are started once, at session start).
+func (s *session) connect(args []string) {
+	if cmdConnect(args, s.out, s.out) == 0 && len(args) > 0 {
+		fmt.Fprintln(s.out, "  "+style.Gray("· it activates in your next session (MCP servers start at launch)"))
+	}
+}
+
 // cmdConnect runs the OAuth device flow for a connector and stores the token.
 func cmdConnect(args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
