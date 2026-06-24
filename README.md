@@ -9,23 +9,49 @@
  ╚═════╝╚══════╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝
 ```
 
-### the AI coding agent you can actually leave running
+<h3><em>the AI coding agent you can actually leave running</em></h3>
 
-**Cliche** is an open-source, zero-dependency coding agent for your terminal. Bring your own key for any model; Cliche wraps the agent loop in a deterministic **Trust Kernel** — a hard token cap, a runaway circuit-breaker, a reward-hack verifier, and a signed audit ledger. **All on by default.**
+<p>
+  <b>An open-source coding agent for your terminal</b> that wraps <b>any model</b> in a deterministic<br>
+  <b>Trust Kernel</b> — hard token cap · runaway breaker · reward-hack verifier · signed ledger. <b>All on by default.</b>
+</p>
 
-[![Go](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Dependencies](https://img.shields.io/badge/dependencies-zero-success)](go.mod)
-[![Releases](https://img.shields.io/badge/releases-signed%20%2B%20SBOM-8957e5)](https://github.com/mholovetskyi/cliche/releases)
-[![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-555)](https://github.com/mholovetskyi/cliche/releases)
+<p>
+  <a href="https://go.dev"><img alt="Go 1.23+" src="https://img.shields.io/badge/Go-1.23%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white"></a>
+  <a href="LICENSE"><img alt="License Apache-2.0" src="https://img.shields.io/badge/License-Apache_2.0-2563EB?style=for-the-badge"></a>
+  <a href="go.mod"><img alt="Zero dependencies" src="https://img.shields.io/badge/Dependencies-0-16A34A?style=for-the-badge"></a>
+  <a href="https://github.com/mholovetskyi/cliche/releases"><img alt="Signed releases + SBOM" src="https://img.shields.io/badge/Releases-signed_%2B_SBOM-8957E5?style=for-the-badge"></a>
+  <a href="https://github.com/mholovetskyi/cliche/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/mholovetskyi/cliche?style=for-the-badge&color=FF6A5A"></a>
+</p>
 
-[Quickstart](#quickstart) · [Why](#why-it-exists) · [Trust Kernel](#the-trust-kernel) · [Usage](#usage) · [Commands](#command-reference) · [Config](#configuration) · [Models](#bring-any-model) · [Extend](#extend-it) · [For teams](#for-teams)
+<p>
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white">
+  <img alt="Linux" src="https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-0078D4?style=flat-square&logo=windows&logoColor=white">
+  &nbsp;&nbsp;
+  <img alt="hard token cap" src="https://img.shields.io/badge/%E2%9C%93-hard_token_cap-1F2937?style=flat-square">
+  <img alt="runaway breaker" src="https://img.shields.io/badge/%E2%9C%93-runaway_breaker-1F2937?style=flat-square">
+  <img alt="reward-hack verifier" src="https://img.shields.io/badge/%E2%9C%93-reward--hack_verifier-1F2937?style=flat-square">
+  <img alt="signed audit ledger" src="https://img.shields.io/badge/%E2%9C%93-signed_ledger-1F2937?style=flat-square">
+</p>
+
+<p>
+  <a href="#quickstart"><b>⚡ Quickstart</b></a> &nbsp;·&nbsp;
+  <a href="#the-trust-kernel">🛡️ Trust Kernel</a> &nbsp;·&nbsp;
+  <a href="#usage">🚀 Usage</a> &nbsp;·&nbsp;
+  <a href="#command-reference">📖 Commands</a> &nbsp;·&nbsp;
+  <a href="#configuration">⚙️ Config</a> &nbsp;·&nbsp;
+  <a href="#bring-any-model">🧠 Models</a> &nbsp;·&nbsp;
+  <a href="#extend-it">🧩 Extend</a> &nbsp;·&nbsp;
+  <a href="#for-teams">👥 Teams</a>
+</p>
 
 </div>
 
 ---
 
-> Every other coding CLI competes on capability. Cliche competes on the thing none of them ship: **guardrails the model cannot argue its way past** — because they're code wrapped around the loop, not a prompt the model can ignore. A `--yolo` flag may skip approvals, but it can **never** bypass the budget cap, the governor, a deny rule, plan mode, the egress allowlist, or a pre-tool-use hook.
+> [!IMPORTANT]
+> **Every other coding CLI competes on capability. Cliche competes on the thing none of them ship: guardrails the model cannot argue its way past** — because they're code wrapped around the loop, not a prompt the model can ignore. A `--yolo` flag may skip approvals, but it can **never** bypass the budget cap, the governor, a deny rule, plan mode, the egress allowlist, or a pre-tool-use hook.
 
 ## Why it exists
 
@@ -101,19 +127,20 @@ Four guardrails wrap every run. They are **on by default** and enforced in deter
               └──────────────────────────────────────────────┘
 ```
 
-### 1. Budget Kernel — a cap that actually caps
+### 💰 Budget Kernel — a cap that actually caps
 A **hard token ceiling** (the provider-independent guarantee) plus an estimated **dollar ceiling** on top. Checked *before* every turn against an estimate, and again against **actual usage** the moment the turn returns — so the one fat completion that blows the estimate is caught before the next turn fires, not on your invoice. Budgets **nest**: a subagent enforces its own sub-budget *and* every charge bubbles up to the session-wide cap, so a fleet can't outspend the whole.
 
-### 2. Governor — the runaway circuit-breaker
+### 🛑 Governor — the runaway circuit-breaker
 Hard limits on **turns, wall-clock, and consecutive failed edits**, plus **repetition detection** that halts an agent re-issuing the same failing tool call, and a **no-progress** breaker. Every halt is a structured, attributable reason (`turn N: identical tool call repeated 3×`). Strict by default — the runaway that costs other tools $438 stops here in single digits.
 
-### 3. Verifier — catches the agent faking it
+### 🔎 Verifier — catches the agent faking it
 Independent reward-hack detection over the diff: it flags **deleted tests**, **swallowed errors** (`except: pass`, empty `catch{}`), and **trivially-true assertions**. As a keystone, it can **re-run your test command itself** and contradict a false "tests pass" claim — it only ever says **verified** when tests were actually re-run and passed on a clean diff. Biased toward "let me check" over false accusations.
 
-### 4. Ledger — auditable to the token
+### 🧾 Ledger — auditable to the token
 Every turn, tool call, cap event, and verdict is written to an **append-only, SHA-256 hash-chained** log, and the chain head is **ed25519-signed** with a per-user key (stored `0600` in your config dir, never in the repo). `cliche audit` re-verifies the chain and the signature: a ledger **altered, reordered, or with records inserted/removed in the middle** by someone without your signing key is **detected, not just suspected** (exit 5). It's tamper-*evident* — see [Trust, honestly](#trust-honestly) for the precise scope.
 
-> The kernel brand invariant: `--yolo` skips the *approval prompts* and nothing else. It can never raise a cap, silence the governor, override a deny rule, leave plan mode, widen the egress allowlist, or skip a pre-tool-use hook.
+> [!TIP]
+> **The kernel brand invariant:** `--yolo` skips the *approval prompts* and nothing else. It can never raise a cap, silence the governor, override a deny rule, leave plan mode, widen the egress allowlist, or skip a pre-tool-use hook.
 
 ---
 
@@ -145,7 +172,7 @@ cliche demo
 
 ## Usage
 
-### Interactive — `cliche` / `cliche chat`
+### 💬 Interactive — `cliche` / `cliche chat`
 A session opens on a framed input bar with your trust state always in view:
 
 ```
@@ -155,13 +182,13 @@ A session opens on a framed input bar with your trust state always in view:
 
 Type and it works end to end — reads, edits, runs commands, streams every step live with **Go syntax-highlighted** code, then waits for you. Writes and commands prompt `y / N / always` with a colored diff preview, unless you raise the [permission mode](#configuration). Switch models or providers mid-chat (`/model`, `/provider`), connect a tool (`/connect github`) — all without leaving.
 
-### One-shot & scriptable — `cliche run`
+### 🎯 One-shot & scriptable — `cliche run`
 ```sh
 cliche run --max-usd 0.50 --mode auto-edit --branch --verify "fix the failing test in ./api"
 ```
 Works on a fresh git branch, auto-edits, and runs the verifier when done.
 
-### Headless in CI — `cliche exec`
+### 🤖 Headless in CI — `cliche exec`
 JSON on stdout, **clean exit codes**, fails *loudly* on limits instead of hanging:
 
 ```sh
@@ -174,14 +201,14 @@ git diff | cliche exec -p "review this change" --max-usd 0.10
 | `1` | error |  | `4` | a governor breaker tripped |
 | `2` | bad usage |  | `5` | completed but **verifier flagged** |
 
-### Fan out — `cliche swarm`
+### 🐝 Fan out — `cliche swarm`
 A planner splits the task, executors work it in parallel, a synthesizer combines the results — and the **whole fleet runs under one shared budget cap, one ledger, one permission gate**. The Trust Kernel wraps the swarm, not just one agent:
 
 ```sh
 cliche swarm --max-usd 1.00 --mode auto-edit "add table-driven tests to every package in ./internal"
 ```
 
-### Any project — auth once, run anywhere
+### 📂 Any project — auth once, run anywhere
 ```sh
 cliche login                                # key saved globally, once, in your user config dir
 cd ~/work/some-repo && cliche               # operates on THIS repo
@@ -356,7 +383,8 @@ Route delegated subtasks to a cheaper model with `subagents.model`. Reach gated 
 
 ## Trust, honestly
 
-A trust tool that oversells its guarantees isn't one. Here's the **precise scope** of each — the protections are real, and so are their edges:
+> [!NOTE]
+> A trust tool that oversells its guarantees isn't one. Here's the **precise scope** of each — the protections are real, and so are their edges. We'd rather state the limits than oversell them.
 
 - **Budget** — the **token cap is the hard guarantee**; the **dollar cap is an estimate** from a maintained price table (an unknown model can price at zero). There is no mid-completion abort yet, so a *single* turn can overshoot — it's caught at the next turn boundary, not token-by-token.
 - **Governor** — bounds the **orchestration loop** via deterministic checks; it does not hard-kill compute, network, or filesystem activity already running inside a single tool call. Repetition detection relies on a stable tool-call signature.
@@ -365,7 +393,7 @@ A trust tool that oversells its guarantees isn't one. Here's the **precise scope
 - **Egress allowlist** — gates the **built-in `web_fetch` tool** (re-checked on every redirect hop). It does **not** constrain `run_command` subprocesses or MCP servers. An empty allowlist means allow-all.
 - **Ledger** — **tamper-evident, not tamper-proof.** It's an append-only file with normal permissions; the protection is *detection* (hash chain + signature), not write-prevention. A missing seal prints `unsealed` and exits 0; pure **tail-truncation** of the newest entries is only caught if a prior seal covered the longer head. Forgery is detectable only by someone *without* your (plaintext-on-disk) signing key.
 
-We'd rather state the limits than oversell them. Full threat model: [SECURITY.md](SECURITY.md).
+Full threat model: **[SECURITY.md](SECURITY.md)**.
 
 ---
 
