@@ -95,6 +95,8 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	defer cleanup()
 
 	s := &session{a: a, r: reader, out: out, dir: f.dir, cfg: cfg, verify: f.verify, journal: journal, created: time.Now(), app: app}
+	s.customCmds = loadCommands(f.dir) // user prompt shortcuts
+	s.skills = skillMap(f.dir)         // explicit /skill <name> targets
 	a.SetObserver(s.onEvent)
 
 	// Resume a saved session if requested (--continue = most recent, --resume <id>).
@@ -139,13 +141,15 @@ type session struct {
 	id         string   // session id for on-disk persistence
 	title      string   // first prompt, used as the session title
 	created    time.Time
-	resumed    int              // messages restored from a resumed session (0 if fresh)
-	streaming  bool             // currently mid live-streamed assistant block
-	stream     *mdStreamer      // line-buffered markdown renderer for the streamed block
-	app        *approver        // for /mode (mutates the approver's permission mode)
-	tasks      []sess.Task      // the session's lightweight plan (/plan, /tasks, /done)
-	nextTaskID int              // monotonic id for new plan tasks
-	editor     *lineedit.Editor // persistent raw-mode line editor (nil = cooked input)
+	resumed    int                    // messages restored from a resumed session (0 if fresh)
+	streaming  bool                   // currently mid live-streamed assistant block
+	stream     *mdStreamer            // line-buffered markdown renderer for the streamed block
+	app        *approver              // for /mode (mutates the approver's permission mode)
+	tasks      []sess.Task            // the session's lightweight plan (/plan, /tasks, /done)
+	nextTaskID int                    // monotonic id for new plan tasks
+	editor     *lineedit.Editor       // persistent raw-mode line editor (nil = cooked input)
+	customCmds map[string]userCommand // .cliche/commands/<name>.md prompt shortcuts
+	skills     map[string]skill       // .cliche/skills/<name>/SKILL.md, keyed by name
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -272,11 +276,23 @@ func (s *session) loop() int {
 			continue
 		}
 		if strings.HasPrefix(line, "/") {
-			if s.slash(line) {
+			fields := strings.Fields(line)
+			if fields[0] == "/skill" {
+				// /skill <name> injects the skill body as a task prompt.
+				prompt, run := s.invokeSkill(fields[1:])
+				if !run {
+					continue
+				}
+				line = prompt
+			} else if cc, ok := s.customCmds[fields[0]]; ok {
+				// A custom command expands to a saved prompt and runs as a task.
+				line = cc.expand(fields[1:])
+			} else if s.slash(line) {
 				s.persist()
 				return 0
+			} else {
+				continue
 			}
-			continue
 		}
 		if s.title == "" {
 			// First prompt becomes the session title — its first line only, so a
@@ -572,6 +588,14 @@ func (s *session) slash(line string) bool {
 		s.resumeSession(line)
 	case "/kill":
 		s.killSession(line)
+	case "/skills":
+		s.showSkills()
+	case "/commands":
+		s.showCommands()
+	case "/insights":
+		s.showInsights()
+	case "/bug":
+		s.reportBug(line)
 	case "/recover":
 		if s.a.RecoverContext() {
 			fmt.Fprintln(s.out, "  restored the pre-compaction context.")

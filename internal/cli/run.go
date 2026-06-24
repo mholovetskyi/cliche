@@ -231,6 +231,7 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	if m, err := repomap.Build(f.dir, repoMapBudget); err == nil && m != "" {
 		sys += "\n\nProject map (directories, files, and key Go symbols):\n" + m
 	}
+	sys += skillsSystemNote(f.dir) // make .cliche/skills discoverable to the agent
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
 		System:             sys,

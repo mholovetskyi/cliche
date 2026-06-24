@@ -63,6 +63,14 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdReport(rest, stdout, stderr)
 	case "models":
 		return cmdModels(rest, stdout, stderr)
+	case "commands":
+		return cmdCommands(rest, stdout, stderr)
+	case "skills":
+		return cmdSkills(rest, stdout, stderr)
+	case "bug":
+		return cmdBug(rest, stdout, stderr)
+	case "insights":
+		return cmdInsights(rest, stdout, stderr)
 	case "config":
 		return cmdConfig(rest, stdout, stderr)
 	case "verify":
@@ -116,6 +124,12 @@ COMMANDS:
                      changes, verdict): --out <file>, or --pr <n> to post to a
                      GitHub PR via gh.
   models             Show the maintained price table behind dollar estimates.
+  commands           Custom slash commands (saved prompts): list, or
+                     'commands new <name>' → .cliche/commands/<name>.md (run /<name>).
+  skills             Skills the agent uses automatically: list, or
+                     'skills new <name>' → .cliche/skills/<name>/SKILL.md.
+  insights           Usage & spend report from the ledger and saved sessions.
+  bug                Write a bug report (environment + context) + a GitHub link.
   config             Print and validate the effective configuration.
   version            Print the version.
   help               Show this help.

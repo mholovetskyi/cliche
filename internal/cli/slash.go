@@ -17,6 +17,7 @@ var slashCommands = []slashCmd{
 	{"/status", "", "mode, budget, context & guardrails at a glance", "session"},
 	{"/cost", "", "spend so far vs the cap", "session"},
 	{"/context", "", "context usage vs the limit", "session"},
+	{"/insights", "", "usage & spend report", "session"},
 	{"/rules", "", "active allow/deny rules, egress & hooks", "session"},
 	{"/plan", "<task>", "add a task to the session plan", "session"},
 	{"/tasks", "", "show the session plan", "session"},
@@ -25,6 +26,10 @@ var slashCommands = []slashCmd{
 	{"/new", "", "start a fresh session", "control"},
 	{"/resume", "[id]", "resume a saved session (latest if omitted)", "control"},
 	{"/kill", "<id>", "delete a saved session", "control"},
+	{"/skills", "", "list installed skills", "control"},
+	{"/skill", "<name>", "run a skill", "control"},
+	{"/commands", "", "list custom commands", "control"},
+	{"/bug", "[note]", "write a bug report", "control"},
 	{"/diff", "", "changes made this session", "review"},
 	{"/undo", "", "revert the last edit", "review"},
 	{"/rewind", "", "undo every edit this session", "review"},
@@ -72,6 +77,19 @@ func (s *session) commandPalette(prefix string) {
 			body.WriteByte('\n') // a blank spacer row between groups
 		}
 		body.WriteString(style.Dim(g.title) + "\n" + strings.Join(rows, "\n"))
+	}
+	// Append the user's custom commands as their own group.
+	var custom []string
+	for _, c := range sortedCommands(s.customCmds) {
+		if strings.HasPrefix(c.Name, prefix) {
+			custom = append(custom, style.White(style.Pad(c.Name, 18))+style.Gray(c.Desc))
+		}
+	}
+	if len(custom) > 0 {
+		if body.Len() > 0 {
+			body.WriteByte('\n')
+		}
+		body.WriteString(style.Dim("custom") + "\n" + strings.Join(custom, "\n"))
 	}
 	if body.Len() == 0 {
 		fmt.Fprintf(s.out, "  no command matches %s\n", style.White(prefix))

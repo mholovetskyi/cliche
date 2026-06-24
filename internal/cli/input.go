@@ -48,9 +48,12 @@ func (s *session) ensureEditor() {
 	if s.editor != nil {
 		return
 	}
-	cmds := make([]lineedit.Command, len(slashCommands))
-	for i, c := range slashCommands {
-		cmds[i] = lineedit.Command{Name: c.name, Args: c.args, Desc: c.desc}
+	cmds := make([]lineedit.Command, 0, len(slashCommands)+len(s.customCmds))
+	for _, c := range slashCommands {
+		cmds = append(cmds, lineedit.Command{Name: c.name, Args: c.args, Desc: c.desc})
+	}
+	for _, c := range sortedCommands(s.customCmds) { // user's custom commands too
+		cmds = append(cmds, lineedit.Command{Name: c.Name, Desc: c.Desc})
 	}
 	s.editor = lineedit.NewEditor(os.Stdin, os.Stdout, cmds, lineedit.NewHistory(nil))
 	s.editor.CycleMode = func() (string, int) {
