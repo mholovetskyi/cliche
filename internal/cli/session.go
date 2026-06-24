@@ -147,6 +147,7 @@ type session struct {
 	spin             *spinner   // active "thinking"/tool indicator
 	spinMu           sync.Mutex // guards spin + awaitingApproval: the emit path (onEvent) and the approval path (Approve) touch them from different goroutines under different locks
 	awaitingApproval bool       // true while a y/N prompt is on screen — suppresses spinners so they can't repaint over it
+	tuiActive        bool       // true while the full-screen /tui chat owns the screen — suppresses inline spinners
 	id               string     // session id for on-disk persistence
 	title            string     // first prompt, used as the session title
 	created          time.Time
@@ -221,8 +222,8 @@ func (s *session) endStream() {
 func (s *session) startSpin(label string) {
 	s.spinMu.Lock()
 	defer s.spinMu.Unlock()
-	if s.awaitingApproval {
-		return // never paint a spinner over a pending approval prompt
+	if s.awaitingApproval || s.tuiActive {
+		return // never paint a spinner over a pending approval prompt or the /tui frame
 	}
 	s.spin = newSpinner(s.out, label)
 	s.spin.Start()
@@ -631,6 +632,8 @@ func (s *session) slash(line string) bool {
 		s.browseChanges()
 	case "/dash":
 		s.dashboard()
+	case "/tui":
+		s.tuiChat()
 	case "/sessions":
 		s.showSessions()
 	case "/new":

@@ -30,6 +30,7 @@ var slashCommands = []slashCmd{
 	{"/kill", "<id>", "delete a saved session", "control"},
 	{"/browse", "", "browse sessions full-screen (mouse + arrows)", "control"},
 	{"/dash", "", "full-screen multi-pane dashboard (trust · tasks · changes)", "control"},
+	{"/tui", "", "full-screen live chat: transcript + session panes", "control"},
 	{"/skills", "", "list installed skills", "control"},
 	{"/skill", "<name>", "run a skill", "control"},
 	{"/commands", "", "list custom commands", "control"},
