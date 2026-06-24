@@ -101,6 +101,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdNew(rest, stdout, stderr)
 	case "memory":
 		return cmdMemory(rest, stdout, stderr)
+	case "connect":
+		return cmdConnect(rest, stdout, stderr)
+	case "connectors":
+		return cmdConnectors(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cliche: unknown command %q\n\n", cmd)
 		usage(stderr)
@@ -159,7 +163,13 @@ COMMANDS:
   plugins            Installable bundles (skills + commands + hooks + MCP): list,
                      or 'plugins new <name>' → .cliche/plugins/<name>/.
   themes             List UI palettes (set via CLICHE_THEME or "theme" in config).
-  mcp                List configured MCP servers (project + plugins).
+  mcp                List configured MCP servers (project + plugins + connectors).
+  connect "<name>"   Connect an OAuth MCP connector via in-terminal device login
+                     (e.g. 'connect github' → open a link, enter a code). Token
+                     saved globally; the connector is then available in every chat.
+  connectors         List connectors and which are connected ('connectors rm <name>').
+                     'mcp install <name>' builds + wires one in (no Docker needed).
+                     Available: github
   insights           Usage & spend report from the ledger and saved sessions.
   memory             Show/edit cross-session project memory (add | clear). The
                      agent saves durable facts here (.cliche/memory.md) and reads

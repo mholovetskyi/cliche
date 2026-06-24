@@ -59,7 +59,7 @@ func startMCP(servers []config.MCPServer, allow bool, approve tools.Approver) (*
 	for _, s := range servers {
 		// A server is HTTP if it has a URL, otherwise stdio (a launched command).
 		if s.URL != "" {
-			clients = append(clients, mcp.StartHTTP(s.Name, s.URL))
+			clients = append(clients, mcp.StartHTTPWithHeaders(s.Name, s.URL, s.Headers))
 			continue
 		}
 		c, err := mcp.StartStdio(context.Background(), s.Name, s.Command, s.Args, s.Env)

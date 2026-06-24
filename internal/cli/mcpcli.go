@@ -9,9 +9,11 @@ import (
 )
 
 // mcpServers merges the project's configured MCP servers with any contributed by
-// installed plugins (the set actually launched for a run).
+// installed plugins and any connected OAuth connectors (the set launched for a
+// run).
 func mcpServers(root string, cfg config.Config) []config.MCPServer {
-	return append(append([]config.MCPServer(nil), cfg.MCP...), pluginMCP(root)...)
+	all := append(append([]config.MCPServer(nil), cfg.MCP...), pluginMCP(root)...)
+	return append(all, connectorMCP()...)
 }
 
 func renderMCP(out io.Writer, servers []config.MCPServer) {
@@ -33,8 +35,11 @@ func renderMCP(out io.Writer, servers []config.MCPServer) {
 // showMCP (/mcp) lists the configured MCP servers in-session.
 func (s *session) showMCP() { renderMCP(s.out, mcpServers(s.dir, s.cfg)) }
 
-// cmdMcp is `cliche mcp`: list configured MCP servers (project + plugins).
-func cmdMcp(_ []string, out, _ io.Writer) int {
+// cmdMcp is `cliche mcp [install <name>]`: list or install MCP servers.
+func cmdMcp(args []string, out, errOut io.Writer) int {
+	if len(args) > 0 && args[0] == "install" {
+		return cmdMcpInstall(args[1:], out, errOut)
+	}
 	cfg, _ := config.Load(".")
 	renderMCP(out, mcpServers(".", cfg))
 	return 0

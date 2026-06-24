@@ -267,8 +267,10 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	}
 	a := agent.New(prov, bud, govLimits, led, exec, acfg)
 
-	// Project MCP servers plus any contributed by installed plugins.
+	// Project MCP servers, plus any from installed plugins, plus connected OAuth
+	// connectors (global — connect once, available everywhere).
 	mcpServers := append(append([]config.MCPServer(nil), cfg.MCP...), pluginMCP(f.dir)...)
+	mcpServers = append(mcpServers, connectorMCP()...)
 	mcpSrc, cleanup, err := startMCP(mcpServers, f.yolo || f.allowMCP, approve)
 	if err != nil {
 		return nil, nil, cfg, noop, fmt.Errorf("mcp: %w", err)

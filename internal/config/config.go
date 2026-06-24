@@ -85,11 +85,12 @@ type ProviderDef struct {
 // MCPServer configures one Model Context Protocol server. A server is reached
 // over stdio (a launched Command) or, when URL is set, over Streamable HTTP.
 type MCPServer struct {
-	Name    string   `json:"name"`
-	Command string   `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
-	Env     []string `json:"env,omitempty"`
-	URL     string   `json:"url,omitempty"` // Streamable-HTTP endpoint (overrides Command)
+	Name    string            `json:"name"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     []string          `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"`     // Streamable-HTTP endpoint (overrides Command)
+	Headers map[string]string `json:"headers,omitempty"` // extra request headers for an HTTP server (e.g. connector auth)
 }
 
 // Config is the full run configuration.

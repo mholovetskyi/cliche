@@ -24,9 +24,10 @@ const maxResponseBytes = 16 << 20 // 16 MiB
 // subsequent request. Pure stdlib (net/http). It satisfies Conn, so the Manager
 // treats HTTP and stdio servers identically.
 type HTTPClient struct {
-	name string
-	url  string
-	hc   *http.Client
+	name    string
+	url     string
+	headers map[string]string // extra request headers (e.g. Authorization for OAuth connectors)
+	hc      *http.Client
 
 	mu      sync.Mutex
 	id      int
@@ -34,8 +35,12 @@ type HTTPClient struct {
 }
 
 // StartHTTP returns a client for a Streamable-HTTP MCP server at url.
-func StartHTTP(name, url string) *HTTPClient {
-	return &HTTPClient{name: name, url: url, hc: &http.Client{Timeout: 120 * time.Second}}
+func StartHTTP(name, url string) *HTTPClient { return StartHTTPWithHeaders(name, url, nil) }
+
+// StartHTTPWithHeaders is StartHTTP plus extra headers sent on every request —
+// used to attach a connector's OAuth bearer token (Authorization header).
+func StartHTTPWithHeaders(name, url string, headers map[string]string) *HTTPClient {
+	return &HTTPClient{name: name, url: url, headers: headers, hc: &http.Client{Timeout: 120 * time.Second}}
 }
 
 func (h *HTTPClient) Name() string { return h.name }
@@ -54,6 +59,9 @@ func (h *HTTPClient) post(ctx context.Context, payload any) (*http.Response, err
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("accept", "application/json, text/event-stream")
+	for k, v := range h.headers { // connector auth, etc.
+		req.Header.Set(k, v)
+	}
 	if sid := h.sessionID(); sid != "" {
 		req.Header.Set("mcp-session-id", sid)
 	}
