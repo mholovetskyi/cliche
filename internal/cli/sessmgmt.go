@@ -63,6 +63,67 @@ func (s *session) browseChanges() {
 	}
 }
 
+// dashboard (/dash) shows a full-screen, multi-pane snapshot of the live
+// session: trust state, the task plan, and file changes, side by side. Falls
+// back to /status when raw mode is unavailable.
+func (s *session) dashboard() {
+	if !style.Enabled || os.Getenv("CLICHE_NO_RAW") != "" || stdinIsPiped() || !rawmode.IsTerminal(os.Stdin) {
+		s.showStatus()
+		return
+	}
+	st, err := rawmode.Enable(os.Stdin, os.Stdout)
+	if err != nil {
+		s.showStatus()
+		return
+	}
+	cols, rows := rawmode.Size(os.Stdout)
+	s.ensureEditor()
+
+	u, lim := s.a.Usage(), s.a.Limits()
+	status := []string{
+		style.Gray("mode     ") + s.modeName(),
+		style.Gray("model    ") + s.a.Model(),
+		style.Gray("provider ") + s.cfg.Provider,
+		style.Gray("spend    ") + fmt.Sprintf("$%.4f", u.USD),
+	}
+	if lim.MaxUSD > 0 {
+		status = append(status, style.Gray("budget   ")+fmt.Sprintf("$%.2f cap", lim.MaxUSD))
+	}
+	if est, _ := s.a.ContextStats(); s.cfg.Context.LimitTokens > 0 {
+		status = append(status, style.Gray("context  ")+fmt.Sprintf("%d%%", pctOf(est, s.cfg.Context.LimitTokens)))
+	}
+
+	var tasks []string
+	for _, t := range s.tasks {
+		mark := "[ ]"
+		if t.Done {
+			mark = style.Green("[x]")
+		}
+		tasks = append(tasks, mark+" "+t.Title)
+	}
+	if len(tasks) == 0 {
+		tasks = []string{style.Dim("(no tasks — add with /plan)")}
+	}
+
+	var changes []string
+	for _, c := range s.journal.Changes() {
+		tag := "~"
+		switch {
+		case c.Deleted:
+			tag = "-"
+		case c.WasNew:
+			tag = "+"
+		}
+		changes = append(changes, tag+" "+c.Path)
+	}
+	if len(changes) == 0 {
+		changes = []string{style.Dim("(no file changes yet)")}
+	}
+
+	tui.Dashboard(s.editor.Decoder(), os.Stdout, cols, rows, status, tasks, changes)
+	_ = st.Disable()
+}
+
 // browseSessions (/browse) opens the full-screen, mouse-driven session browser:
 // a scrollable list on the left, the selected session's details on the right.
 // Enter resumes the highlighted session. Falls back to the /sessions list when
