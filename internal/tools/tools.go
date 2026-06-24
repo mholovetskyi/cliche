@@ -324,6 +324,9 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 		if err := validateSyntax(p, updated); err != nil {
 			return Result{Output: "edit rejected (file left unchanged): " + err.Error(), IsEdit: edit, Success: false}
 		}
+		if err := guardCollateralDeletion(p, string(data), updated, args["old_string"]); err != nil {
+			return Result{Output: "edit rejected (file left unchanged): " + err.Error(), IsEdit: edit, Success: false}
+		}
 		if err := os.WriteFile(p, []byte(updated), 0o644); err != nil {
 			return Result{Output: "edit error: " + err.Error(), IsEdit: edit, Success: false}
 		}
