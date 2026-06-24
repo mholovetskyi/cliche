@@ -14,6 +14,16 @@ const (
 
 var modeNames = []string{modePlan, modeSuggest, modeAutoEdit, modeFull}
 
+// nextMode returns the next mode in the ladder (wrapping), for Shift-Tab cycling.
+func nextMode(m string) string {
+	for i, name := range modeNames {
+		if name == m {
+			return modeNames[(i+1)%len(modeNames)]
+		}
+	}
+	return modeSuggest
+}
+
 // validMode reports whether m is a known mode ("" means "unset / default").
 func validMode(m string) bool {
 	switch m {

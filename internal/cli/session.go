@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
+	"github.com/mholovetskyi/cliche/internal/cli/lineedit"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	sess "github.com/mholovetskyi/cliche/internal/session"
@@ -138,12 +139,13 @@ type session struct {
 	id         string   // session id for on-disk persistence
 	title      string   // first prompt, used as the session title
 	created    time.Time
-	resumed    int         // messages restored from a resumed session (0 if fresh)
-	streaming  bool        // currently mid live-streamed assistant block
-	stream     *mdStreamer // line-buffered markdown renderer for the streamed block
-	app        *approver   // for /mode (mutates the approver's permission mode)
-	tasks      []sess.Task // the session's lightweight plan (/plan, /tasks, /done)
-	nextTaskID int         // monotonic id for new plan tasks
+	resumed    int              // messages restored from a resumed session (0 if fresh)
+	streaming  bool             // currently mid live-streamed assistant block
+	stream     *mdStreamer      // line-buffered markdown renderer for the streamed block
+	app        *approver        // for /mode (mutates the approver's permission mode)
+	tasks      []sess.Task      // the session's lightweight plan (/plan, /tasks, /done)
+	nextTaskID int              // monotonic id for new plan tasks
+	editor     *lineedit.Editor // persistent raw-mode line editor (nil = cooked input)
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -260,7 +262,7 @@ func (s *session) loop() int {
 		}
 		fmt.Fprintln(s.out, "  "+s.barTop())
 		fmt.Fprint(s.out, "  "+s.barPrompt())
-		line, err := s.readInput()
+		line, err := s.readLineInteractive()
 		if err != nil { // EOF (Ctrl-D) at an empty prompt
 			fmt.Fprintln(s.out)
 			s.persist()
