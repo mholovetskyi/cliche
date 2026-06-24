@@ -9,6 +9,7 @@ package keydec
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"strings"
 	"unicode/utf8"
@@ -147,7 +148,10 @@ func (d *Decoder) readEscape() (Key, error) {
 		}
 		return finalKey(c), nil
 	default:
-		_ = d.r.UnreadByte()
+		// ESC + an unrelated byte is an Alt/Meta chord (e.g. Alt-B). We don't bind
+		// these, so CONSUME the successor and return an inert ESC. (Previously we
+		// UnreadByte'd it, so the byte resurfaced as a plain rune and got inserted
+		// into the buffer — "Alt-B" typed a stray "b".)
 		return Key{Type: KeyEsc}, nil
 	}
 }
@@ -181,24 +185,34 @@ func (d *Decoder) readCSI() (Key, error) {
 	}
 }
 
+// maxPaste bounds a bracketed-paste body so a dropped/garbled ESC[201~
+// terminator can't loop forever on a live TTY (which never reaches EOF), and a
+// pathological giant paste can't exhaust memory. 1 MiB is far more than any real
+// prompt paste.
+const maxPaste = 1 << 20
+
 // readPaste reads a bracketed paste body up to the ESC[201~ terminator and
-// returns it as one KeyPaste, normalizing CRLF/CR to LF. On EOF before the
-// terminator it returns what it has (never hangs).
+// returns it as one KeyPaste, normalizing CRLF/CR to LF. It always returns:
+// on EOF, on the terminator, or once maxPaste bytes are read (so it never hangs
+// even if the terminator never arrives). A []byte accumulator keeps the
+// suffix check O(1) per byte instead of re-stringifying the whole buffer.
 func (d *Decoder) readPaste() (Key, error) {
-	const end = "\x1b[201~"
-	var b strings.Builder
+	end := []byte("\x1b[201~")
+	var b []byte
 	for {
 		c, err := d.r.ReadByte()
 		if err != nil {
 			break
 		}
-		b.WriteByte(c)
-		if strings.HasSuffix(b.String(), end) {
-			body := b.String()[:b.Len()-len(end)]
-			return Key{Type: KeyPaste, Text: normalizeNewlines(body)}, nil
+		b = append(b, c)
+		if bytes.HasSuffix(b, end) {
+			return Key{Type: KeyPaste, Text: normalizeNewlines(string(b[:len(b)-len(end)]))}, nil
+		}
+		if len(b) >= maxPaste {
+			break // unterminated/oversized: recover with what we have
 		}
 	}
-	return Key{Type: KeyPaste, Text: normalizeNewlines(b.String())}, nil
+	return Key{Type: KeyPaste, Text: normalizeNewlines(string(b))}, nil
 }
 
 func normalizeNewlines(s string) string {

@@ -16,14 +16,15 @@ import (
 // loop (single-threaded). "always" sticks for the rest of the process. The
 // mutex serializes prompts when parallel subagents request approval at once.
 type approver struct {
-	mu          sync.Mutex
-	r           *bufio.Reader
-	out         io.Writer
-	onPrompt    func() // called right before an interactive prompt is shown
-	alwaysWrite bool
-	alwaysRun   bool
-	alwaysWeb   bool
-	mode        string // permission mode (mutable via /mode); "" == suggest
+	mu            sync.Mutex
+	r             *bufio.Reader
+	out           io.Writer
+	onPromptStart func() // called right before an interactive prompt is drawn (pause spinners)
+	onPromptEnd   func() // called once the prompt read returns (resume spinners)
+	alwaysWrite   bool
+	alwaysRun     bool
+	alwaysWeb     bool
+	mode          string // permission mode (mutable via /mode); "" == suggest
 }
 
 // setMode changes the permission mode (mutex-guarded; Approve reads it under
@@ -76,11 +77,15 @@ func (a *approver) Approve(action, detail string) bool {
 			return true
 		}
 	}
-	// We're about to block on input. Pause any live spinner first — otherwise its
-	// ticking frames ("writing foo… 2971s") overwrite the prompt, so the user
-	// can't see that a y/N is required and the session appears hung.
-	if a.onPrompt != nil {
-		a.onPrompt()
+	// We're about to block on input. Pause spinners for the whole prompt —
+	// otherwise the active spinner's ticking frames ("writing foo… 2971s"), or a
+	// concurrent subagent's events restarting a spinner, overwrite the prompt, so
+	// the user can't see that a y/N is required and the session appears hung.
+	if a.onPromptStart != nil {
+		a.onPromptStart()
+	}
+	if a.onPromptEnd != nil {
+		defer a.onPromptEnd()
 	}
 	// detail's first line names the action target; any following lines are a
 	// change preview (a diff, already colored at generation). Frame it as a

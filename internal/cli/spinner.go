@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/style"
@@ -26,6 +27,7 @@ type spinner struct {
 	label string
 	stop  chan struct{}
 	done  chan struct{}
+	once  sync.Once // makes Stop idempotent (no double close-of-closed-channel panic)
 }
 
 func newSpinner(out io.Writer, label string) *spinner {
@@ -74,8 +76,9 @@ func (s *spinner) Stop() {
 	if s.stop == nil {
 		return
 	}
-	close(s.stop)
-	<-s.done
-	fmt.Fprint(s.out, "\r\x1b[2K") // clear the spinner line (cursor restored by the goroutine)
-	s.stop = nil
+	s.once.Do(func() {
+		close(s.stop)
+		<-s.done
+		fmt.Fprint(s.out, "\r\x1b[2K") // clear the spinner line (cursor restored by the goroutine)
+	})
 }

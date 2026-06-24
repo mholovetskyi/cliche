@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
@@ -98,7 +99,10 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	s.customCmds = loadCommands(f.dir) // user prompt shortcuts
 	s.skills = skillMap(f.dir)         // explicit /skill <name> targets
 	a.SetObserver(s.onEvent)
-	app.onPrompt = s.stopSpin // clear the spinner before an approval prompt so it isn't masked
+	// Pause/clear spinners around an approval prompt so neither the active spinner
+	// nor a concurrent subagent's events repaint over the y/N card.
+	app.onPromptStart = s.beginPrompt
+	app.onPromptEnd = s.endPrompt
 
 	// Resume a saved session if requested (--continue = most recent, --resume <id>).
 	if id := f.resume; id != "" || f.cont {
@@ -131,26 +135,28 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 }
 
 type session struct {
-	a          *agent.Agent
-	r          *bufio.Reader
-	out        io.Writer
-	dir        string
-	cfg        config.Config
-	verify     bool
-	journal    *tools.EditJournal
-	spin       *spinner // active "thinking" indicator during a model wait (main goroutine only)
-	id         string   // session id for on-disk persistence
-	title      string   // first prompt, used as the session title
-	created    time.Time
-	resumed    int                    // messages restored from a resumed session (0 if fresh)
-	streaming  bool                   // currently mid live-streamed assistant block
-	stream     *mdStreamer            // line-buffered markdown renderer for the streamed block
-	app        *approver              // for /mode (mutates the approver's permission mode)
-	tasks      []sess.Task            // the session's lightweight plan (/plan, /tasks, /done)
-	nextTaskID int                    // monotonic id for new plan tasks
-	editor     *lineedit.Editor       // persistent raw-mode line editor (nil = cooked input)
-	customCmds map[string]userCommand // .cliche/commands/<name>.md prompt shortcuts
-	skills     map[string]skill       // .cliche/skills/<name>/SKILL.md, keyed by name
+	a                *agent.Agent
+	r                *bufio.Reader
+	out              io.Writer
+	dir              string
+	cfg              config.Config
+	verify           bool
+	journal          *tools.EditJournal
+	spin             *spinner   // active "thinking"/tool indicator
+	spinMu           sync.Mutex // guards spin + awaitingApproval: the emit path (onEvent) and the approval path (Approve) touch them from different goroutines under different locks
+	awaitingApproval bool       // true while a y/N prompt is on screen — suppresses spinners so they can't repaint over it
+	id               string     // session id for on-disk persistence
+	title            string     // first prompt, used as the session title
+	created          time.Time
+	resumed          int                    // messages restored from a resumed session (0 if fresh)
+	streaming        bool                   // currently mid live-streamed assistant block
+	stream           *mdStreamer            // line-buffered markdown renderer for the streamed block
+	app              *approver              // for /mode (mutates the approver's permission mode)
+	tasks            []sess.Task            // the session's lightweight plan (/plan, /tasks, /done)
+	nextTaskID       int                    // monotonic id for new plan tasks
+	editor           *lineedit.Editor       // persistent raw-mode line editor (nil = cooked input)
+	customCmds       map[string]userCommand // .cliche/commands/<name>.md prompt shortcuts
+	skills           map[string]skill       // .cliche/skills/<name>/SKILL.md, keyed by name
 }
 
 // persist writes the session transcript to .cliche/sessions/<id>.json. Best
@@ -211,8 +217,34 @@ func (s *session) endStream() {
 }
 
 func (s *session) startSpin(label string) {
+	s.spinMu.Lock()
+	defer s.spinMu.Unlock()
+	if s.awaitingApproval {
+		return // never paint a spinner over a pending approval prompt
+	}
 	s.spin = newSpinner(s.out, label)
 	s.spin.Start()
+}
+
+// beginPrompt is called by the approver right before it draws a y/N card: it
+// clears any live spinner and blocks new ones for the duration, so neither the
+// active spinner nor a concurrent subagent's events can repaint over the prompt.
+func (s *session) beginPrompt() {
+	s.spinMu.Lock()
+	s.awaitingApproval = true
+	sp := s.spin
+	s.spin = nil
+	s.spinMu.Unlock()
+	if sp != nil {
+		sp.Stop()
+	}
+}
+
+// endPrompt re-enables spinners once the approval read returns.
+func (s *session) endPrompt() {
+	s.spinMu.Lock()
+	s.awaitingApproval = false
+	s.spinMu.Unlock()
 }
 
 // spinLabel narrates a tool call as a present-progressive phase for the spinner.
@@ -234,9 +266,12 @@ func spinLabel(e agent.Event) string {
 }
 
 func (s *session) stopSpin() {
-	if s.spin != nil {
-		s.spin.Stop()
-		s.spin = nil
+	s.spinMu.Lock()
+	sp := s.spin
+	s.spin = nil
+	s.spinMu.Unlock()
+	if sp != nil {
+		sp.Stop()
 	}
 }
 

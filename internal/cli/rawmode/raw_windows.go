@@ -56,11 +56,16 @@ func enableRaw(in, out *os.File) (*termState, error) {
 		return nil, fmt.Errorf("stdout is not a console")
 	}
 	// Input: we echo and edit ourselves, and want Ctrl-C/keys as raw bytes + VT.
+	// VT input is best-effort: a legacy console (pre-Win10 1809 / some conhost)
+	// rejects the ENABLE_VIRTUAL_TERMINAL_INPUT bit and fails the whole call, which
+	// would silently drop the line editor. Retry without it so basic raw editing
+	// still works (keydec degrades unrecognized input safely).
 	raw := inMode
 	raw &^= enableEchoInput | enableLineInput | enableProcessedInput
-	raw |= enableVirtualTerminalInput
-	if !setConsoleMode(inH, raw) {
-		return nil, fmt.Errorf("could not set console input mode")
+	if !setConsoleMode(inH, raw|enableVirtualTerminalInput) {
+		if !setConsoleMode(inH, raw) {
+			return nil, fmt.Errorf("could not set console input mode")
+		}
 	}
 	// Output: ensure our ANSI escape sequences render.
 	if !setConsoleMode(outH, outMode|enableProcessedOutput|enableVirtualTerminalProcessing) {

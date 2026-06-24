@@ -261,18 +261,29 @@ func (e *Editor) menuRows() []string {
 	if !e.menu.open || len(e.menu.filtered) == 0 {
 		return nil
 	}
-	n := len(e.menu.filtered)
+	total := len(e.menu.filtered)
+	n := total
 	if n > maxMenuRows {
 		n = maxMenuRows
 	}
+	// Scroll the visible window so the selected row is always shown: without this,
+	// arrowing past row maxMenuRows hid the highlight AND let Tab/Enter complete a
+	// command scrolled off-screen.
+	start := 0
+	if e.menu.sel >= n {
+		start = e.menu.sel - n + 1
+	}
+	if max := total - n; start > max {
+		start = max
+	}
 	rows := make([]string, n)
 	for i := 0; i < n; i++ {
-		c := e.menu.filtered[i]
+		c := e.menu.filtered[start+i]
 		name := c.Name
 		if c.Args != "" {
 			name += " " + c.Args
 		}
-		if i == e.menu.sel {
+		if start+i == e.menu.sel {
 			rows[i] = "  " + style.BoldGreen("›") + " " + style.BoldGreen(style.Pad(name, 16)) + style.Gray(c.Desc)
 		} else {
 			rows[i] = "    " + style.White(style.Pad(name, 16)) + style.Gray(c.Desc)

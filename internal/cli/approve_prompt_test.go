@@ -7,34 +7,36 @@ import (
 	"testing"
 )
 
-func TestApproveFiresOnPromptBeforeBlocking(t *testing.T) {
-	called := 0
+func TestApproveBracketsPromptWithStartEnd(t *testing.T) {
+	starts, ends := 0, 0
 	a := &approver{
-		r:        bufio.NewReader(strings.NewReader("y\n")),
-		out:      &bytes.Buffer{},
-		onPrompt: func() { called++ },
+		r:             bufio.NewReader(strings.NewReader("y\n")),
+		out:           &bytes.Buffer{},
+		onPromptStart: func() { starts++ },
+		onPromptEnd:   func() { ends++ },
 	}
 	if !a.Approve("write", "write_file foo.go") {
 		t.Fatal("y should approve")
 	}
-	if called != 1 {
-		t.Fatalf("onPrompt should fire exactly once before the prompt, got %d", called)
+	if starts != 1 || ends != 1 {
+		t.Fatalf("onPromptStart/End should each fire once around the prompt, got start=%d end=%d", starts, ends)
 	}
 }
 
-func TestApproveSkipsOnPromptWhenNoPromptShown(t *testing.T) {
-	called := 0
+func TestApproveSkipsPromptHooksWhenNoPromptShown(t *testing.T) {
+	calls := 0
+	hook := func() { calls++ }
 	// full mode auto-approves; always-allow short-circuits — neither shows a
-	// prompt, so the spinner-pause hook must NOT fire (nothing to mask).
-	full := &approver{r: bufio.NewReader(strings.NewReader("")), out: &bytes.Buffer{}, mode: modeFull, onPrompt: func() { called++ }}
+	// prompt, so the spinner-pause hooks must NOT fire (nothing to mask).
+	full := &approver{r: bufio.NewReader(strings.NewReader("")), out: &bytes.Buffer{}, mode: modeFull, onPromptStart: hook, onPromptEnd: hook}
 	if !full.Approve("write", "write_file foo.go") {
 		t.Fatal("full mode should auto-approve")
 	}
-	always := &approver{r: bufio.NewReader(strings.NewReader("")), out: &bytes.Buffer{}, alwaysWrite: true, onPrompt: func() { called++ }}
+	always := &approver{r: bufio.NewReader(strings.NewReader("")), out: &bytes.Buffer{}, alwaysWrite: true, onPromptStart: hook, onPromptEnd: hook}
 	if !always.Approve("write", "write_file foo.go") {
 		t.Fatal("always-allow should approve")
 	}
-	if called != 0 {
-		t.Fatalf("onPrompt must not fire when no prompt is shown, got %d", called)
+	if calls != 0 {
+		t.Fatalf("prompt hooks must not fire when no prompt is shown, got %d", calls)
 	}
 }

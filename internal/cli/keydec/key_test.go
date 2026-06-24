@@ -78,7 +78,7 @@ func TestDecoderTable(t *testing.T) {
 		{"shift-tab", []byte("\x1b[Z"), []Key{{Type: KeyShiftTab}}},
 		{"modified arrow", []byte("\x1b[1;2A"), []Key{{Type: KeyUp}}},
 		{"lone esc", []byte("\x1b"), []Key{{Type: KeyEsc}}},
-		{"esc then x", []byte("\x1bx"), []Key{{Type: KeyEsc}, {Type: KeyRune, Rune: 'x'}}},
+		{"alt chord (esc+x) is inert — no rune leak", []byte("\x1bx"), []Key{{Type: KeyEsc}}},
 		{"pageup unknown", []byte("\x1b[5~"), []Key{{Type: KeyUnknown}}},
 		{"runaway params", []byte("\x1b[1234567890123456789~"), []Key{{Type: KeyUnknown}}},
 		{"truncated utf8", []byte{0xC3}, []Key{{Type: KeyRune, Rune: utf8.RuneError}}},
