@@ -545,6 +545,15 @@ func DefaultToolSpecs() []provider.ToolSpec {
 				"required":   []string{"command"},
 			},
 		},
+		{
+			Name:        "remember",
+			Description: "Save a durable fact about THIS project to cross-session memory (a convention, decision, gotcha, build/test command, or user preference) so future sessions start knowing it. Use sparingly for things genuinely worth persisting — not transient details. Stored in a human-readable .cliche/memory.md the user can edit.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"fact": strProp("the durable fact to remember, as one concise sentence")},
+				"required":   []string{"fact"},
+			},
+		},
 	}
 }
 

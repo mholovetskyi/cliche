@@ -585,6 +585,8 @@ func (s *session) slash(line string) bool {
 		s.showRules()
 	case "/mcp":
 		s.showMCP()
+	case "/memory":
+		s.showMemory()
 	case "/sessions":
 		s.showSessions()
 	case "/new":

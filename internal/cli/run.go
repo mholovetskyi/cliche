@@ -15,6 +15,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
+	"github.com/mholovetskyi/cliche/internal/memory"
 	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/repomap"
 	"github.com/mholovetskyi/cliche/internal/secrets"
@@ -252,7 +253,8 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	if m, err := repomap.Build(f.dir, repoMapBudget); err == nil && m != "" {
 		sys += "\n\nProject map (directories, files, and key Go symbols):\n" + m
 	}
-	sys += skillsSystemNote(f.dir) // make .cliche/skills discoverable to the agent
+	sys += skillsSystemNote(f.dir)               // make .cliche/skills discoverable to the agent
+	sys += memory.SystemNote(memory.Load(f.dir)) // durable facts from earlier sessions
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
 		System:             sys,

@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mholovetskyi/cliche/internal/memory"
 	"github.com/mholovetskyi/cliche/internal/shell"
 )
 
@@ -332,6 +333,19 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 		}
 		e.Journal.record(p, string(data), true)
 		return Result{Output: "edited " + args["file"], IsEdit: edit, Success: true}
+
+	case "remember":
+		// Cross-session memory: an append-only note to <root>/.cliche/memory.md.
+		// Not a code mutation (allowed in any mode, no write gate) and confined to
+		// the project's own metadata directory.
+		fact := strings.TrimSpace(args["fact"])
+		if fact == "" {
+			return Result{Output: "remember: nothing to remember (empty fact)", Success: false}
+		}
+		if err := memory.Append(e.Root, fact); err != nil {
+			return Result{Output: "remember error: " + err.Error(), Success: false}
+		}
+		return Result{Output: "remembered: " + fact, Success: true}
 
 	case "run_command":
 		if strings.TrimSpace(args["command"]) == "" {

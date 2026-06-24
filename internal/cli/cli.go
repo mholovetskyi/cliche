@@ -99,6 +99,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdProjects(rest, stdout, stderr)
 	case "new":
 		return cmdNew(rest, stdout, stderr)
+	case "memory":
+		return cmdMemory(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cliche: unknown command %q\n\n", cmd)
 		usage(stderr)
@@ -159,6 +161,9 @@ COMMANDS:
   themes             List UI palettes (set via CLICHE_THEME or "theme" in config).
   mcp                List configured MCP servers (project + plugins).
   insights           Usage & spend report from the ledger and saved sessions.
+  memory             Show/edit cross-session project memory (add | clear). The
+                     agent saves durable facts here (.cliche/memory.md) and reads
+                     them at the start of every session.
   bug                Write a bug report (environment + context) + a GitHub link.
   config             Print and validate the effective configuration.
   version            Print the version.

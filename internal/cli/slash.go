@@ -33,6 +33,7 @@ var slashCommands = []slashCmd{
 	{"/commands", "", "list custom commands", "control"},
 	{"/plugins", "", "list installed plugins", "control"},
 	{"/mcp", "", "list configured MCP servers", "control"},
+	{"/memory", "", "show what the agent remembers about this project", "control"},
 	{"/bug", "[note]", "write a bug report", "control"},
 	{"/diff", "", "changes made this session", "review"},
 	{"/undo", "", "revert the last edit", "review"},
