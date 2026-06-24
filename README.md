@@ -175,7 +175,7 @@ The Trust Kernel is deterministic: **no LLM is ever in the limit, accounting, or
 |---------|------|
 | `internal/budget` | token-hard + dollar-estimated spend caps (two-gate enforcement) |
 | `internal/governor` | runaway breakers (turns, wall-clock, repetition, failed edits, no-progress) |
-| `internal/ledger` | append-only JSONL audit trail + summary |
+| `internal/ledger` | append-only JSONL audit trail + summary, **hash-chained & verifiable** (`cliche audit`) |
 | `internal/verifier` | deterministic reward-hacking detectors + independent test re-run |
 | `internal/provider` | model-agnostic interface — Anthropic, OpenAI-compatible, offline Mock |
 | `internal/tools` | tool execution behind a graduated permission gate + path confinement |
@@ -193,6 +193,7 @@ Beyond approvals, Cliche can enforce policy the model can't reach:
 - **Allow/deny rules** — `Tool(pattern)` policy-as-code; **deny wins** over allow and over `--yolo`.
 - **Hooks** — a `pre_tool_use` command can block any tool call (non-zero exit fails **closed**); a `stop` hook observes completion. Policy you write, enforced by a program.
 - **MCP** — stdio and HTTP Model Context Protocol servers; their tools are permission-gated and governed by the same caps, governor, and ledger as built-ins.
+- **Tamper-evident ledger** — every audit entry is SHA-256 hash-chained to the one before it; `cliche audit` re-verifies the whole chain and flags any **altered, deleted, reordered, or inserted** record (exit 5). The audit trail itself is now verifiable, not just append-only.
 
 ---
 

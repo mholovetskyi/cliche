@@ -93,6 +93,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdExec(rest, stdout, stderr)
 	case "swarm":
 		return cmdSwarm(rest, stdout, stderr)
+	case "audit":
+		return cmdAudit(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cliche: unknown command %q\n\n", cmd)
 		usage(stderr)
@@ -134,6 +136,8 @@ COMMANDS:
   demo               Run the Trust Kernel offline against four scenarios
                      (healthy task, runaway loop, budget blowout, reward-hack).
   cost               Summarize the cost ledger for this project.
+  audit              Verify the audit ledger's tamper-evident hash chain
+                     (detects any altered, deleted, reordered, or inserted entry).
   report             Export the ledger as a Markdown verdict (task, cost,
                      changes, verdict): --out <file>, or --pr <n> to post to a
                      GitHub PR via gh.
