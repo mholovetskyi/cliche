@@ -24,6 +24,7 @@ var slashCommands = []slashCmd{
 	{"/sessions", "", "list saved sessions", "control"},
 	{"/new", "", "start a fresh session", "control"},
 	{"/resume", "[id]", "resume a saved session (latest if omitted)", "control"},
+	{"/kill", "<id>", "delete a saved session", "control"},
 	{"/diff", "", "changes made this session", "review"},
 	{"/undo", "", "revert the last edit", "review"},
 	{"/rewind", "", "undo every edit this session", "review"},
@@ -42,22 +43,42 @@ var slashGroups = []struct{ key, title string }{
 	{"session", "session"}, {"review", "review changes"}, {"control", "control"},
 }
 
-// help prints the commands grouped, with a Pad-aligned name column (replacing
-// the old hand-padded list that misaligned).
-func (s *session) help() {
+// help prints the full command palette.
+func (s *session) help() { s.commandPalette("") }
+
+// commandPalette renders a dropdown-style box of slash commands — grouped, each
+// with a one-line explainer — filtered to those starting with prefix (empty =
+// all). It is shown when you type "/" (or any ambiguous prefix like "/c") and by
+// /help, so the command set is discoverable at the point of use. A controls
+// footer surfaces the keyboard shortcuts the cooked-mode REPL supports.
+func (s *session) commandPalette(prefix string) {
+	var body strings.Builder
 	for _, g := range slashGroups {
-		fmt.Fprintln(s.out, "  "+style.Dim(g.title))
+		var rows []string
 		for _, c := range slashCommands {
-			if c.group != g.key {
+			if c.group != g.key || !strings.HasPrefix(c.name, prefix) {
 				continue
 			}
 			name := c.name
 			if c.args != "" {
 				name += " " + c.args
 			}
-			fmt.Fprintf(s.out, "    %s %s\n", style.White(style.Pad(name, 14)), style.Gray(c.desc))
+			rows = append(rows, style.White(style.Pad(name, 18))+style.Gray(c.desc))
 		}
+		if len(rows) == 0 {
+			continue
+		}
+		if body.Len() > 0 {
+			body.WriteByte('\n') // a blank spacer row between groups
+		}
+		body.WriteString(style.Dim(g.title) + "\n" + strings.Join(rows, "\n"))
 	}
+	if body.Len() == 0 {
+		fmt.Fprintf(s.out, "  no command matches %s\n", style.White(prefix))
+		return
+	}
+	fmt.Fprintln(s.out, style.Indent(style.Box("commands", body.String(), style.GrayRGB)))
+	fmt.Fprintln(s.out, "  "+style.Dim("Ctrl-C cancel · Ctrl-D exit · \\ continue line · @ attach file · / commands"))
 }
 
 // slashHint is the one-line discoverability strip shown at session start.

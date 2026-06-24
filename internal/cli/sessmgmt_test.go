@@ -76,6 +76,57 @@ func TestSessionManagement(t *testing.T) {
 	}
 }
 
+func TestKillSession(t *testing.T) {
+	oldE, oldNC := style.Enabled, noColor
+	style.Enabled, noColor = false, true
+	defer func() { style.Enabled, noColor = oldE, oldNC }()
+
+	dir := t.TempDir()
+	if err := sess.Save(dir, sess.Record{ID: "20200101-000000", Title: "x", Created: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	s := &session{out: &out, dir: dir, id: "current"}
+
+	s.killSession("/kill") // no id → usage
+	if !strings.Contains(out.String(), "usage:") {
+		t.Fatalf("/kill with no id should show usage:\n%s", out.String())
+	}
+
+	out.Reset()
+	s.killSession("/kill 20200101-000000")
+	if !strings.Contains(out.String(), "deleted session 20200101-000000") {
+		t.Fatalf("/kill should confirm deletion:\n%s", out.String())
+	}
+	if metas, _ := sess.List(dir); len(metas) != 0 {
+		t.Fatalf("session should be gone, found %d", len(metas))
+	}
+
+	out.Reset()
+	s.killSession("/kill missing")
+	if !strings.Contains(out.String(), "kill:") {
+		t.Fatalf("/kill of a missing id should report the error:\n%s", out.String())
+	}
+}
+
+func TestCmdSessionsRm(t *testing.T) {
+	dir := t.TempDir()
+	if err := sess.Save(dir, sess.Record{ID: "20200101-000000", Created: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := cmdSessions([]string{"rm", "--dir", dir, "20200101-000000"}, &out, &errOut); code != 0 {
+		t.Fatalf("sessions rm exit = %d, err=%s", code, errOut.String())
+	}
+	if metas, _ := sess.List(dir); len(metas) != 0 {
+		t.Fatalf("session should be deleted, found %d", len(metas))
+	}
+	// Removing a missing id is a non-zero, non-crashing outcome.
+	if code := cmdSessions([]string{"rm", "--dir", dir, "nope"}, &out, &errOut); code == 0 {
+		t.Fatal("rm of a missing id should be non-zero")
+	}
+}
+
 func TestInputBar(t *testing.T) {
 	oldE, oldNC := style.Enabled, noColor
 	style.Enabled, noColor = true, false

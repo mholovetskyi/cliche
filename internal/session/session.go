@@ -54,6 +54,15 @@ func dir(root string) string { return filepath.Join(config.Dir(root), "sessions"
 // NewID returns a sortable, human-readable session id from the given time.
 func NewID(t time.Time) string { return t.UTC().Format("20060102-150405") }
 
+// Delete removes a saved session file, returning an error if the id is empty or
+// the session doesn't exist.
+func Delete(root, id string) error {
+	if id == "" {
+		return fmt.Errorf("no session id")
+	}
+	return os.Remove(filepath.Join(dir(root), id+".json"))
+}
+
 // Save writes the record to .cliche/sessions/<id>.json (creating the dir).
 func Save(root string, r Record) error {
 	d := dir(root)

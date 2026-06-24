@@ -37,6 +37,26 @@ func (s *session) showSessions() {
 	}
 }
 
+// killSession (/kill <id>) deletes a saved session from disk. Deleting the
+// current session is allowed but noted — it will re-save on exit unless you /new
+// first.
+func (s *session) killSession(line string) {
+	id := strings.TrimSpace(strings.TrimPrefix(line, "/kill"))
+	if id == "" {
+		fmt.Fprintln(s.out, "  usage: /kill <id>  (see /sessions)")
+		return
+	}
+	if err := sess.Delete(s.dir, id); err != nil {
+		fmt.Fprintln(s.out, "  kill: "+err.Error())
+		return
+	}
+	msg := "deleted session " + id
+	if id == s.id {
+		msg += " (current — re-saves on exit unless you /new first)"
+	}
+	fmt.Fprintf(s.out, "  %s %s\n", style.Red(gl("✗", "x")), style.White(msg))
+}
+
 // newSession (/new) persists the current session and starts a fresh one: a new
 // id and an empty transcript. The process-wide budget is preserved, so opening a
 // new session can never be used to slip past the spend cap.

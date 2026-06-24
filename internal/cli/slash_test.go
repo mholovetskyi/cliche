@@ -67,11 +67,47 @@ func TestSlashRunsAbbreviationAndDisambiguates(t *testing.T) {
 		t.Fatalf("/h should run /help and list commands:\n%s", out.String())
 	}
 
-	// /c is ambiguous → a disambiguation listing the candidates, no execution.
+	// /c is ambiguous → a filtered command palette of the candidates, no execution.
 	out.Reset()
 	s.slash("/c")
-	if got := out.String(); !strings.Contains(got, "ambiguous") || !strings.Contains(got, "/cost") {
-		t.Fatalf("/c should disambiguate with candidates:\n%s", got)
+	if got := out.String(); !strings.Contains(got, "/cost") || !strings.Contains(got, "/clear") {
+		t.Fatalf("/c should open a filtered command palette:\n%s", got)
+	}
+}
+
+func TestCommandPalette(t *testing.T) {
+	oldE, oldNC := style.Enabled, noColor
+	style.Enabled, noColor = false, true
+	defer func() { style.Enabled, noColor = oldE, oldNC }()
+
+	var out bytes.Buffer
+	s := &session{out: &out}
+
+	// The full palette lists every command and the controls footer.
+	s.commandPalette("")
+	all := out.String()
+	for _, want := range []string{"commands", "/status", "/kill", "Ctrl-C", "@ attach"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("full palette missing %q:\n%s", want, all)
+		}
+	}
+
+	// A prefix filters the dropdown to matching commands.
+	out.Reset()
+	s.commandPalette("/c")
+	f := out.String()
+	if !strings.Contains(f, "/cost") || !strings.Contains(f, "/clear") || !strings.Contains(f, "/commit") {
+		t.Fatalf("filtered palette should show the /c commands:\n%s", f)
+	}
+	if strings.Contains(f, "/status") || strings.Contains(f, "/kill") {
+		t.Fatalf("filtered palette should exclude non-matches:\n%s", f)
+	}
+
+	// No match is reported, not an empty box.
+	out.Reset()
+	s.commandPalette("/zzz")
+	if !strings.Contains(out.String(), "no command matches") {
+		t.Fatalf("a non-matching filter should say so:\n%s", out.String())
 	}
 }
 

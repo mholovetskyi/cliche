@@ -568,6 +568,8 @@ func (s *session) slash(line string) bool {
 		s.newSession()
 	case "/resume":
 		s.resumeSession(line)
+	case "/kill":
+		s.killSession(line)
 	case "/recover":
 		if s.a.RecoverContext() {
 			fmt.Fprintln(s.out, "  restored the pre-compaction context.")
@@ -604,8 +606,8 @@ func (s *session) slash(line string) bool {
 	case "/help":
 		s.help()
 	default:
-		if cands := prefixMatches(cmd); len(cands) > 1 {
-			fmt.Fprintf(s.out, "  %s is ambiguous — did you mean %s?\n", style.White(cmd), style.White(strings.Join(cands, ", ")))
+		if len(prefixMatches(cmd)) > 1 {
+			s.commandPalette(cmd) // "/" or an ambiguous prefix → a filtered dropdown
 		} else if guess := closestCommand(cmd); guess != "" {
 			fmt.Fprintf(s.out, "  unknown command %s — did you mean %s?\n", style.White(cmd), style.White(guess))
 		} else {
