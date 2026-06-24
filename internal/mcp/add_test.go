@@ -45,3 +45,34 @@ func TestManagerAddAttachesLive(t *testing.T) {
 		t.Fatalf("original server should still route, got %q", out)
 	}
 }
+
+// Re-attaching a server that's already present (startup load + /connect, or a
+// double /connect) must be a no-op — re-namespacing identical tool names would
+// make the model API reject the whole tools list as duplicates.
+func TestManagerAddIsIdempotentByName(t *testing.T) {
+	m, err := NewManager(context.Background(), []Conn{&fakeConn{name: "github", tools: []Tool{{Name: "t1"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Add(context.Background(), &fakeConn{name: "github", tools: []Tool{{Name: "t1"}, {Name: "t2"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Tools(); len(got) != 1 || got[0].Name != "mcp__github__t1" {
+		t.Fatalf("re-adding the same server must add nothing, got %d tools: %v", len(got), got)
+	}
+}
+
+// Two DIFFERENT connections sharing a name at startup (e.g. stdio `github` from
+// `mcp install` + the `github` connector) must not both attach.
+func TestNewManagerDedupesByName(t *testing.T) {
+	m, err := NewManager(context.Background(), []Conn{
+		&fakeConn{name: "github", tools: []Tool{{Name: "stdio"}}},
+		&fakeConn{name: "github", tools: []Tool{{Name: "http"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Tools(); len(got) != 1 {
+		t.Fatalf("duplicate server names must collapse to one, got %d: %v", len(got), got)
+	}
+}

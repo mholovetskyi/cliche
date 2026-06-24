@@ -271,6 +271,13 @@ type Manager struct {
 func NewManager(ctx context.Context, clients []Conn) (*Manager, error) {
 	m := &Manager{route: map[string]routed{}}
 	for _, c := range clients {
+		if m.hasLocked(c.Name()) {
+			// Two servers sharing a name (e.g. an `mcp install github` stdio server
+			// AND the github connector) would namespace identical tool names — which
+			// the model API rejects as duplicates. First one wins; skip the rest.
+			_ = c.Close()
+			continue
+		}
 		m.clients = append(m.clients, c)
 		if err := c.Initialize(ctx); err != nil {
 			return m, fmt.Errorf("initializing mcp server %q: %w", c.Name(), err)
@@ -291,7 +298,17 @@ func NewManager(ctx context.Context, clients []Conn) (*Manager, error) {
 // Add attaches one more server to a live Manager — initializing it and merging
 // its namespaced tools — without disturbing the servers already connected. This
 // is what lets `/connect` hot-attach a new connector mid-session (no restart).
+//
+// It is IDEMPOTENT by server name: if a server with the same Name() is already
+// attached (e.g. it was loaded at startup AND /connect re-attaches it), the new
+// connection is closed and Add is a no-op. Re-adding would namespace identical
+// "mcp__<server>__<tool>" names twice, which the model API rejects as duplicate
+// tool names — breaking every subsequent turn.
 func (m *Manager) Add(ctx context.Context, c Conn) error {
+	if m.has(c.Name()) {
+		_ = c.Close()
+		return nil
+	}
 	if err := c.Initialize(ctx); err != nil {
 		return fmt.Errorf("initializing mcp server %q: %w", c.Name(), err)
 	}
@@ -301,6 +318,10 @@ func (m *Manager) Add(ctx context.Context, c Conn) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.hasLocked(c.Name()) { // re-check under lock (a concurrent Add could have won)
+		_ = c.Close()
+		return nil
+	}
 	m.clients = append(m.clients, c)
 	for _, t := range ts {
 		ns := "mcp__" + c.Name() + "__" + t.Name
@@ -308,6 +329,22 @@ func (m *Manager) Add(ctx context.Context, c Conn) error {
 		m.route[ns] = routed{client: c, tool: t.Name}
 	}
 	return nil
+}
+
+// has reports whether a server with this name is already attached.
+func (m *Manager) has(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hasLocked(name)
+}
+
+func (m *Manager) hasLocked(name string) bool {
+	for _, c := range m.clients {
+		if c.Name() == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Tools returns the namespaced tools across all servers (a snapshot copy).
