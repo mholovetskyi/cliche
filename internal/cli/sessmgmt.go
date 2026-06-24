@@ -57,6 +57,20 @@ func (s *session) killSession(line string) {
 	fmt.Fprintf(s.out, "  %s %s\n", style.Red(gl("✗", "x")), style.White(msg))
 }
 
+// forkSession (/fork) branches the current conversation: the live transcript is
+// kept but future turns save under a NEW id, so the original session file is
+// frozen at the fork point and the two diverge from here.
+func (s *session) forkSession() {
+	s.persist() // freeze the original at the fork point
+	old := s.id
+	s.created = time.Now()
+	s.id = sess.NewID(s.created)
+	s.resumed = 0
+	s.persist() // write the fork immediately
+	fmt.Fprintf(s.out, "  %s forked %s → %s %s\n",
+		style.Green(gl("⑃", "Y")), style.Gray(old), style.White(s.id), style.Gray("· same history, diverges from here"))
+}
+
 // newSession (/new) persists the current session and starts a fresh one: a new
 // id and an empty transcript. The process-wide budget is preserved, so opening a
 // new session can never be used to slip past the spend cap.

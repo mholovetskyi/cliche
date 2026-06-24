@@ -152,15 +152,23 @@ func (o *OpenAICompat) buildRequestBody(req Request, stream bool) ([]byte, error
 				}
 			} else if len(m.Images) > 0 {
 				// Vision message: content is an array of text + image_url parts.
+				// image_url only supports images, so PDFs/documents are skipped here.
 				parts := make([]oaiContentPart, 0, len(m.Images)+1)
 				if m.Text != "" {
 					parts = append(parts, oaiContentPart{Type: "text", Text: m.Text})
 				}
 				for _, img := range m.Images {
+					if !strings.HasPrefix(img.MediaType, "image/") {
+						continue
+					}
 					uri := "data:" + img.MediaType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
 					parts = append(parts, oaiContentPart{Type: "image_url", ImageURL: &oaiImageURL{URL: uri}})
 				}
-				msgs = append(msgs, oaiMessage{Role: "user", Content: parts})
+				if len(parts) == 0 { // all attachments unsupported here → fall back to text
+					msgs = append(msgs, oaiMessage{Role: "user", Content: strPtr(m.Text)})
+				} else {
+					msgs = append(msgs, oaiMessage{Role: "user", Content: parts})
+				}
 			} else if m.Text != "" {
 				msgs = append(msgs, oaiMessage{Role: "user", Content: strPtr(m.Text)})
 			}

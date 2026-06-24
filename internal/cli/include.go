@@ -16,12 +16,14 @@ import (
 // prompt, so an accidental @huge.log can't blow the context window.
 const maxIncludeBytes = 50 * 1024
 
-// maxImageBytes caps a single attached image, so @huge.png can't bloat a request.
-const maxImageBytes = 5 << 20 // 5 MiB
+// maxAttachmentBytes caps a single attached image/document, so @huge.pdf can't
+// bloat a request.
+const maxAttachmentBytes = 10 << 20 // 10 MiB
 
-// imageMediaType returns the IANA image type for a path's extension, or "" if it
-// is not a recognized image (so it falls through to text inlining).
-func imageMediaType(path string) string {
+// attachmentMediaType returns the IANA type for an attachable file's extension
+// (images + PDF), or "" if it is not a recognized attachment (so it falls
+// through to text inlining).
+func attachmentMediaType(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".png":
 		return "image/png"
@@ -31,6 +33,8 @@ func imageMediaType(path string) string {
 		return "image/gif"
 	case ".webp":
 		return "image/webp"
+	case ".pdf":
+		return "application/pdf"
 	}
 	return ""
 }
@@ -81,14 +85,18 @@ func (s *session) expandFileRefs(line string) (string, []string, []provider.Imag
 			notes = append(notes, style.Red(gl("⚠", "!")+" @"+ref)+style.Gray(" — unreadable; left as text"))
 			continue
 		}
-		// An image attaches for a vision model rather than inlining as text.
-		if mt := imageMediaType(ref); mt != "" {
-			if len(data) > maxImageBytes {
-				notes = append(notes, style.Red(gl("⚠", "!")+" @"+ref)+style.Gray(" — image over 5 MiB; skipped"))
+		// An image or PDF attaches for a vision/document model rather than inlining.
+		if mt := attachmentMediaType(ref); mt != "" {
+			if len(data) > maxAttachmentBytes {
+				notes = append(notes, style.Red(gl("⚠", "!")+" @"+ref)+style.Gray(" — over 10 MiB; skipped"))
 				continue
 			}
 			images = append(images, provider.Image{MediaType: mt, Data: data})
-			notes = append(notes, style.Gray(fmt.Sprintf("%s @%s · image attached (needs a vision model)", gl("🖼", "+"), ref)))
+			kind := "image"
+			if mt == "application/pdf" {
+				kind = "document"
+			}
+			notes = append(notes, style.Gray(fmt.Sprintf("%s @%s · %s attached (needs a vision/document model)", gl("🖼", "+"), ref, kind)))
 			continue
 		}
 		truncated := false

@@ -99,7 +99,10 @@ func pluginHookCommands(root, kind string) []string {
 	var out []string
 	for _, p := range loadPlugins(root) {
 		cmd := p.Hooks.PreToolUse
-		if kind == "stop" {
+		switch kind {
+		case "post":
+			cmd = p.Hooks.PostToolUse
+		case "stop":
 			cmd = p.Hooks.Stop
 		}
 		if strings.TrimSpace(cmd) != "" {

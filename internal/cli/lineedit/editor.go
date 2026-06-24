@@ -79,6 +79,13 @@ func (e *Editor) ReadLine(prompt string, promptW int) (string, error) {
 					break
 				}
 			}
+			// Backslash continuation: a trailing "\" becomes a newline and editing
+			// continues (composes a multi-line prompt), instead of submitting.
+			if n := len(e.buf); n > 0 && e.buf[n-1] == '\\' {
+				e.buf[n-1] = '\n'
+				e.cursor = len(e.buf)
+				break
+			}
 			line := string(e.buf)
 			e.commit()
 			e.history.Add(line)

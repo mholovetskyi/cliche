@@ -59,8 +59,9 @@ type Permissions struct {
 // CLICHE_TOOL, CLICHE_TOOL_FILE, CLICHE_TOOL_COMMAND, CLICHE_TOOL_URL; Stop also
 // gets CLICHE_STOP_REASON and CLICHE_VERDICT.
 type Hooks struct {
-	PreToolUse string `json:"pre_tool_use,omitempty"`
-	Stop       string `json:"stop,omitempty"`
+	PreToolUse  string `json:"pre_tool_use,omitempty"`
+	PostToolUse string `json:"post_tool_use,omitempty"` // observe-only, after each tool (CLICHE_TOOL_OK set)
+	Stop        string `json:"stop,omitempty"`
 }
 
 // Egress is the network host allowlist for agent-initiated fetches (web_fetch).

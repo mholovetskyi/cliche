@@ -83,6 +83,37 @@ func buildPreToolHookChain(dir string, commands []string) func(name string, args
 	}
 }
 
+// buildPostToolHook returns a PostToolHook that runs each command AFTER every
+// tool call (observe-only — exit code ignored, never blocks). The tool context
+// plus CLICHE_TOOL_OK ("true"/"false") is passed via env. nil when none remain.
+func buildPostToolHook(dir string, commands []string) func(name string, args map[string]string, ok bool) {
+	var cmds []string
+	for _, c := range commands {
+		if strings.TrimSpace(c) != "" {
+			cmds = append(cmds, c)
+		}
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return func(name string, args map[string]string, ok bool) {
+		okStr := "false"
+		if ok {
+			okStr = "true"
+		}
+		env := map[string]string{
+			"CLICHE_TOOL":         name,
+			"CLICHE_TOOL_FILE":    args["file"],
+			"CLICHE_TOOL_COMMAND": args["command"],
+			"CLICHE_TOOL_URL":     args["url"],
+			"CLICHE_TOOL_OK":      okStr,
+		}
+		for _, c := range cmds {
+			runHook(context.Background(), dir, c, env) // observe-only
+		}
+	}
+}
+
 // runStopHook fires the Stop hook (if configured) when the agent halts.
 func runStopHook(out io.Writer, dir, command, reason, verdict string) {
 	if strings.TrimSpace(command) == "" {

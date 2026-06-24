@@ -46,3 +46,22 @@ func TestImageSerialization(t *testing.T) {
 		t.Fatalf("a text-only message must not produce image parts:\n%s", string(body3))
 	}
 }
+
+func TestPDFSerialization(t *testing.T) {
+	msg := Message{Role: "user", Text: "summarize", Images: []Image{{MediaType: "application/pdf", Data: []byte("%PDF-1.4")}}}
+
+	// Anthropic: a document content block (not an image block).
+	body, _ := NewAnthropic("k", "claude-x", 1024).buildRequestBody(Request{Messages: []Message{msg}}, false)
+	if !strings.Contains(string(body), `"type":"document"`) || !strings.Contains(string(body), "application/pdf") {
+		t.Fatalf("anthropic PDF should be a document block:\n%s", string(body))
+	}
+
+	// OpenAI: PDFs aren't a supported image_url part — the text survives, no PDF.
+	body2, _ := NewOpenAICompat("k", "gpt-x", "https://x", 1024).buildRequestBody(Request{Messages: []Message{msg}}, false)
+	if strings.Contains(string(body2), "application/pdf") || strings.Contains(string(body2), "image_url") {
+		t.Fatalf("openai must not emit a PDF/image_url part:\n%s", string(body2))
+	}
+	if !strings.Contains(string(body2), "summarize") {
+		t.Fatalf("openai should keep the message text:\n%s", string(body2))
+	}
+}

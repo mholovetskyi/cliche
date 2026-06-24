@@ -75,6 +75,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdPlugins(rest, stdout, stderr)
 	case "themes":
 		return cmdThemes(rest, stdout, stderr)
+	case "mcp":
+		return cmdMcp(rest, stdout, stderr)
 	case "bug":
 		return cmdBug(rest, stdout, stderr)
 	case "insights":

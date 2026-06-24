@@ -227,6 +227,8 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		Egress:  tools.ParseEgress(cfg.Egress.Allow),
 		// The project's pre-tool hook plus every plugin's, composed (any deny blocks).
 		PreToolHook: buildPreToolHookChain(f.dir, append([]string{cfg.Hooks.PreToolUse}, pluginHookCommands(f.dir, "pre")...)),
+		// Observe-only post-tool hooks (project + plugins).
+		PostToolHook: buildPostToolHook(f.dir, append([]string{cfg.Hooks.PostToolUse}, pluginHookCommands(f.dir, "post")...)),
 	}
 
 	sys := "You are Cliche, a careful coding agent. Be concise and honest. Use the provided tools to read, edit, and run code. Never claim a test passes without evidence." + modeSystemNote(f.mode)

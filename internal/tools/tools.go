@@ -85,6 +85,9 @@ type OSExecutor struct {
 	// PreToolHook, if set, runs before every tool as the outermost gate.
 	// Returning allow=false blocks the call; reason (the hook's output) is shown.
 	PreToolHook func(name string, args map[string]string) (allow bool, reason string)
+	// PostToolHook, if set, runs after every tool completes (observe-only): it
+	// gets the tool name, args, and whether it succeeded. It cannot block.
+	PostToolHook func(name string, args map[string]string, ok bool)
 }
 
 // preauthorized reports whether an action proceeds without prompting (--yolo or
@@ -191,8 +194,18 @@ func resolveExisting(p string) string {
 	}
 }
 
-// Execute runs a tool call against the real filesystem/shell.
+// Execute runs a tool call against the real filesystem/shell, then fires the
+// observe-only PostToolUse hook (if set).
 func (e OSExecutor) Execute(ctx context.Context, name string, args map[string]string) Result {
+	res := e.execute(ctx, name, args)
+	if e.PostToolHook != nil {
+		e.PostToolHook(name, args, res.Success)
+	}
+	return res
+}
+
+// execute is the core tool dispatch (Execute wraps it with the PostToolUse hook).
+func (e OSExecutor) execute(ctx context.Context, name string, args map[string]string) Result {
 	edit := isEditTool(name)
 	// PreToolHook is the outermost, programmable gate: an operator-supplied
 	// command decides (via exit code) whether any tool call may proceed, before

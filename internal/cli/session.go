@@ -581,12 +581,16 @@ func (s *session) slash(line string) bool {
 		}
 	case "/status":
 		s.showStatus()
-	case "/rules":
+	case "/rules", "/permissions":
 		s.showRules()
+	case "/mcp":
+		s.showMCP()
 	case "/sessions":
 		s.showSessions()
 	case "/new":
 		s.newSession()
+	case "/fork":
+		s.forkSession()
 	case "/resume":
 		s.resumeSession(line)
 	case "/kill":

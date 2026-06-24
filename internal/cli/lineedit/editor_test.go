@@ -75,6 +75,14 @@ func TestEditorDropdownCompletion(t *testing.T) {
 	}
 }
 
+func TestEditorBackslashContinuation(t *testing.T) {
+	// "first\" + Enter becomes a newline (keep editing); "second" + Enter submits.
+	line, err := runEditor(t, "first\\\rsecond\r", nil)
+	if err != nil || line != "first\nsecond" {
+		t.Fatalf("backslash continuation = %q, %v; want %q", line, err, "first\nsecond")
+	}
+}
+
 func TestEditorMultiLinePaste(t *testing.T) {
 	// Type "a", paste a two-line block, then Enter → the buffer keeps the newline.
 	line, err := runEditor(t, "a\x1b[200~x\ny\x1b[201~\r", nil)

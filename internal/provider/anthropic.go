@@ -174,7 +174,11 @@ func (a *Anthropic) buildRequestBody(req Request, stream bool) ([]byte, error) {
 				}
 			} else {
 				for _, img := range m.Images {
-					blocks = append(blocks, contentBlock{Type: "image", Source: &imageSource{
+					blockType := "image"
+					if img.MediaType == "application/pdf" {
+						blockType = "document" // Anthropic renders PDFs as document blocks
+					}
+					blocks = append(blocks, contentBlock{Type: blockType, Source: &imageSource{
 						Type: "base64", MediaType: img.MediaType, Data: base64.StdEncoding.EncodeToString(img.Data),
 					}})
 				}
