@@ -2,13 +2,66 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/cli/lineedit"
+	"github.com/mholovetskyi/cliche/internal/cli/rawmode"
+	"github.com/mholovetskyi/cliche/internal/cli/tui"
 	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/style"
 )
+
+// browseSessions (/browse) opens the full-screen, mouse-driven session browser:
+// a scrollable list on the left, the selected session's details on the right.
+// Enter resumes the highlighted session. Falls back to the /sessions list when
+// raw mode (a real terminal) is unavailable.
+func (s *session) browseSessions() {
+	metas, err := sess.List(s.dir)
+	if err != nil || len(metas) == 0 {
+		s.showSessions()
+		return
+	}
+	if !style.Enabled || os.Getenv("CLICHE_NO_RAW") != "" || stdinIsPiped() || !rawmode.IsTerminal(os.Stdin) {
+		s.showSessions()
+		return
+	}
+	st, err := rawmode.Enable(os.Stdin, os.Stdout)
+	if err != nil {
+		s.showSessions()
+		return
+	}
+	cols, rows := rawmode.Size(os.Stdout)
+	s.ensureEditor()
+
+	items := make([]tui.Item, len(metas))
+	for i, m := range metas {
+		title := m.Title
+		if title == "" {
+			title = "(untitled)"
+		}
+		label := title
+		if m.ID == s.id {
+			label += " ●"
+		}
+		items[i] = tui.Item{
+			Label: label,
+			Preview: []string{
+				style.BoldWhite(title), "",
+				style.Gray("id      ") + m.ID,
+				style.Gray("model   ") + m.Model,
+				style.Gray("msgs    ") + fmt.Sprintf("%d", m.Messages),
+				style.Gray("updated ") + m.Updated.Local().Format("Jan 2 15:04"),
+			},
+		}
+	}
+	idx, ok := tui.Browse(s.editor.Decoder(), os.Stdout, cols, rows, "  sessions · "+s.dir, items)
+	_ = st.Disable()
+	if ok {
+		s.resumeSession("/resume " + metas[idx].ID)
+	}
+}
 
 // pickSession opens the arrow-key picker over this project's saved sessions and
 // returns the chosen id. ok=false on cancel, when there are none, or when raw

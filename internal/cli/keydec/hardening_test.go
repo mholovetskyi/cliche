@@ -30,6 +30,28 @@ func TestAltChordDoesNotLeakRune(t *testing.T) {
 	}
 }
 
+func TestMouseDecode(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        string
+		btn, x, y int
+		press     bool
+	}{
+		{"left press", "\x1b[<0;12;5M", MouseLeft, 12, 5, true},
+		{"left release", "\x1b[<0;12;5m", MouseLeft, 12, 5, false},
+		{"wheel down", "\x1b[<65;3;7M", MouseWheelDown, 3, 7, true},
+		{"wheel up", "\x1b[<64;3;7M", MouseWheelUp, 3, 7, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			k, _ := NewDecoder(strings.NewReader(c.in)).ReadKey()
+			if k.Type != KeyMouse || k.MouseButton != c.btn || k.MouseX != c.x || k.MouseY != c.y || k.MousePress != c.press {
+				t.Fatalf("decode %q = %+v", c.in, k)
+			}
+		})
+	}
+}
+
 func TestUnterminatedPasteIsBounded(t *testing.T) {
 	// Paste-start with no terminator on a never-EOF source must still return
 	// (bounded by maxPaste) instead of hanging forever.

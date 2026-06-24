@@ -63,6 +63,11 @@ func NewEditor(in io.Reader, out io.Writer, cmds []Command, hist *History) *Edit
 	}
 }
 
+// Decoder exposes the editor's key decoder so a full-screen mode (tui.Browse)
+// can read from the SAME buffered source — avoiding a second reader over stdin
+// that would strand bytes between the two.
+func (e *Editor) Decoder() *keydec.Decoder { return e.dec }
+
 // SetWidth sets the terminal width (in cells) used for wrap-aware redraw. Called
 // before each ReadLine so a window resize between prompts is picked up.
 func (e *Editor) SetWidth(cols int) {

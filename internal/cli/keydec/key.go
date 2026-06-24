@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -45,14 +46,31 @@ const (
 	KeyCtrlU
 	KeyCtrlW
 	KeyPaste   // a bracketed paste; the whole pasted text is in Key.Text
+	KeyMouse   // an SGR mouse event (button/coords in the Mouse* fields)
 	KeyUnknown // a recognized-but-unhandled escape sequence (fully consumed)
 )
 
-// Key is a single decoded keystroke.
+// SGR mouse button codes we care about (low bits = button; the wheel uses the
+// 64 bit). Coordinates in a KeyMouse are 1-based, as the terminal reports them.
+const (
+	MouseLeft      = 0
+	MouseMiddle    = 1
+	MouseRight     = 2
+	MouseWheelUp   = 64
+	MouseWheelDown = 65
+)
+
+// Key is a single decoded keystroke (or mouse event).
 type Key struct {
 	Type KeyType
 	Rune rune   // set only when Type == KeyRune
 	Text string // set only when Type == KeyPaste (the pasted block, newlines normalized)
+
+	// Mouse* are set only when Type == KeyMouse.
+	MouseButton int  // raw SGR button code (see Mouse* consts)
+	MouseX      int  // 1-based column
+	MouseY      int  // 1-based row
+	MousePress  bool // true on press ('M'), false on release ('m')
 }
 
 // ctrlKeys maps a control byte to its key type. Bytes handled specially in
@@ -178,6 +196,9 @@ func (d *Decoder) readCSI() (Key, error) {
 		if string(params) == "200" && b == '~' { // bracketed-paste start
 			return d.readPaste()
 		}
+		if len(params) > 0 && params[0] == '<' && (b == 'M' || b == 'm') { // SGR mouse
+			return mouseKey(params, b), nil
+		}
 		if overflow { // runaway parameters: consumed, but unclassifiable
 			return Key{Type: KeyUnknown}, nil
 		}
@@ -190,6 +211,22 @@ func (d *Decoder) readCSI() (Key, error) {
 // pathological giant paste can't exhaust memory. 1 MiB is far more than any real
 // prompt paste.
 const maxPaste = 1 << 20
+
+// mouseKey parses an SGR mouse sequence: params is "<btn;x;y" and final is 'M'
+// (press) or 'm' (release). A malformed sequence degrades to KeyUnknown.
+func mouseKey(params []byte, final byte) Key {
+	parts := strings.Split(strings.TrimPrefix(string(params), "<"), ";")
+	if len(parts) != 3 {
+		return Key{Type: KeyUnknown}
+	}
+	btn, e1 := strconv.Atoi(parts[0])
+	x, e2 := strconv.Atoi(parts[1])
+	y, e3 := strconv.Atoi(parts[2])
+	if e1 != nil || e2 != nil || e3 != nil {
+		return Key{Type: KeyUnknown}
+	}
+	return Key{Type: KeyMouse, MouseButton: btn, MouseX: x, MouseY: y, MousePress: final == 'M'}
+}
 
 // readPaste reads a bracketed paste body up to the ESC[201~ terminator and
 // returns it as one KeyPaste, normalizing CRLF/CR to LF. It always returns:

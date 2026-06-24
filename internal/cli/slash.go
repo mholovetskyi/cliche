@@ -28,6 +28,7 @@ var slashCommands = []slashCmd{
 	{"/fork", "", "branch the conversation into a new session", "control"},
 	{"/resume", "[id]", "resume a saved session (latest if omitted)", "control"},
 	{"/kill", "<id>", "delete a saved session", "control"},
+	{"/browse", "", "browse sessions full-screen (mouse + arrows)", "control"},
 	{"/skills", "", "list installed skills", "control"},
 	{"/skill", "<name>", "run a skill", "control"},
 	{"/commands", "", "list custom commands", "control"},
