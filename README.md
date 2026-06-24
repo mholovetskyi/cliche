@@ -94,6 +94,12 @@ Type and it works end-to-end — reads, edits, runs commands, streams every step
 cliche run --max-usd 0.50 --mode auto-edit --branch --verify "fix the failing test in ./api"
 ```
 
+**Fan out a swarm** — a planner splits the task, executors work it in parallel, a synthesizer combines the results. The whole fleet runs under **one shared budget cap, one ledger, one permission gate** — the Trust Kernel wraps the swarm, not just one agent:
+
+```sh
+cliche swarm --max-usd 1.00 --mode auto-edit "add table-driven tests to every package in ./internal"
+```
+
 **Headless in CI** (JSON out, clean exit codes):
 
 ```sh

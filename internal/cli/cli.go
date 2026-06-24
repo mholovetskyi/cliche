@@ -91,6 +91,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdRun(rest, stdout, stderr)
 	case "exec":
 		return cmdExec(rest, stdout, stderr)
+	case "swarm":
+		return cmdSwarm(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cliche: unknown command %q\n\n", cmd)
 		usage(stderr)
@@ -123,6 +125,8 @@ COMMANDS:
   run "<prompt>"     One-shot agent run on a prompt (BYO key, multi-turn tools).
   exec               Headless mode: prompt via -p or stdin, JSON output, clean
                      exit codes. Fails loudly on caps and breakers.
+  swarm "<task>"     Multi-agent run: a planner splits the task, executors work
+                     it in parallel, a synthesizer combines — one shared budget.
   verify             Independently re-run the project's tests and combine with
                      reward-hack detectors into a verdict (verified/flagged).
   map                Print the project repo map (the structural overview the
@@ -141,6 +145,7 @@ COMMANDS:
   plugins            Installable bundles (skills + commands + hooks + MCP): list,
                      or 'plugins new <name>' → .cliche/plugins/<name>/.
   themes             List UI palettes (set via CLICHE_THEME or "theme" in config).
+  mcp                List configured MCP servers (project + plugins).
   insights           Usage & spend report from the ledger and saved sessions.
   bug                Write a bug report (environment + context) + a GitHub link.
   config             Print and validate the effective configuration.
