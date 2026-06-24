@@ -9,6 +9,12 @@ What we sell is the **multi-user expression of that trust layer**: the things a
 *team* needs once more than one person is running agents against a shared
 codebase, and someone is accountable for what those agents do.
 
+> **🚧 Pre-order — the Team control plane is in development.** The free CLI and the
+> open policy client (`cliche org`) ship today; the hosted backend is being built.
+> If your team would use this, **[register interest](https://github.com/mholovetskyi/cliche/issues/new?template=team-interest.yml)**
+> (or email below). Founding customers get **locked-in early pricing** and shape
+> the roadmap. No payment is taken now — this is to gauge interest before launch.
+
 > Every other coding CLI competes on capability. Cliche competes on
 > **guardrails the model cannot argue its way past.** The commercial product is
 > those same guardrails, enforced and proven **across your whole org.**
@@ -74,11 +80,17 @@ plane — the policy/billing/aggregation backend — is a separate hosted servic
 
 ---
 
-## Talk to us
+## Pre-order / register interest
 
-- **Sponsor the open-source core:** GitHub Sponsors (see the Sponsor button).
-- **Commercial support / Team / Enterprise:** open a
-  [discussion](https://github.com/mholovetskyi/cliche/discussions) or email
-  **devawemykola@gmail.com**.
+No payment is taken yet — we're gauging demand before opening billing. Founding
+customers lock in early pricing and shape what ships first.
+
+- **Register interest (1 min):** open a
+  [Team-interest issue](https://github.com/mholovetskyi/cliche/issues/new?template=team-interest.yml)
+  — team size, what you'd use it for, what you'd pay. Public, so it also signals
+  demand to others.
+- **Prefer not to post publicly?** Email **devawemykola@gmail.com** for a
+  founding-customer slot (companies / Enterprise).
+- **Sponsor the open-source core meanwhile:** GitHub Sponsors (Sponsor button).
 
 Cliche is built by [@mholovetskyi](https://github.com/mholovetskyi).

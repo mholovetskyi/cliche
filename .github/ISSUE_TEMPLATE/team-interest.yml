@@ -1,0 +1,59 @@
+name: "🚧 Register interest — Cliche Team (pre-order)"
+description: "Tell us you'd use the Team control plane. No payment now — we're gauging demand before launch. Founding customers lock in early pricing."
+title: "[Team interest] "
+labels: ["team-interest"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the signal! The free CLI ships today; the **Team control plane**
+        (org-wide signed policy, audit aggregation, spend governance) is in
+        development. No payment is taken — this just helps us prioritize and lets
+        **founding customers lock in early pricing**. Prefer to stay private?
+        Email devawemykola@gmail.com instead.
+  - type: input
+    id: team_size
+    attributes:
+      label: How many developers would use it?
+      placeholder: "e.g. 8"
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: What would you use it for?
+      description: Which matters most — pushing org policy, audit/compliance, spend governance, or something else?
+      placeholder: "We run agents in CI and need to cap spend + prove what they touched for SOC 2…"
+    validations:
+      required: true
+  - type: dropdown
+    id: price
+    attributes:
+      label: What would you pay, per developer per month?
+      options:
+        - "Not sure yet"
+        - "$10–20"
+        - "$20–40"
+        - "$40–75"
+        - "$75+"
+        - "Enterprise / annual contract"
+    validations:
+      required: true
+  - type: dropdown
+    id: commitment
+    attributes:
+      label: How firm is this?
+      options:
+        - "Just interested / following"
+        - "Would trial it"
+        - "Would pre-order a founding seat (early pricing, pay at launch)"
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: Contact (optional)
+      description: Email or handle if you'd like to be a founding customer / design partner. Leave blank to stay anonymous.
+      placeholder: "you@company.com"
+    validations:
+      required: false

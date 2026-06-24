@@ -141,7 +141,9 @@ func orgStatus(out io.Writer) int {
 	oc, ok := secrets.Org()
 	if !ok {
 		fmt.Fprintln(out, "  "+style.Gray("not connected to a control plane — `cliche org login` to enforce org policy."))
-		fmt.Fprintln(out, "  "+style.Gray("teams: see COMMERCIAL.md"))
+		fmt.Fprintln(out, "  "+style.Gray("Team tier is in pre-order — register interest: ")+
+			style.Hyperlink(style.White("github.com/mholovetskyi/cliche → Team interest"),
+				"https://github.com/mholovetskyi/cliche/issues/new?template=team-interest.yml"))
 		return 0
 	}
 	fmt.Fprintf(out, "  %s connected %s\n", style.Green(gl("✓", "ok")), style.Gray("· "+oc.URL))
