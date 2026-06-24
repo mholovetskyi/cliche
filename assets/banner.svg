@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 196" role="img" aria-label="Cliché">
+  <defs>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="30" y1="0" x2="670" y2="0">
+      <stop offset="0" stop-color="#ff9a78"/>
+      <stop offset="0.5" stop-color="#ff5d4c"/>
+      <stop offset="1" stop-color="#e0331f"/>
+    </linearGradient>
+  </defs>
+  <g font-family="&apos;SFMono-Regular&apos;,ui-monospace,&apos;Cascadia Code&apos;,&apos;JetBrains Mono&apos;,&apos;DejaVu Sans Mono&apos;,Menlo,Consolas,monospace" font-size="22" font-weight="700">
+    <text x="30" y="34" fill="#e0331f" textLength="640" lengthAdjust="spacingAndGlyphs" xml:space="preserve">                                      ╱╱   </text>
+    <text x="30" y="57" fill="url(#g)" textLength="640" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> ██████╗██╗     ██╗ ██████╗██╗  ██╗███████╗</text>
+    <text x="30" y="80" fill="url(#g)" textLength="640" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██╔════╝██║     ██║██╔════╝██║  ██║██╔════╝</text>
+    <text x="30" y="103" fill="url(#g)" textLength="640" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██║     ██║     ██║██║     ███████║█████╗  </text>
+    <text x="30" y="126" fill="url(#g)" textLength="640" lengthAdjust="spacingAndGlyphs" xml:space="preserve">██║     ██║     ██║██║     ██╔══██║██╔══╝  </text>
+    <text x="30" y="149" fill="url(#g)" textLength="640" lengthAdjust="spacingAndGlyphs" xml:space="preserve">╚██████╗███████╗██║╚██████╗██║  ██║███████╗</text>
+    <text x="30" y="172" fill="url(#g)" textLength="640" lengthAdjust="spacingAndGlyphs" xml:space="preserve"> ╚═════╝╚══════╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝</text>
+  </g>
+</svg>

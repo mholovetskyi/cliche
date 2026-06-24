@@ -1,13 +1,7 @@
 <div align="center">
 
-```
- ██████╗██╗     ██╗ ██████╗██╗  ██╗███████╗
-██╔════╝██║     ██║██╔════╝██║  ██║██╔════╝
-██║     ██║     ██║██║     ███████║█████╗
-██║     ██║     ██║██║     ██╔══██║██╔══╝
-╚██████╗███████╗██║╚██████╗██║  ██║███████╗
- ╚═════╝╚══════╝╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝
-```
+<img src="assets/banner.svg" alt="Cliché — the AI coding agent you can actually leave running" width="640">
+<br><br>
 
 <h3><em>the AI coding agent you can actually leave running</em></h3>
 
