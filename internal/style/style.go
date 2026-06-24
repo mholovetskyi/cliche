@@ -39,6 +39,45 @@ func wrap(seq, s string) string {
 	return seq + s + reset
 }
 
+// Hyperlink renders text as an OSC 8 terminal hyperlink pointing at url, so
+// terminals that support it (Windows Terminal, iTerm2, VS Code, kitty, WezTerm,
+// GNOME Terminal, …) make `text` clickable. Like color, it is gated on Enabled:
+// when output is piped, NO_COLOR is set, or the terminal is plain, it returns
+// text unchanged. The escape carries zero display width — Width() already skips
+// OSC sequences — so it never disturbs alignment. text may itself be colored.
+func Hyperlink(text, url string) string {
+	// A URL with a control byte could break out of the escape — fall back to
+	// plain text rather than emit something malformed.
+	if !Enabled || url == "" || strings.ContainsAny(url, "\x1b\x07\n\r") {
+		return text
+	}
+	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
+}
+
+// LinkURL makes a compact, possibly scheme-less and prose-decorated location
+// clickable: it links only the leading URL token (up to the first space),
+// leaving any trailing description plain, and prepends https:// when no scheme
+// is present. E.g. "console.anthropic.com → API keys" links the host and keeps
+// " → API keys" as text. The visible text is unchanged; only the token becomes
+// a hyperlink (when Enabled).
+func LinkURL(s string) string {
+	if !Enabled || s == "" {
+		return s
+	}
+	tok, rest := s, ""
+	if i := strings.IndexByte(s, ' '); i >= 0 {
+		tok, rest = s[:i], s[i:]
+	}
+	if tok == "" {
+		return s
+	}
+	url := tok
+	if !strings.Contains(url, "://") {
+		url = "https://" + url
+	}
+	return Hyperlink(tok, url) + rest
+}
+
 // boldColor wraps s in bold + a tier-quantized color.
 func boldColor(s string, c RGB) string {
 	if !Enabled || s == "" {

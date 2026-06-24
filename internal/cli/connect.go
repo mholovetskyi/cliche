@@ -157,7 +157,7 @@ func cmdConnect(args []string, out, errOut io.Writer) int {
 		if c.directToken != nil {
 			fmt.Fprintf(errOut, "  easiest: run `gh auth login`, then `cliche connect %s` again.\n", name)
 		}
-		fmt.Fprintf(errOut, "  or set up a one-time OAuth app at %s,\n  then export %s and re-run.\n", c.register, c.clientEnv)
+		fmt.Fprintf(errOut, "  or set up a one-time OAuth app at %s,\n  then export %s and re-run.\n", style.LinkURL(c.register), c.clientEnv)
 		return 1
 	}
 
@@ -175,7 +175,7 @@ func cmdConnect(args []string, out, errOut io.Writer) int {
 		uri = "https://github.com/login/device"
 	}
 	fmt.Fprintf(out, "\n  %s connect %s\n", style.BoldWhite(gl("⇄", "<>")), style.White(name))
-	fmt.Fprintf(out, "  1. open  %s\n", style.Color(uri, style.Sample(0)))
+	fmt.Fprintf(out, "  1. open  %s\n", style.Hyperlink(style.Color(uri, style.Sample(0)), uri))
 	fmt.Fprintf(out, "  2. enter %s\n", style.BoldGreen(dc.UserCode))
 	if openBrowser(uri) {
 		fmt.Fprintln(out, "  "+style.Gray("(opened your browser…)"))

@@ -26,7 +26,8 @@ func (s *session) reportBug(line string) {
 		return
 	}
 	fmt.Fprintf(s.out, "  %s wrote %s\n", style.Green(gl("✓", "ok")), style.White(path))
-	fmt.Fprintln(s.out, "  "+style.Gray("share it → ")+style.White(issueURL(note)))
+	u := issueURL(note)
+	fmt.Fprintln(s.out, "  "+style.Gray("share it → ")+style.Hyperlink(style.White(u), u))
 }
 
 // cmdBug is the `cliche bug [note...]` CLI form.
@@ -38,7 +39,8 @@ func cmdBug(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(out, "  wrote "+path)
-	fmt.Fprintln(out, "  share it → "+issueURL(note))
+	u := issueURL(note)
+	fmt.Fprintln(out, "  share it → "+style.Hyperlink(u, u))
 	return 0
 }
 

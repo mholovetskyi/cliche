@@ -150,7 +150,7 @@ func buildGitHubMCPServer(binDir string, out, errOut io.Writer) (string, error) 
 
 	// Need Go.
 	if _, err := exec.LookPath("go"); err != nil {
-		return "", fmt.Errorf("go toolchain not found; install Go from https://go.dev/dl/ and retry")
+		return "", fmt.Errorf("go toolchain not found; install Go from %s and retry", style.Hyperlink("https://go.dev/dl/", "https://go.dev/dl/"))
 	}
 
 	// Clone into a temp dir.

@@ -60,7 +60,7 @@ func runLogin(r *bufio.Reader, out io.Writer) int {
 		fmt.Fprintf(out, "  %s%s  %s  %s\n",
 			check, num,
 			style.Pad(style.BoldWhite(c.label), 14),
-			style.Gray(c.where))
+			style.Gray(style.LinkURL(c.where)))
 	}
 	fmt.Fprintln(out, "\n  "+style.Gray("custom/local providers → `providers:` in .cliche/config.json"))
 
