@@ -34,3 +34,8 @@ func (st *State) Disable() error {
 
 // IsTerminal reports whether f is a real interactive terminal.
 func IsTerminal(f *os.File) bool { return isTerminal(f) }
+
+// Size returns the terminal's visible width and height in character cells,
+// defaulting to 80x24 when it can't be determined — so the line editor can wrap
+// and redraw long lines across physical rows instead of corrupting them.
+func Size(f *os.File) (cols, rows int) { return termSize(f) }

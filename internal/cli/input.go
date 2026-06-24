@@ -74,6 +74,9 @@ func (s *session) readLineInteractive() (string, error) {
 	defer io.WriteString(os.Stdout, "\x1b[?2004l") // ...and turn it back off
 
 	s.ensureEditor()
+	if cols, _ := rawmode.Size(os.Stdout); cols > 0 {
+		s.editor.SetWidth(cols) // wrap-aware redraw; re-queried each prompt to track resizes
+	}
 	prompt := "  " + s.barPrompt()
 	line, err := s.editor.ReadLine(prompt, style.Width(prompt))
 	switch err {

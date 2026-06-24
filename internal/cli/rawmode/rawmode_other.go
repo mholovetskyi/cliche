@@ -22,3 +22,6 @@ func (st *State) Disable() error { return nil }
 
 // IsTerminal reports false so the cooked path is always chosen.
 func IsTerminal(f *os.File) bool { return false }
+
+// Size returns a sane default; raw rendering isn't used on unsupported OSes.
+func Size(f *os.File) (cols, rows int) { return 80, 24 }

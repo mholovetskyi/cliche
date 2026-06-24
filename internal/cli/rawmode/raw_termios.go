@@ -57,3 +57,18 @@ func isTerminal(f *os.File) bool {
 	var t syscall.Termios
 	return ioctl(f.Fd(), ioctlReadTermios, &t) == nil
 }
+
+// termSize reads the window size via TIOCGWINSZ (the request constant is the
+// same symbol on Linux and macOS). Defaults to 80x24 on any failure.
+func termSize(f *os.File) (int, int) {
+	var ws struct{ Row, Col, Xpixel, Ypixel uint16 }
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
+	if errno != 0 || ws.Col == 0 {
+		return 80, 24
+	}
+	rows := int(ws.Row)
+	if rows == 0 {
+		rows = 24
+	}
+	return int(ws.Col), rows
+}

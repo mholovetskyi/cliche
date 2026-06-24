@@ -26,15 +26,17 @@ const maxMenuRows = 8
 // Editor holds the line state and renders in place. The decoder persists across
 // ReadLine calls so buffered read-ahead (e.g. a fast paste) isn't lost.
 type Editor struct {
-	dec      *keydec.Decoder
-	out      io.Writer
-	history  *History
-	menu     *slashMenu
-	prompt   string
-	promptW  int
-	buf      []rune
-	cursor   int
-	rendered int // dropdown rows currently drawn below the input line
+	dec           *keydec.Decoder
+	out           io.Writer
+	history       *History
+	menu          *slashMenu
+	prompt        string
+	promptW       int
+	buf           []rune
+	cursor        int
+	rendered      int // dropdown rows currently drawn below the input line
+	cols          int // terminal width in cells (for wrap-aware redraw); 0 → 80
+	prevCursorRow int // cursor's physical row within the block at the last render
 
 	// CycleMode, if set, is invoked on Shift-Tab to cycle the permission mode; it
 	// returns the new prompt (and its display width) so the chevron updates live.
@@ -52,6 +54,15 @@ func NewEditor(in io.Reader, out io.Writer, cmds []Command, hist *History) *Edit
 		out:     out,
 		history: hist,
 		menu:    newSlashMenu(cmds),
+		cols:    80, // sensible default until SetWidth is called
+	}
+}
+
+// SetWidth sets the terminal width (in cells) used for wrap-aware redraw. Called
+// before each ReadLine so a window resize between prompts is picked up.
+func (e *Editor) SetWidth(cols int) {
+	if cols > 0 {
+		e.cols = cols
 	}
 }
 
@@ -60,7 +71,7 @@ func NewEditor(in io.Reader, out io.Writer, cmds []Command, hist *History) *Edit
 // io.EOF on Ctrl-D at an empty line.
 func (e *Editor) ReadLine(prompt string, promptW int) (string, error) {
 	e.prompt, e.promptW = prompt, promptW
-	e.buf, e.cursor, e.rendered = e.buf[:0], 0, 0
+	e.buf, e.cursor, e.rendered, e.prevCursorRow = e.buf[:0], 0, 0, 0
 	e.menu.reset()
 	e.menu.update("")
 	e.render()
@@ -212,7 +223,8 @@ func (e *Editor) deleteWordLeft() {
 // stays and subsequent output starts clean.
 func (e *Editor) commit() {
 	e.menu.reset()
-	e.render() // wipes any dropdown rows, leaves cursor on the input line
+	e.cursor = len(e.buf) // park at the end so the trailing newline lands BELOW the whole (possibly wrapped) line
+	e.render()            // wipes any dropdown rows, leaves the cursor at the line end
 	io.WriteString(e.out, "\r\n")
 }
 
@@ -221,32 +233,62 @@ func (e *Editor) commit() {
 // full rewrite each keystroke (no incremental diffing) keeps it simple and
 // robust; assertions in tests check visible content, not exact escapes.
 func (e *Editor) render() {
+	cols := e.cols
+	if cols < 1 {
+		cols = 80
+	}
 	var b strings.Builder
-	b.WriteString("\r\x1b[K") // input line: column 0, erase to EOL
+
+	// Return to the TOP-LEFT of the block drawn last time, then erase all of it in
+	// one shot. \x1b[J (erase to end of screen) clears the input line even when it
+	// wrapped across several physical rows, plus any dropdown rows below — the old
+	// \r\x1b[K cleared only ONE row and corrupted a wrapped line on every redraw.
+	if e.prevCursorRow > 0 {
+		fmt.Fprintf(&b, "\x1b[%dA", e.prevCursorRow)
+	}
+	b.WriteString("\r\x1b[J")
+
+	// Rewrite the input line; the terminal wraps it across cols on its own.
 	b.WriteString(e.prompt)
 	b.WriteString(displayLine(string(e.buf)))
 
+	// Dropdown rows, each on its own physical line below the (wrapped) input.
 	rows := e.menuRows()
-	clearN := len(rows)
-	if e.rendered > clearN {
-		clearN = e.rendered // also wipe rows a shrinking/closing menu left behind
+	for _, r := range rows {
+		b.WriteString("\r\n")
+		b.WriteString(r)
 	}
-	for i := 0; i < clearN; i++ {
-		b.WriteString("\r\n\x1b[K")
-		if i < len(rows) {
-			b.WriteString(rows[i])
-		}
-	}
-	if clearN > 0 {
-		fmt.Fprintf(&b, "\x1b[%dA", clearN) // back up to the input line
+
+	// Park the cursor at the edit position, addressed as (row, col) within the
+	// block. Writing left the cursor on the bottom row; move up to the cursor row.
+	inputCells := e.promptW + style.Width(displayLine(string(e.buf)))
+	cursorCells := e.promptW + style.Width(displayLine(string(e.buf[:e.cursor])))
+	totalRows := physicalRows(inputCells, cols) + len(rows)
+	cursorRow := cursorCells / cols
+	cursorCol := cursorCells % cols
+	if up := (totalRows - 1) - cursorRow; up > 0 {
+		fmt.Fprintf(&b, "\x1b[%dA", up)
 	}
 	b.WriteString("\r")
-	if col := e.promptW + style.Width(displayLine(string(e.buf[:e.cursor]))); col > 0 {
-		fmt.Fprintf(&b, "\x1b[%dC", col) // park the cursor at the edit column
+	if cursorCol > 0 {
+		fmt.Fprintf(&b, "\x1b[%dC", cursorCol)
 	}
 
 	io.WriteString(e.out, b.String())
 	e.rendered = len(rows)
+	e.prevCursorRow = cursorRow
+}
+
+// physicalRows returns how many terminal rows `cells` display columns occupy at
+// width `cols` (always at least 1).
+func physicalRows(cells, cols int) int {
+	if cols < 1 {
+		cols = 1
+	}
+	if cells <= 0 {
+		return 1
+	}
+	return (cells + cols - 1) / cols
 }
 
 // displayLine renders a (possibly multi-line, from a paste) buffer on a single

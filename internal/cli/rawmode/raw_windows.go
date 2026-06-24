@@ -15,10 +15,21 @@ import (
 // makes the console deliver arrow/edit keys as the same ESC-[ sequences as Unix,
 // so the shared keydec decoder needs no OS-specific path.
 var (
-	modkernel32        = syscall.NewLazyDLL("kernel32.dll")
-	procGetConsoleMode = modkernel32.NewProc("GetConsoleMode")
-	procSetConsoleMode = modkernel32.NewProc("SetConsoleMode")
+	modkernel32                    = syscall.NewLazyDLL("kernel32.dll")
+	procGetConsoleMode             = modkernel32.NewProc("GetConsoleMode")
+	procSetConsoleMode             = modkernel32.NewProc("SetConsoleMode")
+	procGetConsoleScreenBufferInfo = modkernel32.NewProc("GetConsoleScreenBufferInfo")
 )
+
+type coord struct{ x, y int16 }
+type smallRect struct{ left, top, right, bottom int16 }
+type consoleScreenBufferInfo struct {
+	size              coord
+	cursorPosition    coord
+	attributes        uint16
+	window            smallRect
+	maximumWindowSize coord
+}
 
 const (
 	enableProcessedInput            = 0x0001
@@ -84,4 +95,23 @@ func disableRaw(ts *termState) error {
 func isTerminal(f *os.File) bool {
 	_, ok := getConsoleMode(syscall.Handle(f.Fd()))
 	return ok
+}
+
+// termSize reads the visible console window size (srWindow, not the larger
+// buffer). Defaults to 80x24 on failure.
+func termSize(f *os.File) (int, int) {
+	var info consoleScreenBufferInfo
+	r, _, _ := procGetConsoleScreenBufferInfo.Call(uintptr(syscall.Handle(f.Fd())), uintptr(unsafe.Pointer(&info)))
+	if r == 0 {
+		return 80, 24
+	}
+	cols := int(info.window.right-info.window.left) + 1
+	rows := int(info.window.bottom-info.window.top) + 1
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
+	return cols, rows
 }
