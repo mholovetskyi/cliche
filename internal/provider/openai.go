@@ -261,7 +261,7 @@ func parseOpenAIResponse(raw []byte) (Response, error) {
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
 			Args:      args,
-			Raw:       json.RawMessage(tc.Function.Arguments),
+			Raw:       validRawInput([]byte(tc.Function.Arguments)),
 			Signature: signature(tc.Function.Name, args),
 		})
 	}
@@ -469,14 +469,12 @@ func parseOpenAIStream(ctx context.Context, r io.Reader, onDelta func(string)) (
 	var toolCalls []ToolCall
 	for _, idx := range order {
 		acc := calls[idx]
-		raw := acc.buf.String()
-		if raw == "" {
-			raw = "{}"
-		}
-		args := decodeInput(json.RawMessage(raw))
+		// Normalize empty OR invalid (truncated) input to "{}".
+		raw := validRawInput([]byte(acc.buf.String()))
+		args := decodeInput(raw)
 		toolCalls = append(toolCalls, ToolCall{
 			ID: acc.id, Name: acc.name, Args: args,
-			Raw:       json.RawMessage(raw),
+			Raw:       raw,
 			Signature: signature(acc.name, args),
 		})
 	}

@@ -243,7 +243,7 @@ func parseResponse(raw []byte) (Response, error) {
 				ID:        c.ID,
 				Name:      c.Name,
 				Args:      args,
-				Raw:       append(json.RawMessage(nil), c.Input...),
+				Raw:       validRawInput(c.Input),
 				Signature: signature(c.Name, args),
 			})
 		}
@@ -263,10 +263,14 @@ func parseResponse(raw []byte) (Response, error) {
 }
 
 // toolInputJSON returns the tool_use input to send back: the model's original
-// JSON if preserved, else the string args (defaulting to an empty object, which
-// the API requires for a no-arg call).
+// JSON if preserved AND valid, else the string args (defaulting to an empty
+// object, which the API requires for a no-arg call). The json.Valid check is
+// load-bearing: a tool call truncated mid-stream (e.g. a huge write_file that
+// hit max_tokens) leaves Raw as invalid JSON, and shipping that back crashes
+// the request marshal ("unexpected end of JSON input"). Normalizing here keeps
+// the loop alive so the model can simply retry the call.
 func toolInputJSON(tc ToolCall) json.RawMessage {
-	if len(tc.Raw) > 0 {
+	if len(tc.Raw) > 0 && json.Valid(tc.Raw) {
 		return tc.Raw
 	}
 	if len(tc.Args) == 0 {
@@ -274,6 +278,16 @@ func toolInputJSON(tc ToolCall) json.RawMessage {
 	}
 	if b, err := json.Marshal(tc.Args); err == nil {
 		return b
+	}
+	return json.RawMessage("{}")
+}
+
+// validRawInput returns a defensive copy of a tool-call's raw input, normalized
+// to "{}" when it is empty or not valid JSON — so a malformed/truncated call is
+// never stored (and later re-marshaled or persisted) as broken JSON.
+func validRawInput(b []byte) json.RawMessage {
+	if len(b) > 0 && json.Valid(b) {
+		return append(json.RawMessage(nil), b...)
 	}
 	return json.RawMessage("{}")
 }
@@ -561,14 +575,12 @@ func parseAnthropicStream(ctx context.Context, r io.Reader, onDelta func(string)
 	var calls []ToolCall
 	for _, idx := range order {
 		t := tools[idx]
-		raw := json.RawMessage(t.buf.String())
-		if len(raw) == 0 {
-			raw = json.RawMessage("{}")
-		}
+		// Normalize empty OR invalid (e.g. truncated by max_tokens) input to "{}".
+		raw := validRawInput([]byte(t.buf.String()))
 		args := decodeInput(raw)
 		calls = append(calls, ToolCall{
 			ID: t.id, Name: t.name, Args: args,
-			Raw:       append(json.RawMessage(nil), raw...),
+			Raw:       raw,
 			Signature: signature(t.name, args),
 		})
 	}

@@ -98,6 +98,12 @@ func firstProviderWithKey(cfg config.Config) string {
 	return ""
 }
 
+// maxOutputTokens caps a single completion. 8192 (up from a prior 4096) gives a
+// coding agent room to write a sizable file in one tool call without the
+// response — and thus the tool-call JSON — being truncated mid-stream. Supported
+// by all current mainstream models.
+const maxOutputTokens = 8192
+
 // backend is a fully-resolved model target.
 type backend struct {
 	name, model, baseURL string
@@ -166,9 +172,9 @@ func resolveBackend(cfg config.Config, f *runFlags) (backend, error) {
 // provider is OpenAI-compatible at its base URL.
 func buildProvider(b backend, key string) (provider.Provider, error) {
 	if b.native {
-		return provider.NewAnthropic(key, b.model, 4096), nil
+		return provider.NewAnthropic(key, b.model, maxOutputTokens), nil
 	}
-	oc := provider.NewOpenAICompat(key, b.model, b.baseURL, 4096)
+	oc := provider.NewOpenAICompat(key, b.model, b.baseURL, maxOutputTokens)
 	oc.SetHeaders(b.headers) // gateway/proxy auth headers, if any
 	return oc, nil
 }
