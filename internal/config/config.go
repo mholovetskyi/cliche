@@ -76,9 +76,10 @@ type Egress struct {
 // (Ollama, LM Studio, vLLM). The key is read from <NAME>_API_KEY in the
 // environment, or saved with `cliche auth <name>`.
 type ProviderDef struct {
-	Name         string `json:"name"`
-	BaseURL      string `json:"base_url"`      // OpenAI-compatible chat-completions endpoint
-	DefaultModel string `json:"default_model"` // used when --model is not given
+	Name         string            `json:"name"`
+	BaseURL      string            `json:"base_url"`          // OpenAI-compatible chat-completions endpoint
+	DefaultModel string            `json:"default_model"`     // used when --model is not given
+	Headers      map[string]string `json:"headers,omitempty"` // extra request headers (gateway auth, e.g. Bedrock/Vertex/LiteLLM proxies)
 }
 
 // MCPServer configures one Model Context Protocol server. A server is reached

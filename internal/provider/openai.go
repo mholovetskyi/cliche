@@ -27,6 +27,29 @@ type OpenAICompat struct {
 	maxTok       int
 	maxRetries   int
 	retryBase    time.Duration
+	headers      map[string]string // extra request headers (gateway auth, etc.)
+}
+
+// SetHeaders adds extra request headers, applied last so they can override the
+// defaults (e.g. a Bedrock/Vertex/LiteLLM gateway that uses a different auth
+// header). This is how Cliche reaches non-Anthropic-native backends via their
+// OpenAI-compatible gateways without a bespoke auth implementation.
+func (o *OpenAICompat) SetHeaders(h map[string]string) { o.headers = h }
+
+// setHeaders applies the standard headers plus any custom ones to a request.
+func (o *OpenAICompat) setHeaders(req *http.Request, stream bool) {
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("authorization", "Bearer "+o.apiKey)
+	if stream {
+		req.Header.Set("accept", "text/event-stream")
+	}
+	if o.referer != "" {
+		req.Header.Set("HTTP-Referer", o.referer)
+		req.Header.Set("X-Title", o.title)
+	}
+	for k, v := range o.headers { // custom headers win (can override authorization)
+		req.Header.Set(k, v)
+	}
 }
 
 // NewOpenAICompat returns a provider for the given Chat Completions endpoint.
@@ -334,13 +357,7 @@ func (o *OpenAICompat) streamOnce(ctx context.Context, body []byte, onDelta func
 	if err != nil {
 		return Response{}, false, false, 0, err
 	}
-	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("authorization", "Bearer "+o.apiKey)
-	httpReq.Header.Set("accept", "text/event-stream")
-	if o.referer != "" {
-		httpReq.Header.Set("HTTP-Referer", o.referer)
-		httpReq.Header.Set("X-Title", o.title)
-	}
+	o.setHeaders(httpReq, true)
 	resp, err := o.streamClient.Do(httpReq)
 	if err != nil {
 		return Response{}, false, true, 0, err
@@ -471,12 +488,7 @@ func (o *OpenAICompat) doOnce(ctx context.Context, body []byte) (raw []byte, sta
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("authorization", "Bearer "+o.apiKey)
-	if o.referer != "" {
-		httpReq.Header.Set("HTTP-Referer", o.referer)
-		httpReq.Header.Set("X-Title", o.title)
-	}
+	o.setHeaders(httpReq, false)
 	resp, err := o.client.Do(httpReq)
 	if err != nil {
 		return nil, 0, 0, err

@@ -101,7 +101,8 @@ func firstProviderWithKey(cfg config.Config) string {
 // backend is a fully-resolved model target.
 type backend struct {
 	name, model, baseURL string
-	native               bool // Anthropic Messages API vs OpenAI-compatible
+	native               bool              // Anthropic Messages API vs OpenAI-compatible
+	headers              map[string]string // extra request headers (gateway auth)
 }
 
 // resolveBackend picks the provider, model, and endpoint. Cliche is
@@ -157,7 +158,7 @@ func resolveBackend(cfg config.Config, f *runFlags) (backend, error) {
 	if model == "" {
 		return backend{}, fmt.Errorf("no model for provider %q — pass --model or set default_model in config", name)
 	}
-	return backend{name: name, model: model, baseURL: baseURL, native: info.native}, nil
+	return backend{name: name, model: model, baseURL: baseURL, native: info.native, headers: info.headers}, nil
 }
 
 // buildProvider constructs the resolved backend with its key (from env or the
@@ -167,7 +168,9 @@ func buildProvider(b backend, key string) (provider.Provider, error) {
 	if b.native {
 		return provider.NewAnthropic(key, b.model, 4096), nil
 	}
-	return provider.NewOpenAICompat(key, b.model, b.baseURL, 4096), nil
+	oc := provider.NewOpenAICompat(key, b.model, b.baseURL, 4096)
+	oc.SetHeaders(b.headers) // gateway/proxy auth headers, if any
+	return oc, nil
 }
 
 // buildAgent wires the provider through the Trust Kernel. staticMode bakes the

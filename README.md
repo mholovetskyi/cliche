@@ -39,6 +39,17 @@ None of these are model problems. They're harness problems. **Cliche is the harn
 ## Install
 
 ```sh
+# Homebrew (macOS / Linux)
+brew install mholovetskyi/tap/cliche
+
+# Scoop (Windows)
+scoop bucket add mholovetskyi https://github.com/mholovetskyi/scoop-bucket
+scoop install cliche
+
+# winget (Windows)
+winget install mholovetskyi.cliche
+
+# Go
 go install github.com/mholovetskyi/cliche/cmd/cliche@latest
 ```
 

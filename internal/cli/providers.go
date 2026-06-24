@@ -18,8 +18,9 @@ type providerInfo struct {
 	label        string
 	baseURL      string // OpenAI-compatible chat-completions endpoint (empty for the native Anthropic API)
 	defaultModel string
-	keysURL      string // where to get a key (shown in the login wizard)
-	native       bool   // true = Anthropic Messages API; false = OpenAI-compatible
+	keysURL      string            // where to get a key (shown in the login wizard)
+	native       bool              // true = Anthropic Messages API; false = OpenAI-compatible
+	headers      map[string]string // extra request headers (config-defined gateway providers)
 }
 
 // builtinProviders are the presets shown in `cliche login` and selectable by
@@ -61,6 +62,9 @@ func lookupProvider(cfg config.Config, name string) (providerInfo, bool) {
 		}
 		if p.DefaultModel != "" {
 			info.defaultModel = p.DefaultModel
+		}
+		if len(p.Headers) > 0 {
+			info.headers = p.Headers
 		}
 		ok = true
 	}

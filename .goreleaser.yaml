@@ -55,6 +55,70 @@ signs:
     artifacts: checksum
     output: true
 
+# ---- one-line installers ----
+# These generate Homebrew / Scoop / winget / deb+rpm manifests as release
+# artifacts. Auto-publishing is OFF by default (skip_upload) so a release never
+# fails before the tap/bucket repos exist. To enable: create the referenced repos
+# (mholovetskyi/homebrew-tap, mholovetskyi/scoop-bucket) + a fork of
+# microsoft/winget-pkgs, give the release a token with access, then set the
+# matching skip_upload to "false".
+
+homebrew_casks:
+  - name: cliche
+    repository:
+      owner: mholovetskyi
+      name: homebrew-tap
+    homepage: "https://github.com/mholovetskyi/cliche"
+    description: "The AI coding agent you can actually leave running — a trust-first CLI."
+    skip_upload: "true"
+    # Remove the Gatekeeper quarantine flag so an unsigned binary runs (standard
+    # cask workaround). The checksums + cosign signature are the real provenance.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/cliche"], must_succeed: false
+          end
+
+scoops:
+  - name: cliche
+    repository:
+      owner: mholovetskyi
+      name: scoop-bucket
+    homepage: "https://github.com/mholovetskyi/cliche"
+    description: "The AI coding agent you can actually leave running."
+    license: "Apache-2.0"
+    skip_upload: "true"
+
+winget:
+  - name: cliche
+    publisher: mholovetskyi
+    license: "Apache-2.0"
+    homepage: "https://github.com/mholovetskyi/cliche"
+    short_description: "The AI coding agent you can actually leave running."
+    skip_upload: "true"
+    repository:
+      owner: mholovetskyi
+      name: winget-pkgs
+      branch: "cliche-{{ .Version }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
+nfpms:
+  - id: cliche
+    package_name: cliche
+    homepage: "https://github.com/mholovetskyi/cliche"
+    description: "The AI coding agent you can actually leave running."
+    license: "Apache-2.0"
+    maintainer: "Mykola Holovetskyi"
+    formats:
+      - deb
+      - rpm
+
 changelog:
   sort: asc
   filters:
