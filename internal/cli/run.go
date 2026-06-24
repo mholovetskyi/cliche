@@ -277,7 +277,12 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		a.SetMCP(mcpSrc)
 	}
 	touchProject(f.dir) // record this project in the cross-project registry
-	return a, journal, cfg, cleanup, nil
+	// Seal the audit ledger when the run/session finishes (signs the chain head).
+	sealedCleanup := func() {
+		sealLedgerDir(f.dir)
+		cleanup()
+	}
+	return a, journal, cfg, sealedCleanup, nil
 }
 
 // cmdRun is the human-facing run command.

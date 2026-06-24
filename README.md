@@ -205,7 +205,7 @@ Beyond approvals, Cliche can enforce policy the model can't reach:
 - **Allow/deny rules** — `Tool(pattern)` policy-as-code; **deny wins** over allow and over `--yolo`.
 - **Hooks** — a `pre_tool_use` command can block any tool call (non-zero exit fails **closed**); a `stop` hook observes completion. Policy you write, enforced by a program.
 - **MCP** — stdio and HTTP Model Context Protocol servers; their tools are permission-gated and governed by the same caps, governor, and ledger as built-ins.
-- **Tamper-evident ledger** — every audit entry is SHA-256 hash-chained to the one before it; `cliche audit` re-verifies the whole chain and flags any **altered, deleted, reordered, or inserted** record (exit 5). The audit trail itself is now verifiable, not just append-only.
+- **Tamper-evident, signed ledger** — every audit entry is SHA-256 hash-chained to the one before it, and the chain head is **ed25519-signed** with a per-user key (stored 0600 in your config dir, never in the project). `cliche audit` re-verifies the chain (flagging any **altered, deleted, reordered, or inserted** record) *and* the signature — so an attacker who can edit a project's ledger but can't read your key can be detected (exit 5), not just suspected. The audit trail is verifiable, not just append-only.
 
 ---
 

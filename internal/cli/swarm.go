@@ -302,6 +302,7 @@ func cmdSwarm(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "swarm: "+err.Error())
 		return 1
 	}
+	defer sealLedgerDir(f.dir) // seal the ledger head when the swarm finishes
 
 	start := time.Now()
 	sw := &swarm{run: run, out: out, maxSub: 5}

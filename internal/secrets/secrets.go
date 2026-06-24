@@ -10,6 +10,9 @@
 package secrets
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -44,6 +47,36 @@ func baseDir() (string, error) {
 // ConfigHome is the user-global Cliche directory (where credentials and the
 // cross-project registry live). Shared so other packages don't re-derive it.
 func ConfigHome() (string, error) { return baseDir() }
+
+// SigningKey loads the user's ed25519 signing key, generating and persisting one
+// (0600, in the user config dir — never in a project) on first use. It seals the
+// audit ledger: because the private key lives only here, an attacker who can
+// edit a project's ledger files alone cannot forge a valid seal.
+func SigningKey() (ed25519.PrivateKey, error) {
+	d, err := baseDir()
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(d, "signing.key")
+	if data, err := os.ReadFile(path); err == nil {
+		if raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data))); err == nil && len(raw) == ed25519.PrivateKeySize {
+			return ed25519.PrivateKey(raw), nil
+		}
+		// corrupt key → fall through and regenerate
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		return nil, err
+	}
+	enc := base64.StdEncoding.EncodeToString(priv)
+	if err := os.WriteFile(path, []byte(enc+"\n"), 0o600); err != nil {
+		return nil, err
+	}
+	return priv, nil
+}
 
 // CredentialsPath is the absolute path to the credentials file ("" if the user
 // config directory cannot be determined).

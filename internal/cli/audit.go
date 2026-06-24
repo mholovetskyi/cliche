@@ -29,7 +29,8 @@ func cmdAudit(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	renderAudit(out, rep, led.Path())
-	if !rep.OK {
+	sealOK := renderSeal(out, *dir, led.Head())
+	if !rep.OK || !sealOK {
 		return 5
 	}
 	return 0

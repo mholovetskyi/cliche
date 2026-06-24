@@ -96,6 +96,13 @@ func (l *Ledger) lastHash() string {
 // Path returns the ledger file path.
 func (l *Ledger) Path() string { return l.path }
 
+// Head returns the current chain-head hash (empty for an empty/legacy ledger).
+func (l *Ledger) Head() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.tip
+}
+
 // Append writes one entry. Safe for concurrent use.
 func (l *Ledger) Append(e Entry) error {
 	l.mu.Lock()
