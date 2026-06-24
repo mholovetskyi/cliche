@@ -19,6 +19,7 @@ type approver struct {
 	mu          sync.Mutex
 	r           *bufio.Reader
 	out         io.Writer
+	onPrompt    func() // called right before an interactive prompt is shown
 	alwaysWrite bool
 	alwaysRun   bool
 	alwaysWeb   bool
@@ -74,6 +75,12 @@ func (a *approver) Approve(action, detail string) bool {
 		if a.alwaysWeb {
 			return true
 		}
+	}
+	// We're about to block on input. Pause any live spinner first — otherwise its
+	// ticking frames ("writing foo… 2971s") overwrite the prompt, so the user
+	// can't see that a y/N is required and the session appears hung.
+	if a.onPrompt != nil {
+		a.onPrompt()
 	}
 	// detail's first line names the action target; any following lines are a
 	// change preview (a diff, already colored at generation). Frame it as a

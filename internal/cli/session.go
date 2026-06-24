@@ -98,6 +98,7 @@ func cmdChat(args []string, out, errOut io.Writer) int {
 	s.customCmds = loadCommands(f.dir) // user prompt shortcuts
 	s.skills = skillMap(f.dir)         // explicit /skill <name> targets
 	a.SetObserver(s.onEvent)
+	app.onPrompt = s.stopSpin // clear the spinner before an approval prompt so it isn't masked
 
 	// Resume a saved session if requested (--continue = most recent, --resume <id>).
 	if id := f.resume; id != "" || f.cont {
