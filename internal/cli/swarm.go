@@ -275,6 +275,7 @@ func buildSwarmRunner(f *runFlags, approve tools.Approver) (swarmRunner, config.
 		a := agent.New(prov, bud, govLimits, led, exec, acfg)
 		return a.Run(ctx, prompt)
 	}
+	touchProject(f.dir) // record this project in the cross-project registry
 	return run, cfg, nil
 }
 

@@ -95,6 +95,10 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdSwarm(rest, stdout, stderr)
 	case "audit":
 		return cmdAudit(rest, stdout, stderr)
+	case "projects":
+		return cmdProjects(rest, stdout, stderr)
+	case "new":
+		return cmdNew(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cliche: unknown command %q\n\n", cmd)
 		usage(stderr)
@@ -115,6 +119,10 @@ USAGE:
 COMMANDS:
   init               Scaffold .cliche/config.json and an AGENTS.md template
                      (never overwrites existing files).
+  new "<name>"       Scaffold a new project folder (init + register it), under
+                     --dir, else the workspace, else the current directory.
+  projects           List projects you've used Cliche in (add | rm | workspace).
+                     Cliche works in ANY folder — cd in, or pass --dir <path>.
   login              Interactive setup: pick a provider, paste your key (hidden),
                      Cliche verifies it works and saves it. Run once.
   auth               Save a provider API key non-interactively (scripts/CI; no

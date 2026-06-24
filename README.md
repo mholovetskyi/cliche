@@ -100,6 +100,18 @@ cliche run --max-usd 0.50 --mode auto-edit --branch --verify "fix the failing te
 cliche swarm --max-usd 1.00 --mode auto-edit "add table-driven tests to every package in ./internal"
 ```
 
+**Works on any project — auth once, run anywhere:**
+
+```sh
+cliche login                      # key saved globally (once, in your user config dir)
+cd ~/work/some-existing-repo && cliche chat      # operates on THIS repo
+cliche chat --dir ~/work/other-repo              # …or target one from anywhere
+cliche new my-app                 # scaffold + register a fresh project
+cliche projects                   # every project you've used Cliche in, most-recent first
+```
+
+Each project keeps its own `.cliche/` (config, ledger, sessions) — like `.git`, so its audit trail and budget history stay local. Credentials are the only thing that's global.
+
 **Headless in CI** (JSON out, clean exit codes):
 
 ```sh

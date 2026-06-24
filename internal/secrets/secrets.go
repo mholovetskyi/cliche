@@ -41,6 +41,10 @@ func baseDir() (string, error) {
 	return filepath.Join(ucd, "cliche"), nil
 }
 
+// ConfigHome is the user-global Cliche directory (where credentials and the
+// cross-project registry live). Shared so other packages don't re-derive it.
+func ConfigHome() (string, error) { return baseDir() }
+
 // CredentialsPath is the absolute path to the credentials file ("" if the user
 // config directory cannot be determined).
 func CredentialsPath() string {

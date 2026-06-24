@@ -274,6 +274,7 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	if mcpSrc != nil {
 		a.SetMCP(mcpSrc)
 	}
+	touchProject(f.dir) // record this project in the cross-project registry
 	return a, journal, cfg, cleanup, nil
 }
 
