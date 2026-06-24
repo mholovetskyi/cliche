@@ -44,14 +44,14 @@ func TestSwarmPipeline(t *testing.T) {
 		switch {
 		case strings.Contains(system, "PLANNER"):
 			roles["planner"]++
-			return agent.Outcome{Stop: agent.StopCompleted, Reason: `["task A", "task B"]`}, nil
+			return agent.Outcome{Stop: agent.StopCompleted, Reason: `["task A", "task B"]`, Turns: 2}, nil
 		case strings.Contains(system, "EXECUTOR"):
 			roles["executor"]++
 			execPrompts = append(execPrompts, prompt)
-			return agent.Outcome{Stop: agent.StopCompleted, Reason: "did " + prompt}, nil
+			return agent.Outcome{Stop: agent.StopCompleted, Reason: "did " + prompt, Turns: 3}, nil
 		default: // SYNTHESIZER
 			roles["synth"]++
-			return agent.Outcome{Stop: agent.StopCompleted, Reason: "FINAL: " + prompt}, nil
+			return agent.Outcome{Stop: agent.StopCompleted, Reason: "FINAL: " + prompt, Turns: 1}, nil
 		}
 	}
 
@@ -71,6 +71,10 @@ func TestSwarmPipeline(t *testing.T) {
 	}
 	if outcome.Stop != agent.StopCompleted {
 		t.Fatalf("outcome.Stop = %q", outcome.Stop)
+	}
+	// The summary must reflect the whole swarm: planner(2) + 2×executor(3) + synth(1).
+	if outcome.Turns != 2+3+3+1 {
+		t.Fatalf("outcome.Turns = %d, want 9 (aggregated across the swarm)", outcome.Turns)
 	}
 
 	mu.Lock()

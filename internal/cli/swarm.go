@@ -29,7 +29,7 @@ import (
 // just a single agent.
 
 const (
-	plannerSystem = "You are the PLANNER in a multi-agent swarm. Break the user's task into a small set (2–5) of INDEPENDENT subtasks that can run in parallel without depending on one another's output. Reply with ONLY a JSON array of short, imperative subtask strings — no prose, no markdown fences. Do not do the work yourself."
+	plannerSystem = "You are the PLANNER in a multi-agent swarm. Break the user's task into a small set (2–5) of subtasks that are each SELF-CONTAINED and run in PARALLEL — they must NOT depend on one another's output. Do NOT produce sequential steps (e.g. 'first list the files, then read them, then analyze' is WRONG — those are dependent stages, not parallel subtasks). Prefer splitting by independent unit of work (a file, a component, a question). If the task genuinely cannot be split, return a single subtask. Reply with ONLY a JSON array of short, imperative subtask strings — no prose, no markdown fences. Do not do the work yourself."
 
 	executorSystem = "You are one EXECUTOR in a swarm working a larger task. Do EXACTLY the single subtask you are given — use the tools to read, edit, and run code as needed — then report what you did and what you found, concisely. Stay strictly within your subtask; do not attempt the others."
 
@@ -51,6 +51,7 @@ type subtaskResult struct {
 	subtask string
 	output  string
 	stop    string
+	turns   int
 	err     error
 }
 
@@ -82,7 +83,7 @@ func (s *swarm) execute(ctx context.Context, task string) (string, agent.Outcome
 		go func(i int, st string) {
 			defer wg.Done()
 			o, err := s.run(ctx, executorSystem, st)
-			results[i] = subtaskResult{subtask: st, output: o.Reason, stop: o.Stop, err: err}
+			results[i] = subtaskResult{subtask: st, output: o.Reason, stop: o.Stop, turns: o.Turns, err: err}
 		}(i, st)
 	}
 	wg.Wait()
@@ -100,6 +101,17 @@ func (s *swarm) execute(ctx context.Context, task string) (string, agent.Outcome
 	if err != nil {
 		return "", synthOut, err
 	}
+
+	// Honest accounting: the cost summary should reflect the WHOLE swarm, not
+	// just the synthesizer. Usage is already cumulative (every agent shares one
+	// budget kernel), but turns are per-agent — sum them so "N turns" is true.
+	total := planOut.Turns + synthOut.Turns
+	for _, r := range results {
+		total += r.turns
+	}
+	synthOut.Turns = total
+	fmt.Fprintf(s.out, "  %s %s\n", style.Gray("◇"),
+		style.Gray(fmt.Sprintf("%d agents · 1 planner + %d executors + 1 synthesizer", len(subtasks)+2, len(subtasks))))
 	return synthOut.Reason, synthOut, nil
 }
 
