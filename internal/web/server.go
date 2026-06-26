@@ -52,6 +52,48 @@ type Server struct {
 	previewDir string // project root, served read-only at /preview/ for the live preview iframe
 	audit      func() AuditView
 	setup      func(provider, key string) error // first-run: connect a provider (no terminal needed)
+
+	sessions    func() []SessionMeta
+	sessionNew  func() string
+	sessionPick func(id string) []Msg
+	sessionCur  func() (string, []Msg)
+	files       func() []FileNode
+	fileRead    func(rel string) (string, bool)
+}
+
+// SessionMeta is a saved chat shown in the sidebar.
+type SessionMeta struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Model    string `json:"model"`
+	Updated  string `json:"updated"`
+	Messages int    `json:"messages"`
+	Active   bool   `json:"active"`
+}
+
+// Msg is one transcript message rendered in the conversation feed.
+type Msg struct {
+	Role string `json:"role"` // user | assistant | tool
+	Text string `json:"text"`
+}
+
+// FileNode is one entry in the project file tree (the workspace).
+type FileNode struct {
+	Name     string     `json:"name"`
+	Path     string     `json:"path"` // forward-slashed, relative to the project root
+	Dir      bool       `json:"dir"`
+	Children []FileNode `json:"children,omitempty"`
+}
+
+// SetSessions wires multi-chat history: list saved sessions, start a new one
+// (returns its id), switch to one (returns its transcript), read the current.
+func (s *Server) SetSessions(list func() []SessionMeta, neww func() string, pick func(string) []Msg, cur func() (string, []Msg)) {
+	s.sessions, s.sessionNew, s.sessionPick, s.sessionCur = list, neww, pick, cur
+}
+
+// SetFiles wires the workspace file tree + read-only file viewer.
+func (s *Server) SetFiles(tree func() []FileNode, read func(string) (string, bool)) {
+	s.files, s.fileRead = tree, read
 }
 
 // Template is a one-click starting point for a non-technical user — a friendly
@@ -192,6 +234,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/audit", s.handleAudit)
 	mux.HandleFunc("/api/export", s.handleExport)
 	mux.HandleFunc("/api/setup", s.handleSetup)
+	mux.HandleFunc("/api/sessions", s.handleSessions)
+	mux.HandleFunc("/api/sessions/new", s.handleSessionNew)
+	mux.HandleFunc("/api/sessions/select", s.handleSessionSelect)
+	mux.HandleFunc("/api/session", s.handleSession)
+	mux.HandleFunc("/api/files", s.handleFiles)
+	mux.HandleFunc("/api/file", s.handleFile)
 	// The live preview serves the project files (what the agent is building) so
 	// an iframe can show the result. Localhost-only, the user's own files;
 	// http.Dir blocks path traversal outside the root.
@@ -202,6 +250,90 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("/", http.FileServer(http.FS(s.static)))
 	}
 	return mux
+}
+
+func (s *Server) handleSessions(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	list := []SessionMeta{}
+	if s.sessions != nil {
+		if got := s.sessions(); got != nil {
+			list = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(list)
+}
+
+func (s *Server) handleSessionNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := ""
+	if s.sessionNew != nil {
+		id = s.sessionNew()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "messages": []Msg{}})
+}
+
+func (s *Server) handleSessionSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || body.ID == "" {
+		http.Error(w, "expected {\"id\":\"…\"}", http.StatusBadRequest)
+		return
+	}
+	msgs := []Msg{}
+	if s.sessionPick != nil {
+		if got := s.sessionPick(body.ID); got != nil {
+			msgs = got
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": body.ID, "messages": msgs})
+}
+
+func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
+	id, msgs := "", []Msg{}
+	if s.sessionCur != nil {
+		i, m := s.sessionCur()
+		id = i
+		if m != nil {
+			msgs = m
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "messages": msgs})
+}
+
+func (s *Server) handleFiles(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	tree := []FileNode{}
+	if s.files != nil {
+		if got := s.files(); got != nil {
+			tree = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(tree)
+}
+
+func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	if s.fileRead == nil {
+		http.Error(w, "no files", http.StatusNotFound)
+		return
+	}
+	txt, ok := s.fileRead(r.URL.Query().Get("path"))
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, txt)
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, _ *http.Request) {
@@ -216,6 +348,27 @@ func (s *Server) handleAudit(w http.ResponseWriter, _ *http.Request) {
 // exportSkip are project subdirs left out of the download — internal state and
 // dependency/build noise, never the user's actual work.
 var exportSkip = map[string]bool{".cliche": true, ".git": true, "node_modules": true, "dist": true}
+
+// IsSensitiveFile reports whether a filename looks like a secret that must never
+// be shown in the file viewer or bundled into an export — API keys, env files,
+// credentials, private keys. The workspace is the user's own machine, but a
+// secret should not be one click from being displayed or shared.
+func IsSensitiveFile(name string) bool {
+	n := strings.ToLower(name)
+	switch n {
+	case "api.txt", ".env", ".npmrc", ".netrc", "credentials", "secrets.json", "id_rsa", "id_ed25519", ".pgpass":
+		return true
+	}
+	if strings.HasPrefix(n, ".env") {
+		return true
+	}
+	for _, ext := range []string{".pem", ".key", ".p12", ".pfx"} {
+		if strings.HasSuffix(n, ext) {
+			return true
+		}
+	}
+	return false
+}
 
 // handleExport streams the project as a .zip so the user can take what Cliche
 // built and run/keep it anywhere. Confined to the project root.
@@ -247,6 +400,9 @@ func (s *Server) handleExport(w http.ResponseWriter, _ *http.Request) {
 		}
 		if d.IsDir() {
 			return nil
+		}
+		if IsSensitiveFile(filepath.Base(rel)) {
+			return nil // never bundle a secret into the downloadable project
 		}
 		fw, err := zw.Create(rel)
 		if err != nil {

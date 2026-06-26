@@ -10,11 +10,13 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/secrets"
+	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/web"
 )
 
@@ -52,12 +54,31 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	// screen connects a provider via /api/setup — a non-technical user never opens
 	// a terminal.
 	var (
-		amu      sync.Mutex
-		a        *agent.Agent
-		acfg     config.Config
-		acleanup = func() {}
+		amu        sync.Mutex
+		a          *agent.Agent
+		acfg       config.Config
+		acleanup   = func() {}
+		curID      string    // current session id (persisted to .cliche/sessions)
+		curTitle   string    // session title (first prompt)
+		curCreated time.Time // session start
+		running    bool      // a run is in flight → session switches are refused
 	)
 	defer func() { acleanup() }()
+
+	// persist saves the live session to disk. Caller holds amu.
+	persist := func() {
+		if a == nil || curID == "" {
+			return
+		}
+		title := curTitle
+		if title == "" {
+			title = deriveTitle(a.Transcript())
+		}
+		_ = sess.Save(f.dir, sess.Record{
+			ID: curID, Title: title, Provider: acfg.Provider, Model: a.Model(),
+			Created: curCreated, Updated: time.Now(), Usage: a.Usage(), Messages: a.Transcript(),
+		})
+	}
 
 	curState := func() web.State {
 		amu.Lock()
@@ -77,8 +98,25 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		}
 		amu.Lock()
 		a, acfg, acleanup = na, ncfg, cl
+		// Resume the most recent chat (cap-honest: Restore seeds the budget from
+		// the saved session), or start a fresh one.
+		if id := sess.Latest(f.dir); id != "" {
+			if rec, lerr := sess.Load(f.dir, id); lerr == nil {
+				na.Restore(rec.Messages, rec.Usage)
+				curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
+			}
+		}
+		if curID == "" {
+			curID, curCreated = sess.NewID(time.Now()), time.Now()
+		}
 		amu.Unlock()
 		srv.SetRunner(func(ctx context.Context, prompt string, emit func(web.Event)) error {
+			amu.Lock()
+			running = true
+			if curTitle == "" {
+				curTitle = titleFrom(prompt)
+			}
+			amu.Unlock()
 			na.SetObserver(func(e agent.Event) {
 				switch e.Kind {
 				case "delta", "text":
@@ -101,6 +139,10 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 				}
 			})
 			_, runErr := na.Run(ctx, prompt)
+			amu.Lock()
+			running = false
+			persist()
+			amu.Unlock()
 			return runErr
 		})
 		return nil
@@ -124,6 +166,65 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		})
 		fmt.Fprintln(out, "  (no provider connected yet — finish setup in the browser)")
 	}
+
+	// Multi-chat history: list / new / switch / current, all guarded by amu and
+	// refused mid-run. Switching uses RestoreTranscript so the process-wide spend
+	// cap can never be lowered by loading a cheaper session.
+	srv.SetSessions(
+		func() []web.SessionMeta {
+			amu.Lock()
+			cur := curID
+			amu.Unlock()
+			metas, _ := sess.List(f.dir)
+			out := make([]web.SessionMeta, 0, len(metas))
+			for _, m := range metas {
+				out = append(out, web.SessionMeta{ID: m.ID, Title: firstLine(m.Title), Model: m.Model,
+					Updated: m.Updated.Format(time.RFC3339), Messages: m.Messages, Active: m.ID == cur})
+			}
+			return out
+		},
+		func() string {
+			amu.Lock()
+			defer amu.Unlock()
+			if a == nil || running {
+				return curID
+			}
+			persist() // save the chat we're leaving
+			a.Reset()
+			curID, curTitle, curCreated = sess.NewID(time.Now()), "", time.Now()
+			return curID
+		},
+		func(id string) []web.Msg {
+			amu.Lock()
+			defer amu.Unlock()
+			if a == nil || running || id == curID {
+				if a != nil {
+					return toMsgs(a.Transcript())
+				}
+				return nil
+			}
+			persist()
+			rec, lerr := sess.Load(f.dir, id)
+			if lerr != nil {
+				return toMsgs(a.Transcript())
+			}
+			a.RestoreTranscript(rec.Messages)
+			curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
+			return toMsgs(rec.Messages)
+		},
+		func() (string, []web.Msg) {
+			amu.Lock()
+			defer amu.Unlock()
+			if a == nil {
+				return curID, nil
+			}
+			return curID, toMsgs(a.Transcript())
+		},
+	)
+	srv.SetFiles(
+		func() []web.FileNode { return fileTree(previewDir) },
+		func(rel string) (string, bool) { return readProjectFile(previewDir, rel) },
+	)
 
 	ln, err := listenLocal()
 	if err != nil {

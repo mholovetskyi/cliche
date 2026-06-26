@@ -287,6 +287,97 @@ func TestSetupRejectsEmptyProvider(t *testing.T) {
 	}
 }
 
+func TestSessionEndpoints(t *testing.T) {
+	srv := NewServer(nil, nil, nil)
+	srv.SetSessions(
+		func() []SessionMeta {
+			return []SessionMeta{{ID: "s1", Title: "first", Active: true}, {ID: "s2", Title: "second"}}
+		},
+		func() string { return "s3" },
+		func(id string) []Msg { return []Msg{{Role: "user", Text: "hi " + id}} },
+		func() (string, []Msg) { return "s1", []Msg{{Role: "assistant", Text: "hello"}} },
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	var list []SessionMeta
+	r, _ := http.Get(ts.URL + "/api/sessions")
+	_ = json.NewDecoder(r.Body).Decode(&list)
+	r.Body.Close()
+	if len(list) != 2 || !list[0].Active {
+		t.Fatalf("sessions list wrong: %+v", list)
+	}
+
+	var nw struct {
+		ID string `json:"id"`
+	}
+	r, _ = http.Post(ts.URL+"/api/sessions/new", "application/json", nil)
+	_ = json.NewDecoder(r.Body).Decode(&nw)
+	r.Body.Close()
+	if nw.ID != "s3" {
+		t.Fatalf("new session id = %q, want s3", nw.ID)
+	}
+
+	var sel struct {
+		Messages []Msg `json:"messages"`
+	}
+	r, _ = http.Post(ts.URL+"/api/sessions/select", "application/json", strings.NewReader(`{"id":"s2"}`))
+	_ = json.NewDecoder(r.Body).Decode(&sel)
+	r.Body.Close()
+	if len(sel.Messages) != 1 || sel.Messages[0].Text != "hi s2" {
+		t.Fatalf("select wrong: %+v", sel)
+	}
+
+	var cur struct {
+		ID       string `json:"id"`
+		Messages []Msg  `json:"messages"`
+	}
+	r, _ = http.Get(ts.URL + "/api/session")
+	_ = json.NewDecoder(r.Body).Decode(&cur)
+	r.Body.Close()
+	if cur.ID != "s1" || len(cur.Messages) != 1 {
+		t.Fatalf("current session wrong: %+v", cur)
+	}
+}
+
+func TestFileEndpoints(t *testing.T) {
+	srv := NewServer(nil, nil, nil)
+	srv.SetFiles(
+		func() []FileNode {
+			return []FileNode{{Name: "src", Path: "src", Dir: true, Children: []FileNode{{Name: "a.go", Path: "src/a.go"}}}}
+		},
+		func(rel string) (string, bool) {
+			if rel == "src/a.go" {
+				return "package main", true
+			}
+			return "", false
+		},
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	var tree []FileNode
+	r, _ := http.Get(ts.URL + "/api/files")
+	_ = json.NewDecoder(r.Body).Decode(&tree)
+	r.Body.Close()
+	if len(tree) != 1 || !tree[0].Dir || len(tree[0].Children) != 1 {
+		t.Fatalf("file tree wrong: %+v", tree)
+	}
+
+	r, _ = http.Get(ts.URL + "/api/file?path=src/a.go")
+	b, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if string(b) != "package main" {
+		t.Fatalf("file content = %q", b)
+	}
+
+	r, _ = http.Get(ts.URL + "/api/file?path=nope")
+	if r.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing file should 404, got %d", r.StatusCode)
+	}
+	r.Body.Close()
+}
+
 func TestStateEndpoint(t *testing.T) {
 	srv := NewServer(nil, func() State { return State{Model: "claude", SpentUSD: 0.5, CapUSD: 5} }, nil)
 	ts := httptest.NewServer(srv.Handler())
