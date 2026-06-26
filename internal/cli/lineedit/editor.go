@@ -34,9 +34,10 @@ type Editor struct {
 	promptW       int
 	buf           []rune
 	cursor        int
-	rendered      int // dropdown rows currently drawn below the input line
-	cols          int // terminal width in cells (for wrap-aware redraw); 0 → 80
-	prevCursorRow int // cursor's physical row within the block at the last render
+	rendered      int  // dropdown rows currently drawn below the input line
+	cols          int  // terminal width in cells (for wrap-aware redraw); 0 → 80
+	prevCursorRow int  // cursor's physical row within the block at the last render
+	ghostOff      bool // suppress the inline autosuggestion (during commit's final redraw)
 
 	// Footer, if set, is a hint line drawn just below the input whenever the "/"
 	// dropdown is closed (the dropdown takes its place when open). It must include
@@ -145,6 +146,8 @@ func (e *Editor) ReadLine(prompt string, promptW int) (string, error) {
 		case keydec.KeyRight, keydec.KeyCtrlF:
 			if e.cursor < len(e.buf) {
 				e.cursor++
+			} else if g := e.ghost(); g != "" {
+				e.setBuf(string(e.buf) + g) // accept the inline autosuggestion
 			}
 		case keydec.KeyHome, keydec.KeyCtrlA:
 			e.cursor = 0
@@ -175,6 +178,16 @@ func (e *Editor) ReadLine(prompt string, promptW int) (string, error) {
 		e.menu.update(string(e.buf))
 		e.render()
 	}
+}
+
+// ghost returns the inline autosuggestion: the dim completion of the current
+// buffer from history, shown only when the cursor is at the end of a non-empty
+// buffer and the "/" dropdown is closed. Right / Ctrl-F accepts it.
+func (e *Editor) ghost() string {
+	if e.ghostOff || e.menu.open || e.cursor != len(e.buf) || len(e.buf) == 0 {
+		return ""
+	}
+	return e.history.Suggest(string(e.buf))
 }
 
 // setBuf replaces the whole buffer (history recall / completion) and parks the
@@ -236,7 +249,9 @@ func (e *Editor) commit() {
 	f := e.Footer
 	e.Footer = ""         // the committed line keeps no footer
 	e.cursor = len(e.buf) // park at the end so the trailing newline lands BELOW the whole (possibly wrapped) line
+	e.ghostOff = true     // the committed line shows only what was typed — no trailing suggestion
 	e.render()            // wipes any dropdown/footer rows, leaves the cursor at the line end
+	e.ghostOff = false
 	e.Footer = f
 	io.WriteString(e.out, "\r\n")
 }
@@ -261,9 +276,15 @@ func (e *Editor) render() {
 	}
 	b.WriteString("\r\x1b[J")
 
-	// Rewrite the input line; the terminal wraps it across cols on its own.
+	// Rewrite the input line; the terminal wraps it across cols on its own. A
+	// dim ghost (inline autosuggestion) trails the buffer — the cursor parks
+	// BEFORE it, so it reads as a preview the user accepts with Right / Ctrl-F.
+	ghost := e.ghost()
 	b.WriteString(e.prompt)
 	b.WriteString(displayLine(string(e.buf)))
+	if ghost != "" {
+		b.WriteString(style.Gray(displayLine(ghost)))
+	}
 
 	// Below the (wrapped) input: the "/" dropdown, or — when it's closed — the
 	// footer hint line, so the box always has a bottom edge while idle.
@@ -278,7 +299,9 @@ func (e *Editor) render() {
 
 	// Park the cursor at the edit position, addressed as (row, col) within the
 	// block. Writing left the cursor on the bottom row; move up to the cursor row.
-	inputCells := e.promptW + style.Width(displayLine(string(e.buf)))
+	// The ghost adds to the line's display width (so wrapping/row math is right),
+	// but the cursor parks at the buffer end, before the ghost.
+	inputCells := e.promptW + style.Width(displayLine(string(e.buf))) + style.Width(displayLine(ghost))
 	cursorCells := e.promptW + style.Width(displayLine(string(e.buf[:e.cursor])))
 	totalRows := physicalRows(inputCells, cols) + len(rows)
 	cursorRow := cursorCells / cols

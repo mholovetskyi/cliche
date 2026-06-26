@@ -1,5 +1,7 @@
 package lineedit
 
+import "strings"
+
 // History is an in-memory ↑/↓ prompt history with a scratch slot, so browsing
 // older entries preserves the in-progress line and restores it at the bottom.
 // Pure (no I/O), so every transition is unit-tested.
@@ -27,6 +29,21 @@ func (h *History) Add(line string) {
 		h.items = append(h.items, line)
 	}
 	h.idx = len(h.items)
+}
+
+// Suggest returns the suffix that completes prefix from the most recent distinct
+// history entry beginning with it — the source for inline ghost-text
+// autosuggestion — or "" when nothing extends it. Pure.
+func (h *History) Suggest(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	for i := len(h.items) - 1; i >= 0; i-- {
+		if e := h.items[i]; len(e) > len(prefix) && strings.HasPrefix(e, prefix) {
+			return e[len(prefix):]
+		}
+	}
+	return ""
 }
 
 // Prev returns the previous (older) entry. On the first step up from the live
