@@ -26,50 +26,51 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 	if f.mode == "" {
-		f.mode = modePlan // P0: read-only until the browser approval UI lands
+		f.mode = modeSuggest // ask before each write/command — answered by in-browser approval cards
 	}
 	if !validMode(f.mode) {
 		fmt.Fprintf(errOut, "serve: unknown --mode %q\n", f.mode)
 		return 2
 	}
-	denyWrites := func(kind, target string) bool { return false } // no terminal to prompt; plan mode is read-only anyway
 
-	a, _, cfg, cleanup, err := buildAgent(f, denyWrites, true)
+	// The server exists first so the agent's approver IS the server's Approve —
+	// every write/command becomes a browser "allow this?" card. The Trust Kernel
+	// (caps, governor, deny rules, egress) still enforces underneath.
+	srv := web.NewServer(nil, nil, web.StaticFS())
+
+	a, _, cfg, cleanup, err := buildAgent(f, srv.Approve, true)
 	if err != nil {
 		fmt.Fprintln(errOut, "serve: "+err.Error())
 		return 1
 	}
 	defer cleanup()
 
-	srv := web.NewServer(
-		func(ctx context.Context, prompt string, emit func(web.Event)) error {
-			a.SetObserver(func(e agent.Event) {
-				switch e.Kind {
-				case "delta", "text":
-					emit(web.Event{Kind: "delta", Text: e.Text})
-				case "tool_call":
-					emit(web.Event{Kind: "tool_call", Text: strings.TrimSpace(e.Tool + " " + e.Detail)})
-					emit(web.Event{Kind: "state", Data: webState(a, cfg, f.mode)})
-				case "tool_result":
-					label := e.Tool
-					if !e.OK {
-						label += " — failed"
-					}
-					if e.Detail != "" {
-						label += " · " + e.Detail
-					}
-					emit(web.Event{Kind: "tool_result", Text: label})
-					emit(web.Event{Kind: "state", Data: webState(a, cfg, f.mode)})
-				case "halt", "budget":
-					emit(web.Event{Kind: "error", Text: strings.TrimSpace(e.Text + " " + e.Detail)})
+	srv.SetState(func() web.State { return webState(a, cfg, f.mode) })
+	srv.SetRunner(func(ctx context.Context, prompt string, emit func(web.Event)) error {
+		a.SetObserver(func(e agent.Event) {
+			switch e.Kind {
+			case "delta", "text":
+				emit(web.Event{Kind: "delta", Text: e.Text})
+			case "tool_call":
+				emit(web.Event{Kind: "tool_call", Text: strings.TrimSpace(e.Tool + " " + e.Detail)})
+				emit(web.Event{Kind: "state", Data: webState(a, cfg, f.mode)})
+			case "tool_result":
+				label := e.Tool
+				if !e.OK {
+					label += " — failed"
 				}
-			})
-			_, runErr := a.Run(ctx, prompt)
-			return runErr
-		},
-		func() web.State { return webState(a, cfg, f.mode) },
-		web.StaticFS(),
-	)
+				if e.Detail != "" {
+					label += " · " + e.Detail
+				}
+				emit(web.Event{Kind: "tool_result", Text: label})
+				emit(web.Event{Kind: "state", Data: webState(a, cfg, f.mode)})
+			case "halt", "budget":
+				emit(web.Event{Kind: "error", Text: strings.TrimSpace(e.Text + " " + e.Detail)})
+			}
+		})
+		_, runErr := a.Run(ctx, prompt)
+		return runErr
+	})
 
 	ln, err := listenLocal()
 	if err != nil {

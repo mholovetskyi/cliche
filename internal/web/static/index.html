@@ -19,6 +19,13 @@
   .result{color:var(--ok)}
   .err{color:#ff5a4d}
   .meta{color:var(--mut)}
+  .card{border:1px solid var(--accent);background:rgba(255,106,90,.08);border-radius:10px;padding:12px 14px;margin:8px 0;font-family:-apple-system,Segoe UI,sans-serif}
+  .card .q{margin-bottom:8px}.card .q b{color:var(--accent)}
+  .card code{font-family:var(--mono);color:var(--ink)}
+  .card .row{display:flex;gap:8px}
+  .card button{border-radius:8px;border:1px solid var(--line);padding:6px 14px;cursor:pointer;font-weight:600}
+  .card .allow{background:var(--ok);color:#06231a;border:0}
+  .card .deny{background:transparent;color:var(--mut)}
   form{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
   input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;color:var(--ink);padding:12px 14px;font-size:15px;outline:none}
   input:focus{border-color:var(--accent)}
@@ -68,11 +75,24 @@
       case 'tool_call': deltaLine=null; add('tool','▸ '+e.text); break;
       case 'tool_result': deltaLine=null; add('result','✓ '+e.text); break;
       case 'state': renderState(e.data); break;
+      case 'approval': deltaLine=null; renderApproval(e.data); break;
       case 'error': deltaLine=null; add('err','✗ '+e.text); break;
       case 'end': deltaLine=null; add('meta','— done —'); break;
     }
   };
   es.onerror = ()=>{ stat.textContent='disconnected'; };
+
+  function renderApproval(a){
+    if(!a) return;
+    const card=document.createElement('div'); card.className='card';
+    card.innerHTML = '<div class="q">Cliche wants to <b>'+a.kind+'</b>: <code></code></div>'
+      + '<div class="row"><button class="allow">Allow</button><button class="deny">Not now</button></div>';
+    card.querySelector('code').textContent = a.target;
+    const answer=(allow)=>{ fetch('/api/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:a.id,allow})}); card.querySelector('.row').innerHTML='<span class="meta">'+(allow?'allowed':'declined')+'</span>'; };
+    card.querySelector('.allow').onclick=()=>answer(true);
+    card.querySelector('.deny').onclick=()=>answer(false);
+    feed.appendChild(card); feed.scrollTop=feed.scrollHeight;
+  }
 
   form.addEventListener('submit', async (ev)=>{
     ev.preventDefault();

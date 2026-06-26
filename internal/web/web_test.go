@@ -105,6 +105,72 @@ func TestPromptRejectsBadBody(t *testing.T) {
 	}
 }
 
+func TestApproveBlocksUntilAnswered(t *testing.T) {
+	srv := NewServer(nil, nil, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Drain the approval id off the SSE stream so we know what to answer.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	idCh := make(chan string, 1)
+	go func() {
+		tmp := make([]byte, 1024)
+		var acc strings.Builder
+		for {
+			n, err := resp.Body.Read(tmp)
+			if n > 0 {
+				acc.Write(tmp[:n])
+				if i := strings.Index(acc.String(), `"kind":"approval"`); i >= 0 {
+					var line string
+					for _, l := range strings.Split(acc.String(), "\n") {
+						if strings.Contains(l, `"approval"`) {
+							line = strings.TrimPrefix(l, "data: ")
+						}
+					}
+					var ev struct {
+						Data approvalReq `json:"data"`
+					}
+					if json.Unmarshal([]byte(line), &ev) == nil && ev.Data.ID != "" {
+						idCh <- ev.Data.ID
+						return
+					}
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Approve() blocks the "agent" goroutine until the browser answers.
+	decision := make(chan bool, 1)
+	go func() { decision <- srv.Approve("run", "go test ./...") }()
+
+	select {
+	case id := <-idCh:
+		_, _ = http.Post(ts.URL+"/api/approve", "application/json",
+			strings.NewReader(`{"id":"`+id+`","allow":true}`))
+	case <-time.After(3 * time.Second):
+		t.Fatal("approval request never reached the SSE stream")
+	}
+
+	select {
+	case ok := <-decision:
+		if !ok {
+			t.Fatal("Approve should return true after an allow")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Approve did not unblock after /api/approve")
+	}
+}
+
 func TestStateEndpoint(t *testing.T) {
 	srv := NewServer(nil, func() State { return State{Model: "claude", SpentUSD: 0.5, CapUSD: 5} }, nil)
 	ts := httptest.NewServer(srv.Handler())
