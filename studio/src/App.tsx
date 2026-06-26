@@ -8,7 +8,17 @@ import {
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
   FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
+  GitBranch, AtSign,
 } from "lucide-react";
+
+type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
+function flattenTree(nodes: any[]): string[] {
+  const out: string[] = [];
+  const walk = (ns: any[]) => ns.forEach((n) => { if (n.dir) { if (n.children) walk(n.children); } else out.push(n.path); });
+  walk(nodes || []);
+  return out;
+}
+const ansiRe = /\x1b\[[0-9;]*m/g;
 
 const PROVIDERS = [
   { id: "anthropic", label: "Anthropic (Claude) — direct API", keyUrl: "https://console.anthropic.com", local: false },
@@ -170,6 +180,7 @@ const COMMANDS: { cmd: string; desc: string; arg?: boolean }[] = [
   { cmd: "undo", desc: "Undo the last file change" },
   { cmd: "rewind", desc: "Revert every change this session" },
   { cmd: "changes", desc: "Show what changed (diffs)" },
+  { cmd: "git", desc: "Git — commit, branch, open a PR" },
   { cmd: "preview", desc: "Show the live preview" },
   { cmd: "files", desc: "Show the file tree" },
   { cmd: "trust", desc: "Show the trust ledger + rules" },
@@ -625,13 +636,25 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, o
 }
 
 function ApprovalCard({ it, onAnswer }: { it: Extract<Item, { t: "approval" }>; onAnswer: (id: string, allow: boolean) => void }) {
+  // The approval target may carry a diff preview after the first line (writes/edits).
+  const nl = it.target.indexOf("\n");
+  const head = (nl >= 0 ? it.target.slice(0, nl) : it.target).trim();
+  const diff = nl >= 0 ? it.target.slice(nl + 1).replace(ansiRe, "").replace(/^\s+\n/, "") : "";
+  const diffLines = diff ? diff.split("\n").slice(0, 200) : [];
   return (
     <div className="fade-up my-3 overflow-hidden rounded-2xl border border-[var(--accent)]/35 bg-[var(--accent)]/[0.06]">
       <div className="flex items-center gap-2 px-4 py-3 text-sm">
         <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--accent)]/15 text-[var(--accent)]"><CircleAlert size={15} /></span>
         <span>Cliche wants to <b className="text-[var(--accent)]">{it.kind}</b></span>
-        <code className="ml-auto truncate rounded-md bg-black/30 px-2 py-0.5 font-mono text-[12.5px]">{it.target}</code>
+        <code className="ml-auto truncate rounded-md bg-black/30 px-2 py-0.5 font-mono text-[12.5px]">{head}</code>
       </div>
+      {diffLines.length > 0 && (
+        <pre className="max-h-56 overflow-auto border-t border-[var(--accent)]/15 px-3 py-2 font-mono text-[11.5px] leading-[1.5]">
+          {diffLines.map((ln, i) => (
+            <div key={i} className={/^\s*\+/.test(ln) ? "text-[var(--ok)]" : /^\s*-/.test(ln) ? "text-[var(--accent)]" : "text-[var(--mut)]"}>{ln || " "}</div>
+          ))}
+        </pre>
+      )}
       <div className="border-t border-[var(--accent)]/20 px-4 py-2.5">
         {it.answered ? <span className="text-xs text-[var(--mut)]">{it.answered === "allowed" ? "✓ allowed" : "declined"}</span> : (
           <div className="flex gap-2">
@@ -802,6 +825,72 @@ function ChangesPanel({ changes, onUndo, onRevertAll }: { changes: Change[]; onU
   );
 }
 
+function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged: () => void }) {
+  const [g, setG] = useState<GitStatus | null>(null);
+  const [msg, setMsg] = useState("");
+  const [branch, setBranch] = useState("");
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
+  const refresh = () => fetch("/api/git").then((r) => r.json()).then(setG).catch(() => {});
+  useEffect(() => { refresh(); }, []);
+  async function commit() {
+    if (!msg.trim()) return; setBusy("commit"); setNote(null);
+    const r = await fetch("/api/git/commit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ msg }) });
+    setBusy("");
+    if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Committed " + d.result }); setMsg(""); refresh(); onChanged(); }
+    else setNote({ ok: false, text: await r.text() });
+  }
+  async function makeBranch() {
+    if (!branch.trim()) return; setBusy("branch"); setNote(null);
+    const r = await fetch("/api/git/branch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: branch }) });
+    setBusy("");
+    if (r.status === 204) { setNote({ ok: true, text: "Switched to branch " + branch }); setBranch(""); refresh(); }
+    else setNote({ ok: false, text: await r.text() });
+  }
+  async function pr() {
+    setBusy("pr"); setNote(null);
+    const r = await fetch("/api/git/pr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: msg.split("\n")[0], body: msg }) });
+    setBusy("");
+    if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Pull request opened", url: d.url }); }
+    else setNote({ ok: false, text: await r.text() });
+  }
+  if (!g) return <div className="p-6 text-sm text-[var(--dim)]">Loading git…</div>;
+  if (!g.repo) return <div className="grid h-full place-items-center p-6 text-center text-sm text-[var(--dim)]"><span><GitBranch size={26} className="mx-auto mb-2 opacity-50" />Not a git repository.<br /><span className="text-xs">Run <code className="rounded bg-white/10 px-1">git init</code> to enable commits & PRs.</span></span></div>;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
+      <div className="mb-3 flex items-center gap-2 text-sm">
+        <GitBranch size={15} className="text-[var(--accent)]" /> <b className="font-mono">{g.branch}</b>
+        <span className="text-[var(--mut)]">· {g.dirty ? (g.stat || "uncommitted changes") : "clean"}</span>
+        <span className="flex-1" />
+        <button onClick={refresh} className="icon-btn h-7 w-7" title="Refresh"><RefreshCw size={14} /></button>
+      </div>
+      {g.files.length > 0 && (
+        <div className="surface mb-4 max-h-40 overflow-auto rounded-xl p-1.5 font-mono text-[12px]">
+          {g.files.map((f, i) => <div key={i} className="truncate px-2 py-0.5 text-[var(--mut)]">{f}</div>)}
+        </div>
+      )}
+      <label className="mb-1.5 text-xs font-medium text-[var(--mut)]">Commit message</label>
+      <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows={3} placeholder="feat: describe what you built…" className="field mb-2 w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" />
+      <div className="mb-5 flex items-center gap-2">
+        <button onClick={commit} disabled={!g.dirty || !msg.trim() || busy === "commit"} className="btn-accent rounded-lg px-3.5 py-1.5 text-sm">{busy === "commit" ? "committing…" : "Commit"}</button>
+        <button onClick={() => onAsk("Write a concise Conventional Commits message for the current uncommitted changes. Reply with ONLY the message.")} className="btn-soft rounded-lg px-3 py-1.5 text-sm">Draft in chat ↗</button>
+        {g.gh && <button onClick={pr} disabled={busy === "pr"} className="btn-soft ml-auto rounded-lg px-3 py-1.5 text-sm">{busy === "pr" ? "opening…" : "Open PR"}</button>}
+      </div>
+      <label className="mb-1.5 text-xs font-medium text-[var(--mut)]">New branch</label>
+      <div className="flex gap-2">
+        <input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feature/my-change" className="field flex-1 bg-transparent px-3 py-1.5 font-mono text-sm outline-none" />
+        <button onClick={makeBranch} disabled={!branch.trim() || busy === "branch"} className="btn-soft rounded-lg px-3 py-1.5 text-sm">Create</button>
+      </div>
+      {note && (
+        <div className={`mt-3 flex items-center gap-1.5 text-xs ${note.ok ? "text-[var(--ok)]" : "text-[var(--accent)]"}`}>
+          {note.ok ? <Check size={13} /> : <CircleAlert size={13} />}
+          <span className="break-all">{note.text}{note.url && <a href={note.url} target="_blank" className="ml-1 underline">open ↗</a>}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [state, setState] = useState<State>({});
@@ -827,7 +916,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
-  const [tab, setTab] = useState<"preview" | "files" | "changes" | "trust">("preview");
+  const [tab, setTab] = useState<"preview" | "files" | "changes" | "git" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openFile, setOpenFile] = useState<{ path: string; html: string } | null>(null);
@@ -999,6 +1088,7 @@ export default function App() {
       case "undo": undo(); return true;
       case "rewind": rewind(); return true;
       case "changes": case "diff": setTab("changes"); return true;
+      case "git": case "commit": case "pr": setTab("git"); return true;
       case "preview": setTab("preview"); return true;
       case "files": setTab("files"); return true;
       case "trust": case "rules": case "status": setTab("trust"); return true;
@@ -1031,9 +1121,16 @@ export default function App() {
     { id: "preview", label: "Preview", icon: Eye },
     { id: "files", label: "Files", icon: ListTree },
     { id: "changes", label: changes.length ? `Changes · ${changes.length}` : "Changes", icon: FileDiff },
+    { id: "git", label: "Git", icon: GitBranch },
     { id: "trust", label: "Trust", icon: ShieldCheck },
   ];
   const palette = allCommands.filter((c) => ("/" + c.cmd).startsWith(prompt.split(/\s+/)[0])).slice(0, 8);
+  // @-file mention autocomplete: the token under the caret (at the end of the prompt).
+  const atTok = (() => { const m = /(?:^|\s)@([^\s@]*)$/.exec(prompt); return m ? m[1] : null; })();
+  const mentions = atTok === null ? [] : flattenTree(tree)
+    .map((p) => ({ p, s: fuzzy(atTok, p) })).filter((x) => x.s !== null)
+    .sort((a, b) => (b.s as number) - (a.s as number)).slice(0, 7).map((x) => x.p);
+  const ctxPct = Math.round((state.ctx_frac || 0) * 100);
   const paletteItems: PItem[] = [
     ...allCommands.map((c) => ({ id: "cmd-" + c.cmd, group: "Cmd", label: "/" + c.cmd + " — " + c.desc, run: () => { if (c.arg) setPrompt("/" + c.cmd + " "); else runCommand("/" + c.cmd); } })),
     ...sessions.map((s) => ({ id: "sess-" + s.id, group: "Chat", label: s.title || "New chat", hint: relTime(s.updated), run: () => pickSession(s.id) })),
@@ -1083,6 +1180,11 @@ export default function App() {
               <button key={m.id} data-on={(state.mode || "suggest") === m.id} onClick={() => setMode(m.id)} className="seg-item" title={`Permission mode: ${m.label}`}>{m.label}</button>
             ))}
           </div>
+          {ctxPct > 0 && (
+            <span className="chip tabular-nums" title="Context window used" style={{ color: ctxPct < 60 ? "var(--ok)" : ctxPct < 85 ? "var(--warn)" : "var(--accent)" }}>
+              {ctxPct}% ctx
+            </span>
+          )}
           <select value={state.model || ""} onChange={(e) => setModel(e.target.value)} title="Model"
             className="field max-w-[170px] px-2.5 py-1.5 font-mono text-xs text-[var(--mut)] outline-none">
             {state.model && !models.some((m) => m.model === state.model) && <option value={state.model}>{state.model}</option>}
@@ -1108,6 +1210,17 @@ export default function App() {
                     className={`flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] ${i === 0 ? "bg-white/[0.04]" : ""} hover:bg-white/[0.06]`}>
                     <span className="w-28 shrink-0 font-mono text-[var(--accent)]">/{c.cmd}</span>
                     <span className="text-[var(--mut)]">{c.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {mentions.length > 0 && (
+              <div className="surface elev slide-down mb-2 overflow-hidden rounded-xl">
+                {mentions.map((path, i) => (
+                  <button key={path} type="button"
+                    onClick={() => setPrompt(prompt.replace(/@([^\s@]*)$/, "@" + path + " "))}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] ${i === 0 ? "bg-white/[0.04]" : ""} hover:bg-white/[0.06]`}>
+                    <AtSign size={12} className="shrink-0 text-[var(--accent)]" /><span className="truncate font-mono text-[var(--mut)]">{path}</span>
                   </button>
                 ))}
               </div>
@@ -1193,6 +1306,7 @@ export default function App() {
         )}
 
         {tab === "changes" && <ChangesPanel changes={changes} onUndo={undo} onRevertAll={rewind} />}
+        {tab === "git" && <GitPanel onAsk={run} onChanged={() => { refreshChanges(); refreshFiles(); }} />}
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
       </div>

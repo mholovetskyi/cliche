@@ -61,6 +61,11 @@ type Server struct {
 	files       func() []FileNode
 	fileRead    func(rel string) (string, bool)
 
+	gitStatus func() GitStatus
+	gitCommit func(msg string) (string, error)
+	gitBranch func(name string) error
+	gitPR     func(title, body string) (string, error)
+
 	cancel     context.CancelFunc // cancels the in-flight run (Stop)
 	setModeFn  func(mode string) bool
 	modelsFn   func() []ModelInfo
@@ -182,6 +187,101 @@ func (s *Server) SetSessions(list func() []SessionMeta, neww func() string, pick
 // SetFiles wires the workspace file tree + read-only file viewer.
 func (s *Server) SetFiles(tree func() []FileNode, read func(string) (string, bool)) {
 	s.files, s.fileRead = tree, read
+}
+
+// GitStatus is the working tree at a glance (the Git workspace tab).
+type GitStatus struct {
+	Repo   bool     `json:"repo"`
+	GH     bool     `json:"gh"` // the gh CLI is available → "Open PR" works
+	Branch string   `json:"branch"`
+	Dirty  bool     `json:"dirty"`
+	Stat   string   `json:"stat"` // "N files changed, +X -Y"
+	Files  []string `json:"files"`
+}
+
+// SetGit wires the git surface: status, commit, new branch, open PR.
+func (s *Server) SetGit(status func() GitStatus, commit func(string) (string, error), branch func(string) error, pr func(string, string) (string, error)) {
+	s.gitStatus, s.gitCommit, s.gitBranch, s.gitPR = status, commit, branch, pr
+}
+
+func (s *Server) handleGit(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var st GitStatus
+	if s.gitStatus != nil {
+		st = s.gitStatus()
+	}
+	_ = json.NewEncoder(w).Encode(st)
+}
+
+func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Msg string `json:"msg"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || strings.TrimSpace(body.Msg) == "" {
+		http.Error(w, "a commit message is required", http.StatusBadRequest)
+		return
+	}
+	if s.gitCommit == nil {
+		http.Error(w, "git unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	res, err := s.gitCommit(body.Msg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"result": res})
+}
+
+func (s *Server) handleGitBranch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
+		http.Error(w, "a branch name is required", http.StatusBadRequest)
+		return
+	}
+	if s.gitBranch == nil {
+		http.Error(w, "git unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.gitBranch(body.Name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGitPR(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body)
+	if s.gitPR == nil {
+		http.Error(w, "PR unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	url, err := s.gitPR(body.Title, body.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"url": url})
 }
 
 // Template is a one-click starting point for a non-technical user — a friendly
@@ -359,6 +459,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
+	mux.HandleFunc("/api/git", s.handleGit)
+	mux.HandleFunc("/api/git/commit", s.handleGitCommit)
+	mux.HandleFunc("/api/git/branch", s.handleGitBranch)
+	mux.HandleFunc("/api/git/pr", s.handleGitPR)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)

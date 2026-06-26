@@ -603,6 +603,53 @@ func TestStopCancelsRun(t *testing.T) {
 	t.Fatal("run did not stop after /api/stop")
 }
 
+func TestGitEndpoints(t *testing.T) {
+	var committed, branched string
+	srv := NewServer(nil, nil, nil)
+	srv.SetGit(
+		func() GitStatus {
+			return GitStatus{Repo: true, Branch: "main", Dirty: true, Stat: "2 files", Files: []string{"a.go"}}
+		},
+		func(msg string) (string, error) { committed = msg; return "abc123  2 files", nil },
+		func(name string) error { branched = name; return nil },
+		func(title, body string) (string, error) { return "https://github.com/x/y/pull/1", nil },
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	var st GitStatus
+	r, _ := http.Get(ts.URL + "/api/git")
+	_ = json.NewDecoder(r.Body).Decode(&st)
+	r.Body.Close()
+	if !st.Repo || st.Branch != "main" || len(st.Files) != 1 {
+		t.Fatalf("git status wrong: %+v", st)
+	}
+	if r, _ := http.Post(ts.URL+"/api/git/commit", "application/json", strings.NewReader(`{"msg":"feat: x"}`)); r.StatusCode != http.StatusOK {
+		t.Fatalf("commit = %d", r.StatusCode)
+	}
+	if committed != "feat: x" {
+		t.Fatalf("commit message not passed: %q", committed)
+	}
+	if r, _ := http.Post(ts.URL+"/api/git/commit", "application/json", strings.NewReader(`{}`)); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("an empty commit message should 400, got %d", r.StatusCode)
+	}
+	if r, _ := http.Post(ts.URL+"/api/git/branch", "application/json", strings.NewReader(`{"name":"feat/x"}`)); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("branch = %d", r.StatusCode)
+	}
+	if branched != "feat/x" {
+		t.Fatalf("branch name not passed: %q", branched)
+	}
+	var pr struct {
+		URL string `json:"url"`
+	}
+	r, _ = http.Post(ts.URL+"/api/git/pr", "application/json", strings.NewReader(`{"title":"x"}`))
+	_ = json.NewDecoder(r.Body).Decode(&pr)
+	r.Body.Close()
+	if pr.URL == "" {
+		t.Fatal("PR url empty")
+	}
+}
+
 func TestStateEndpoint(t *testing.T) {
 	srv := NewServer(nil, func() State { return State{Model: "claude", SpentUSD: 0.5, CapUSD: 5} }, nil)
 	ts := httptest.NewServer(srv.Handler())

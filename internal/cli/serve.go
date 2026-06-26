@@ -14,6 +14,7 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
+	"github.com/mholovetskyi/cliche/internal/git"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/provider"
@@ -330,6 +331,27 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	srv.SetFiles(
 		func() []web.FileNode { return fileTree(previewDir) },
 		func(rel string) (string, bool) { return readProjectFile(previewDir, rel) },
+	)
+
+	// Git surface: status, commit, branch, and (gh) open-a-PR — the "ship what I
+	// built" finish line, backed by internal/git.
+	srv.SetGit(
+		func() web.GitStatus {
+			return web.GitStatus{
+				Repo: git.IsRepo(f.dir), GH: ghAvailable(),
+				Branch: git.CurrentBranch(f.dir), Dirty: git.HasChanges(f.dir),
+				Stat: git.ShortStat(f.dir), Files: git.ChangedFiles(f.dir, 50),
+			}
+		},
+		func(msg string) (string, error) {
+			hash, stat, err := git.Commit(f.dir, msg)
+			if err != nil {
+				return "", err
+			}
+			return strings.TrimSpace(hash + "  " + stat), nil
+		},
+		func(name string) error { return git.CreateBranch(f.dir, name) },
+		func(title, body string) (string, error) { return openPR(f.dir, title, body) },
 	)
 
 	// CLI-parity controls: switch permission mode, list models with pricing, and
