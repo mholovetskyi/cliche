@@ -1,12 +1,16 @@
 package web
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,6 +49,7 @@ type Server struct {
 
 	templates  []Template
 	previewDir string // project root, served read-only at /preview/ for the live preview iframe
+	audit      func() AuditView
 }
 
 // Template is a one-click starting point for a non-technical user — a friendly
@@ -58,6 +63,24 @@ type Template struct {
 // SetTemplates / SetPreviewDir configure the build-anything surface.
 func (s *Server) SetTemplates(t []Template) { s.templates = t }
 func (s *Server) SetPreviewDir(dir string)  { s.previewDir = dir }
+
+// AuditView is the trust dashboard: the verifiable audit ledger summarized for a
+// human — what the agent did, what it cost, and whether the record is intact.
+type AuditView struct {
+	OK           bool           `json:"ok"`       // chain intact (no tampering detected)
+	Entries      int            `json:"entries"`  // receipts recorded
+	Verified     int            `json:"verified"` // hash-chain-verified receipts
+	BrokenAt     int            `json:"broken_at,omitempty"`
+	Reason       string         `json:"reason,omitempty"`
+	Turns        int            `json:"turns"`
+	USD          float64        `json:"usd"`
+	InputTokens  int            `json:"input_tokens"`
+	OutputTokens int            `json:"output_tokens"`
+	Verdicts     map[string]int `json:"verdicts,omitempty"`
+}
+
+// SetAudit binds the function that reads the (signed, hash-chained) ledger.
+func (s *Server) SetAudit(f func() AuditView) { s.audit = f }
 
 func NewServer(run Runner, state func() State, static fs.FS) *Server {
 	return &Server{hub: NewHub(), run: run, state: state, static: static, approvals: map[string]chan bool{}}
@@ -135,6 +158,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/approve", s.handleApprove)
 	mux.HandleFunc("/api/state", s.handleState)
 	mux.HandleFunc("/api/templates", s.handleTemplates)
+	mux.HandleFunc("/api/audit", s.handleAudit)
+	mux.HandleFunc("/api/export", s.handleExport)
 	// The live preview serves the project files (what the agent is building) so
 	// an iframe can show the result. Localhost-only, the user's own files;
 	// http.Dir blocks path traversal outside the root.
@@ -145,6 +170,64 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("/", http.FileServer(http.FS(s.static)))
 	}
 	return mux
+}
+
+func (s *Server) handleAudit(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var v AuditView
+	if s.audit != nil {
+		v = s.audit()
+	}
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// exportSkip are project subdirs left out of the download — internal state and
+// dependency/build noise, never the user's actual work.
+var exportSkip = map[string]bool{".cliche": true, ".git": true, "node_modules": true, "dist": true}
+
+// handleExport streams the project as a .zip so the user can take what Cliche
+// built and run/keep it anywhere. Confined to the project root.
+func (s *Server) handleExport(w http.ResponseWriter, _ *http.Request) {
+	if s.previewDir == "" {
+		http.Error(w, "no project to export", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="cliche-project.zip"`)
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	root := s.previewDir
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, path)
+		if rerr != nil || rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if top := strings.SplitN(rel, "/", 2)[0]; exportSkip[top] {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		fw, err := zw.Create(rel)
+		if err != nil {
+			return err
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+		_, _ = io.Copy(fw, f)
+		return nil
+	})
 }
 
 func (s *Server) handleTemplates(w http.ResponseWriter, _ *http.Request) {

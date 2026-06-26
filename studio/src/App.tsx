@@ -6,6 +6,7 @@ type State = {
   spent_usd?: number; cap_usd?: number; ctx_frac?: number; running?: boolean;
 };
 type Template = { name: string; desc: string; prompt: string };
+type Audit = { ok: boolean; entries: number; verified: number; usd: number; turns: number; reason?: string; verdicts?: Record<string, number> };
 type Item =
   | { t: "you"; text: string }
   | { t: "assistant"; text: string }
@@ -27,11 +28,22 @@ function Gauge({ frac }: { frac: number }) {
   );
 }
 
-function Hud({ s }: { s: State }) {
+function TrustBadge({ a }: { a: Audit | null }) {
+  if (!a || a.entries === 0) return null;
+  const title = `${a.entries} receipts · ${a.turns} turns · $${(a.usd || 0).toFixed(4)}` + (a.reason ? ` · ${a.reason}` : "");
+  return a.ok ? (
+    <span title={title} className="rounded-full border border-ok/40 px-2 py-0.5 text-xs text-ok">✓ verified · {a.entries}</span>
+  ) : (
+    <span title={title} className="rounded-full border border-[#ff5a4d]/50 px-2 py-0.5 text-xs text-[#ff5a4d]">⚠ tamper</span>
+  );
+}
+
+function Hud({ s, audit }: { s: State; audit: Audit | null }) {
   const cap = s.cap_usd || 0;
   return (
     <header className="flex h-12 items-center gap-4 border-b border-line px-4 text-sm">
       <span className="font-mono font-bold">cli<span className="text-accent">che</span> studio</span>
+      <TrustBadge a={audit} />
       <span className="flex-1" />
       {s.mode && <span className="font-mono text-xs uppercase tracking-wide text-mut">{s.mode}</span>}
       {s.model && <span className="font-mono text-xs text-mut">{s.model}</span>}
@@ -76,20 +88,24 @@ export default function App() {
   const [state, setState] = useState<State>({});
   const [prompt, setPrompt] = useState("");
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [audit, setAudit] = useState<Audit | null>(null);
   const [previewKey, setPreviewKey] = useState(0); // bump to reload the preview iframe
   const feedRef = useRef<HTMLDivElement>(null);
+
+  const refreshAudit = () => fetch("/api/audit").then((r) => r.json()).then(setAudit).catch(() => {});
 
   useEffect(() => { feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight }); }, [items]);
 
   useEffect(() => {
     fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
     fetch("/api/templates").then((r) => r.json()).then(setTemplates).catch(() => {});
+    refreshAudit();
     const es = new EventSource("/api/events");
     es.onmessage = (m) => {
       const e: Ev = JSON.parse(m.data);
       setItems((prev) => reduce(prev, e));
       if (e.kind === "state" && e.data) setState(e.data);
-      if (e.kind === "end") setPreviewKey((k) => k + 1); // a build finished → refresh the preview
+      if (e.kind === "end") { setPreviewKey((k) => k + 1); refreshAudit(); } // build done → refresh preview + receipts
     };
     return () => es.close();
   }, []);
@@ -109,7 +125,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <Hud s={state} />
+      <Hud s={state} audit={audit} />
       <div className="flex min-h-0 flex-1">
         {/* Conversation + build prompt */}
         <section className="flex min-w-0 flex-1 flex-col border-r border-line">
@@ -140,6 +156,7 @@ export default function App() {
           <div className="flex h-9 items-center gap-2 border-b border-line px-3 text-xs text-mut">
             <span>Live preview</span>
             <span className="flex-1" />
+            <a href="/api/export" className="rounded px-2 py-0.5 hover:text-ink" title="Download the project (.zip)">⬇ Export</a>
             <button onClick={() => setPreviewKey((k) => k + 1)} className="rounded px-2 py-0.5 hover:text-ink" title="Refresh">↻</button>
             <a href="/preview/" target="_blank" className="rounded px-2 py-0.5 hover:text-ink" title="Open in a tab">↗</a>
           </div>

@@ -12,6 +12,7 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
+	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/web"
 )
 
@@ -51,6 +52,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	}
 	srv.SetPreviewDir(previewDir) // serve the project files for the live preview iframe
 	srv.SetTemplates(studioTemplates())
+	srv.SetAudit(func() web.AuditView { return auditView(f.dir) })
 	srv.SetState(func() web.State { return webState(a, cfg, f.mode) })
 	srv.SetRunner(func(ctx context.Context, prompt string, emit func(web.Event)) error {
 		a.SetObserver(func(e agent.Event) {
@@ -110,6 +112,23 @@ func listenLocal() (net.Listener, error) {
 		return ln, nil
 	}
 	return net.Listen("tcp", "127.0.0.1:0")
+}
+
+// auditView reads the project's signed, hash-chained ledger into the trust
+// dashboard: the receipts, the spend, and whether the record is intact.
+func auditView(dir string) web.AuditView {
+	v := web.AuditView{OK: true}
+	led, err := ledger.Open(config.Dir(dir))
+	if err != nil {
+		return v
+	}
+	if rep, err := led.Verify(); err == nil {
+		v.OK, v.Entries, v.Verified, v.BrokenAt, v.Reason = rep.OK, rep.Entries, rep.Verified, rep.BrokenAt, rep.Reason
+	}
+	if sum, err := led.Summarize(); err == nil {
+		v.Turns, v.USD, v.InputTokens, v.OutputTokens, v.Verdicts = sum.Turns, sum.USD, sum.InputTokens, sum.OutputTokens, sum.Verdicts
+	}
+	return v
 }
 
 // studioTemplates are the one-click starting points shown to a non-technical

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -204,6 +206,55 @@ func TestTemplatesAndPreview(t *testing.T) {
 	pr.Body.Close()
 	if !strings.Contains(string(b), "hi from preview") {
 		t.Fatalf("preview should serve the project index.html, got %q", b)
+	}
+}
+
+func TestExportZipsProjectAndSkipsNoise(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>my site</h1>"), 0o644)
+	_ = os.MkdirAll(filepath.Join(dir, ".cliche"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, ".cliche", "ledger"), []byte("secret-ish"), 0o644)
+
+	srv := NewServer(nil, nil, nil)
+	srv.SetPreviewDir(dir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r, err := http.Get(ts.URL + "/api/export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatalf("export is not a valid zip: %v", err)
+	}
+	names := map[string]bool{}
+	for _, f := range zr.File {
+		names[f.Name] = true
+	}
+	if !names["index.html"] {
+		t.Fatalf("export should contain the project files, got %v", names)
+	}
+	for n := range names {
+		if strings.HasPrefix(n, ".cliche") {
+			t.Fatalf("export must not include .cliche internals: %q", n)
+		}
+	}
+}
+
+func TestAuditEndpoint(t *testing.T) {
+	srv := NewServer(nil, nil, nil)
+	srv.SetAudit(func() AuditView { return AuditView{OK: true, Entries: 7, Verified: 7, USD: 0.12, Turns: 3} })
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	r, _ := http.Get(ts.URL + "/api/audit")
+	var v AuditView
+	_ = json.NewDecoder(r.Body).Decode(&v)
+	r.Body.Close()
+	if !v.OK || v.Entries != 7 || v.USD != 0.12 {
+		t.Fatalf("audit view wrong: %+v", v)
 	}
 }
 
