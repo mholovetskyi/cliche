@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -7,8 +7,92 @@ import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
-  FileDiff, ImagePlus, X, CornerDownLeft, Trash2,
+  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search,
 } from "lucide-react";
+
+const ACCENTS = [
+  { id: "coral", a: "#ff6a4d", a2: "#ff9468" },
+  { id: "violet", a: "#a78bfa", a2: "#c4b5fd" },
+  { id: "emerald", a: "#34d399", a2: "#6ee7b7" },
+  { id: "sky", a: "#56b6ff", a2: "#93d0ff" },
+  { id: "amber", a: "#fbbf24", a2: "#fcd34d" },
+];
+function applyAccent(id: string) {
+  const acc = ACCENTS.find((x) => x.id === id) || ACCENTS[0];
+  const r = document.documentElement.style;
+  r.setProperty("--accent", acc.a);
+  r.setProperty("--accent2", acc.a2);
+  r.setProperty("--accent-ink", "#0b0b0d");
+  try { localStorage.setItem("cliche-accent", id); } catch { /* ignore */ }
+}
+
+type PItem = { id: string; group: string; label: string; hint?: string; run: () => void };
+function fuzzy(q: string, s: string): number | null {
+  if (!q) return 1;
+  q = q.toLowerCase(); s = s.toLowerCase();
+  let i = 0, score = 0, last = -2;
+  for (let j = 0; j < s.length && i < q.length; j++) {
+    if (s[j] === q[i]) { score += (j === last + 1 ? 4 : 1) + (j === 0 ? 3 : 0); last = j; i++; }
+  }
+  return i === q.length ? score : null;
+}
+
+function CommandPalette({ items, onClose }: { items: PItem[]; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [idx, setIdx] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  const results = items
+    .map((it) => ({ it, s: fuzzy(q, `${it.label} ${it.hint || ""} ${it.group}`) }))
+    .filter((x) => x.s !== null)
+    .sort((a, b) => (b.s as number) - (a.s as number))
+    .slice(0, 30)
+    .map((x) => x.it);
+  useEffect(() => { setIdx(0); }, [q]);
+  function key(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown") { e.preventDefault(); setIdx((i) => Math.min(i + 1, results.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setIdx((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); results[idx]?.run(); onClose(); }
+    else if (e.key === "Escape") { e.preventDefault(); onClose(); }
+  }
+  return (
+    <div className="fade-in fixed inset-0 z-[100] flex items-start justify-center bg-black/55 p-4 pt-[13vh] backdrop-blur-sm" onClick={onClose}>
+      <div className="glass elev pop-in w-[580px] overflow-hidden rounded-2xl border border-[var(--line2)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2.5 border-b border-[var(--line)] px-4">
+          <Search size={16} className="text-[var(--dim)]" />
+          <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={key} placeholder="Search commands, chats, views…" className="w-full bg-transparent py-3.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
+          <span className="kbd">esc</span>
+        </div>
+        <div className="max-h-[52vh] overflow-auto p-2">
+          {results.length === 0 && <div className="px-3 py-8 text-center text-sm text-[var(--dim)]">No matches</div>}
+          {results.map((it, i) => (
+            <button key={it.id} onMouseEnter={() => setIdx(i)} onClick={() => { it.run(); onClose(); }}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13.5px] transition-colors ${i === idx ? "bg-[var(--accent)]/[0.14] text-[var(--ink)]" : "text-[var(--mut)]"}`}>
+              <span className="w-12 shrink-0 text-[10px] uppercase tracking-wider text-[var(--faint)]">{it.group}</span>
+              <span className="flex-1 truncate">{it.label}</span>
+              {it.hint && <span className="font-mono text-[11px] text-[var(--dim)]">{it.hint}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3 border-t border-[var(--line)] px-4 py-2 text-[11px] text-[var(--faint)]">
+          <span><span className="kbd">↑↓</span> navigate</span><span><span className="kbd">↵</span> select</span><span className="flex-1" /><span>Cliché Studio</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Boot() {
+  return (
+    <div className="boot fixed inset-0 z-[200] grid place-items-center bg-[var(--bg)]">
+      <div className="text-center">
+        <div className="boot-mark mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl btn-accent" style={{ boxShadow: "0 0 50px -4px var(--accent)" }}><Sparkles size={30} /></div>
+        <div className="fade-up text-xl font-semibold tracking-tight" style={{ animationDelay: ".15s" }}>Cliché <span className="text-[var(--dim)]">Studio</span></div>
+        <div className="fade-up text-xs text-[var(--mut)]" style={{ animationDelay: ".25s" }}>the trustworthy build-anything app</div>
+      </div>
+    </div>
+  );
+}
 
 type Ev = { kind: string; text?: string; data?: any };
 type State = { model?: string; provider?: string; mode?: string; spent_usd?: number; cap_usd?: number; ctx_frac?: number; running?: boolean; needs_setup?: boolean };
@@ -185,9 +269,10 @@ function Setup({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, onNew, onPick, onToggleTask, onClearTasks }: {
-  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[];
+function Sidebar({ sessions, state, audit, tasks, accent, onNew, onPick, onToggleTask, onClearTasks, onAccent, onSearch }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string;
   onNew: () => void; onPick: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
+  onAccent: (id: string) => void; onSearch: () => void;
 }) {
   const cap = state.cap_usd || 0;
   const doneCount = tasks.filter((t) => t.done).length;
@@ -195,7 +280,8 @@ function Sidebar({ sessions, state, audit, tasks, onNew, onPick, onToggleTask, o
     <aside className="flex w-[244px] shrink-0 flex-col border-r border-[var(--line)]">
       <div className="flex h-[52px] items-center gap-2.5 px-4">
         <Mark size={26} />
-        <span className="text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
+        <span className="flex-1 text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
+        <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
       </div>
       <div className="px-3 pb-1">
         <button onClick={onNew} className="btn-soft flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium">
@@ -248,6 +334,14 @@ function Sidebar({ sessions, state, audit, tasks, onNew, onPick, onToggleTask, o
             <span className="font-mono tabular-nums">${(state.spent_usd || 0).toFixed(3)}</span>
           </div>
           {cap > 0 && <Gauge frac={(state.spent_usd || 0) / cap} />}
+        </div>
+        <div className="mt-2.5 flex items-center gap-2 px-1">
+          <span className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--faint)]">Theme</span>
+          {ACCENTS.map((ac) => (
+            <button key={ac.id} onClick={() => onAccent(ac.id)} title={ac.id}
+              className={`h-3.5 w-3.5 rounded-full transition-transform hover:scale-110 ${accent === ac.id ? "ring-2 ring-white/70 ring-offset-1 ring-offset-[var(--bg)]" : ""}`}
+              style={{ background: ac.a }} />
+          ))}
         </div>
       </div>
     </aside>
@@ -445,6 +539,9 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [imgCount, setImgCount] = useState(0);
+  const [booting, setBooting] = useState(true);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [accent, setAccent] = useState("coral");
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -460,6 +557,21 @@ export default function App() {
   const refreshRules = () => fetch("/api/rules").then((r) => r.json()).then(setRules).catch(() => {});
   const refreshTasks = () => fetch("/api/tasks").then((r) => r.json()).then(setTasks).catch(() => {});
   useEffect(() => { feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" }); }, [items]);
+
+  useEffect(() => {
+    let saved = "coral";
+    try { saved = localStorage.getItem("cliche-accent") || "coral"; } catch { /* ignore */ }
+    setAccent(saved); applyAccent(saved);
+    const t = setTimeout(() => setBooting(false), 1150);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((o) => !o); }
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); }
+      else if (e.key === "Escape") setBooting(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => { clearTimeout(t); window.removeEventListener("keydown", onKey); };
+  }, []);
+  function setAccentTheme(id: string) { setAccent(id); applyAccent(id); }
 
   useEffect(() => {
     fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
@@ -566,17 +678,28 @@ export default function App() {
     { id: "trust", label: "Trust", icon: ShieldCheck },
   ];
   const palette = allCommands.filter((c) => ("/" + c.cmd).startsWith(prompt.split(/\s+/)[0])).slice(0, 8);
+  const paletteItems: PItem[] = [
+    ...allCommands.map((c) => ({ id: "cmd-" + c.cmd, group: "Cmd", label: "/" + c.cmd + " — " + c.desc, run: () => { if (c.arg) setPrompt("/" + c.cmd + " "); else runCommand("/" + c.cmd); } })),
+    ...sessions.map((s) => ({ id: "sess-" + s.id, group: "Chat", label: s.title || "New chat", hint: relTime(s.updated), run: () => pickSession(s.id) })),
+    ...tabs.map((t) => ({ id: "tab-" + t.id, group: "View", label: String(t.label).replace(/ ·.*/, ""), run: () => setTab(t.id) })),
+    ...ACCENTS.map((ac) => ({ id: "acc-" + ac.id, group: "Theme", label: "Accent · " + ac.id, run: () => setAccentTheme(ac.id) })),
+  ];
 
   return (
-    <div className="relative flex h-full">
-      {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
-      <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} />
+    <>
+      <div className="aurora" />
+      <div className="grain" />
+      {booting && <Boot />}
+      {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
+      <div className="relative flex h-full">
+        {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} />
 
       {/* conversation */}
       <section className="flex min-w-0 flex-1 flex-col">
         <header className="glass flex h-[52px] items-center gap-2 border-b border-[var(--line)] px-5">
           <span className="min-w-0 truncate text-sm font-medium">{activeTitle || "New chat"}</span>
-          {state.running && <span className="pulse-soft flex items-center gap-1 text-xs text-[var(--accent)]"><Sparkles size={13} /> working</span>}
+          {state.running && <span className="flex items-center gap-2 text-xs text-[var(--accent)]"><span className="orb" /> working</span>}
           <span className="flex-1" />
           {state.running && (
             <button onClick={stop} className="flex items-center gap-1.5 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/[0.08] px-2.5 py-1 text-xs text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/[0.16]" title="Stop the run">
@@ -689,6 +812,7 @@ export default function App() {
         {tab === "changes" && <ChangesPanel changes={changes} onUndo={undo} onRevertAll={rewind} />}
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
-    </div>
+      </div>
+    </>
   );
 }
