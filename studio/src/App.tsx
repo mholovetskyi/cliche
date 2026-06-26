@@ -906,8 +906,34 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
     if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Pull request opened", url: d.url }); }
     else setNote({ ok: false, text: await r.text() });
   }
+  async function deploy() {
+    setBusy("deploy"); setNote(null);
+    const r = await fetch("/api/deploy", { method: "POST" });
+    setBusy("");
+    if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Live! First publish can take ~1 min to go live.", url: d.url }); refresh(); }
+    else setNote({ ok: false, text: await r.text() });
+  }
+  const NoteLine = note && (
+    <div className={`mt-3 flex items-center gap-1.5 text-xs ${note.ok ? "text-[var(--ok)]" : "text-[var(--accent)]"}`}>
+      {note.ok ? <Check size={13} /> : <CircleAlert size={13} />}
+      <span className="break-all">{note.text}{note.url && <a href={note.url} target="_blank" className="ml-1 underline">open ↗</a>}</span>
+    </div>
+  );
   if (!g) return <div className="p-6 text-sm text-[var(--dim)]">Loading git…</div>;
-  if (!g.repo) return <div className="grid h-full place-items-center p-6 text-center text-sm text-[var(--dim)]"><span><GitBranch size={26} className="mx-auto mb-2 opacity-50" />Not a git repository.<br /><span className="text-xs">Run <code className="rounded bg-white/10 px-1">git init</code> to enable commits & PRs.</span></span></div>;
+  if (!g.repo) return (
+    <div className="grid h-full place-items-center p-6 text-center text-sm text-[var(--dim)]">
+      <div className="max-w-xs">
+        <Rocket size={26} className="mx-auto mb-2 text-[var(--accent)] opacity-80" />
+        Not a git repository — but you can still ship.<br />
+        <span className="text-xs">Publish this project to a public URL (GitHub Pages):</span>
+        <button onClick={deploy} disabled={busy === "deploy"} className="btn-accent mx-auto mt-3 flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm">
+          <Rocket size={14} /> {busy === "deploy" ? "Deploying…" : "Deploy to a live URL"}
+        </button>
+        {NoteLine}
+        <div className="mt-3 text-[11px] text-[var(--faint)]">Or run <code className="rounded bg-white/10 px-1">git init</code> to enable commits & PRs.</div>
+      </div>
+    </div>
+  );
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
       <div className="mb-3 flex items-center gap-2 text-sm">
@@ -933,12 +959,14 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
         <input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feature/my-change" className="field flex-1 bg-transparent px-3 py-1.5 font-mono text-sm outline-none" />
         <button onClick={makeBranch} disabled={!branch.trim() || busy === "branch"} className="btn-soft rounded-lg px-3 py-1.5 text-sm">Create</button>
       </div>
-      {note && (
-        <div className={`mt-3 flex items-center gap-1.5 text-xs ${note.ok ? "text-[var(--ok)]" : "text-[var(--accent)]"}`}>
-          {note.ok ? <Check size={13} /> : <CircleAlert size={13} />}
-          <span className="break-all">{note.text}{note.url && <a href={note.url} target="_blank" className="ml-1 underline">open ↗</a>}</span>
-        </div>
-      )}
+      <div className="mt-5 border-t border-[var(--line)] pt-4">
+        <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Ship it</label>
+        <button onClick={deploy} disabled={busy === "deploy"} className="btn-accent flex w-full items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm">
+          <Rocket size={15} /> {busy === "deploy" ? "Deploying…" : "Deploy to a live URL"}
+        </button>
+        <div className="mt-1.5 text-[11px] text-[var(--faint)]">Publishes the project to a public GitHub Pages URL (needs the gh CLI, signed in).</div>
+      </div>
+      {NoteLine}
     </div>
   );
 }

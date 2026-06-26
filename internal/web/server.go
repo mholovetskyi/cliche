@@ -67,6 +67,7 @@ type Server struct {
 	gitCommit func(msg string) (string, error)
 	gitBranch func(name string) error
 	gitPR     func(title, body string) (string, error)
+	deploy    func() (string, error)
 
 	cancel     context.CancelFunc // cancels the in-flight run (Stop)
 	setModeFn  func(mode string) bool
@@ -209,6 +210,27 @@ type GitStatus struct {
 // SetGit wires the git surface: status, commit, new branch, open PR.
 func (s *Server) SetGit(status func() GitStatus, commit func(string) (string, error), branch func(string) error, pr func(string, string) (string, error)) {
 	s.gitStatus, s.gitCommit, s.gitBranch, s.gitPR = status, commit, branch, pr
+}
+
+// SetDeploy wires the "publish to a live URL" button (GitHub Pages via gh).
+func (s *Server) SetDeploy(deploy func() (string, error)) { s.deploy = deploy }
+
+func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.deploy == nil {
+		http.Error(w, "deploy not available", http.StatusNotImplemented)
+		return
+	}
+	url, err := s.deploy()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"url": url})
 }
 
 func (s *Server) handleGit(w http.ResponseWriter, _ *http.Request) {
@@ -472,6 +494,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/git/commit", s.handleGitCommit)
 	mux.HandleFunc("/api/git/branch", s.handleGitBranch)
 	mux.HandleFunc("/api/git/pr", s.handleGitPR)
+	mux.HandleFunc("/api/deploy", s.handleDeploy)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)

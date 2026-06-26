@@ -392,6 +392,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		func(name string) error { return git.CreateBranch(f.dir, name) },
 		func(title, body string) (string, error) { return openPR(f.dir, title, body) },
 	)
+	srv.SetDeploy(func() (string, error) { return deployPages(previewDir) })
 
 	// CLI-parity controls: switch permission mode, list models with pricing, and
 	// switch the active model — the web equivalents of /mode and /model.
