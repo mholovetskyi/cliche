@@ -52,6 +52,7 @@ type runFlags struct {
 	mode             string // permission mode: plan | suggest | auto-edit | full
 	branch           bool   // work on a fresh git branch
 	commit           bool   // commit changes after a successful run
+	pro              bool   // product mode: world-class standard, stronger model, more iterations
 }
 
 func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
@@ -78,6 +79,7 @@ func parseRunFlags(name string, args []string) (*runFlags, *flag.FlagSet) {
 	fs.StringVar(&f.mode, "mode", "", "permission mode: plan | suggest | auto-edit | full")
 	fs.BoolVar(&f.branch, "branch", false, "work on a fresh git branch (cliche/<id>)")
 	fs.BoolVar(&f.commit, "commit", false, "commit the agent's changes after a successful run")
+	fs.BoolVar(&f.pro, "pro", false, "product mode: hold a world-class engineering bar, upgrade a weak model, and allow more iterations")
 	return f, fs
 }
 
@@ -204,6 +206,23 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	if err != nil {
 		return nil, nil, cfg, noop, err
 	}
+	// Product mode: upgrade a weak/budget model to the provider's strong default
+	// (unless the user explicitly pinned --model), and give the build more room to
+	// iterate. The bump goes in BEFORE applyOrgPolicy so org governance can still
+	// tighten it back down — never the other way around.
+	if f.pro {
+		if f.model == "" {
+			if qm, bumped := qualityModel(b.name, b.model); bumped {
+				b.model = qm
+			}
+		}
+		if cfg.Governor.MaxTurns < 120 {
+			cfg.Governor.MaxTurns = 120
+		}
+		if cfg.Governor.MaxWallClockSeconds < 3600 {
+			cfg.Governor.MaxWallClockSeconds = 3600
+		}
+	}
 	// Record the resolved backend so callers (and `verify`) reflect what actually
 	// ran, not the pre-resolution defaults.
 	cfg.Provider, cfg.Model = b.name, b.model
@@ -258,6 +277,8 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		"- If a tool fails, read the error and adapt; for a rejected edit, re-read the file and copy the current text exactly.\n" +
 		"- Do the work yourself with direct tool calls. Only delegate to a subagent for a genuinely large, ISOLATED investigation — never for a quick edit or a small fix, and never let a subagent edit a file you are also editing.\n" +
 		"- Be concise and honest: if you are blocked or unsure, say so plainly instead of guessing." +
+		baseStandard +
+		proStandard(f.pro) +
 		modeSystemNote(f.mode)
 	// Inject a bounded repo map so the agent starts knowing the project layout
 	// (it lands in the cached system block, so the token cost is largely one-time).

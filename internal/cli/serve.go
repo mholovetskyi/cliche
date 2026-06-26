@@ -36,6 +36,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	if f.mode == "" {
 		f.mode = modeSuggest // ask before each write/command — answered by in-browser approval cards
 	}
+	f.pro = true // Studio is the "build amazing things" surface — hold the product bar by default
 	if !validMode(f.mode) {
 		fmt.Fprintf(errOut, "serve: unknown --mode %q\n", f.mode)
 		return 2
@@ -484,9 +485,9 @@ func auditView(dir string) web.AuditView {
 // user on the welcome screen — each kicks off a real build.
 func studioTemplates() []web.Template {
 	return []web.Template{
-		{Name: "Website", Desc: "A personal site or landing page", Prompt: "Build a clean, modern single-page website with a hero, an about section, and a contact area. Use plain HTML, CSS, and a little JavaScript so it runs with no build step. Put it in index.html."},
-		{Name: "Automate a task", Desc: "A script to do a chore for you", Prompt: "Write a small, well-commented script that automates a routine task on my files (ask me which one if it's unclear). Make it safe and easy to run."},
-		{Name: "Small tool", Desc: "A handy little app", Prompt: "Build a small, self-contained tool as a single-page web app (HTML/CSS/JS, no build step) that does one useful thing well. Suggest a couple of ideas first, then build the one I pick. Put it in index.html."},
+		{Name: "Website", Desc: "A polished marketing / landing site", Prompt: "Build a polished, modern marketing website — hero, features, social proof, and a contact/CTA section. Treat it like a real product launch: a coherent design system (type scale, spacing, color tokens), responsive from mobile to desktop, accessible, with tasteful motion and thoughtful copy (no lorem ipsum). It must be viewable by opening index.html at the project root — if you use a build step, output the built site to the project root."},
+		{Name: "Web app", Desc: "A real, interactive product", Prompt: "Build a genuinely useful, interactive web app. First propose 2–3 concrete ideas and a stack, then build the one I pick to a production bar: a real component structure, typed where the stack supports it, a cohesive design system, real empty/loading/error states, input validation, and keyboard-accessible, responsive UI. It must be runnable by opening index.html at the project root (output a build there if you use one)."},
+		{Name: "Automate a task", Desc: "A robust little tool/script", Prompt: "Build a small but robust tool that automates a routine task on my files (ask which one if it's unclear). Make it well-structured and well-named, validate inputs, handle errors and edge cases, include a short README and a couple of tests, and run it to confirm it works."},
 		{Name: "Explain this project", Desc: "Understand the code here", Prompt: "Give me a clear, friendly tour of what's in this project — what it does, how it's organized, and where the important pieces are. No changes, just explain."},
 	}
 }
