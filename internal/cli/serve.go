@@ -85,7 +85,9 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	}
 	url := "http://" + ln.Addr().String()
 	fmt.Fprintf(out, "  Cliche Studio is running → %s  (Ctrl-C to stop)\n", url)
-	openBrowser(url)
+	if os.Getenv("CLICHE_NO_BROWSER") == "" { // the desktop shell opens its own window instead
+		openBrowser(url)
+	}
 
 	httpSrv := &http.Server{Handler: srv.Handler()}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
