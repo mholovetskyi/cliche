@@ -21,27 +21,38 @@
   --warn: #fbbf24;
   --danger: #ef4444;
   --activity: 0;
-  --sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-  --r-md: 12px;
-  --r-lg: 16px;
-  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --sh-md: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
-  --sh-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.75);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", 'Inter', "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  /* motion: macOS-smooth ease + a gentle overshoot spring */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+  /* liquid glass material: translucent + a bright specular top rim + soft depth */
+  --glass-bg: rgba(24, 24, 29, 0.55);
+  --glass-rim: inset 0 1px 0 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh-md: 0 12px 40px -14px rgba(0, 0, 0, 0.55), 0 2px 8px -4px rgba(0, 0, 0, 0.4);
+  --sh-lg: 0 36px 90px -28px rgba(0, 0, 0, 0.7), 0 8px 24px -10px rgba(0, 0, 0, 0.5);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body, #root { height: 100%; }
+html { scroll-behavior: smooth; }
 body {
   margin: 0;
   color: var(--ink);
   font-family: var(--sans);
   font-size: 14px;
-  letter-spacing: -0.011em;
+  letter-spacing: -0.014em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   background: var(--bg);
 }
+button, a, select, input, [role="button"] { -webkit-user-select: none; }
 
 /* signature ambient: a slow theme-reactive aurora + a faint film grain --- */
 .aurora { position: fixed; inset: -25%; z-index: -2; pointer-events: none; opacity: calc(.6 + var(--activity, 0) * .22); filter: blur(70px) saturate(calc(1 + var(--activity, 0) * .5)); transition: opacity .8s ease, filter .8s ease; }
@@ -56,43 +67,57 @@ body.awaiting .aurora::before, body.awaiting .aurora::after { animation-play-sta
 .tracer { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
 ::selection { background: rgba(255, 106, 77, 0.28); color: #fff; }
 
-/* surfaces -------------------------------------------------------------- */
-.surface { background: var(--s1); border: 1px solid var(--line); }
-.glass { background: rgba(11, 11, 14, 0.72); backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4); }
+/* liquid-glass surfaces ------------------------------------------------- */
+/* a translucent panel with a bright specular top rim (catches the light) so
+   the aurora subtly shows through — Apple "Liquid Glass". */
+.surface {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 44%), rgba(23, 23, 28, 0.86);
+  border: 1px solid var(--line);
+  box-shadow: var(--glass-rim);
+}
+.glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 50%), var(--glass-bg);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  backdrop-filter: blur(30px) saturate(1.8);
+  box-shadow: var(--glass-rim);
+}
 .elev { box-shadow: var(--sh-md); }
 
-/* accent button --------------------------------------------------------- */
+/* accent button — glossy + springy --------------------------------------- */
 .btn-accent {
   background: linear-gradient(180deg, var(--accent2), var(--accent));
   color: var(--accent-ink); font-weight: 600;
-  box-shadow: 0 6px 20px -8px rgba(255, 106, 77, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease, opacity .12s ease;
+  box-shadow: 0 8px 22px -8px rgba(255, 106, 77, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 1px rgba(0, 0, 0, 0.15);
+  transition: transform .22s var(--spring), box-shadow .22s var(--ease), filter .2s var(--ease), opacity .2s var(--ease);
 }
-.btn-accent:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 28px -8px rgba(255, 106, 77, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.36); }
-.btn-accent:active:not(:disabled) { transform: translateY(0) scale(.97); }
+.btn-accent:hover:not(:disabled) { transform: translateY(-1.5px); box-shadow: 0 14px 30px -8px rgba(255, 106, 77, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.5); filter: brightness(1.04); }
+.btn-accent:active:not(:disabled) { transform: translateY(0) scale(.96); transition-duration: .09s; }
 .btn-accent:disabled { opacity: .4; }
 
 /* soft + icon buttons --------------------------------------------------- */
-.btn-soft { background: rgba(255, 255, 255, 0.045); border: 1px solid var(--line); color: var(--ink); transition: background .14s ease, border-color .14s ease, transform .12s ease; }
-.btn-soft:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--line2); }
-.btn-soft:active { transform: scale(.98); }
-.icon-btn { display: grid; place-items: center; color: var(--mut); border-radius: 9px; transition: background .12s ease, color .12s ease; }
-.icon-btn:hover { background: rgba(255, 255, 255, 0.06); color: var(--ink); }
+.btn-soft { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); color: var(--ink); box-shadow: var(--glass-rim); transition: background .2s var(--ease), border-color .2s var(--ease), transform .22s var(--spring); }
+.btn-soft:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--line2); transform: translateY(-1px); }
+.btn-soft:active { transform: scale(.96); transition-duration: .09s; }
+.icon-btn { display: grid; place-items: center; color: var(--mut); border-radius: 10px; transition: background .18s var(--ease), color .18s var(--ease), transform .22s var(--spring); }
+.icon-btn:hover { background: rgba(255, 255, 255, 0.07); color: var(--ink); }
+.icon-btn:active { transform: scale(.9); transition-duration: .09s; }
 
 /* segmented control ----------------------------------------------------- */
-.seg { display: flex; gap: 2px; padding: 3px; background: rgba(255, 255, 255, 0.035); border: 1px solid var(--line); border-radius: 11px; }
-.seg-item { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12.5px; color: var(--mut); white-space: nowrap; transition: color .14s ease, background .14s ease, box-shadow .14s ease; }
+.seg { display: flex; gap: 2px; padding: 3px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--glass-rim); }
+.seg-item { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9px; font-size: 12.5px; color: var(--mut); white-space: nowrap; transition: color .2s var(--ease), background .2s var(--ease), box-shadow .2s var(--ease), transform .2s var(--spring); }
 .seg-item:hover { color: var(--ink); }
-.seg-item[data-on="true"] { background: var(--s3); color: var(--ink); box-shadow: var(--sh-sm); }
+.seg-item:active { transform: scale(.95); }
+.seg-item[data-on="true"] { background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)); color: var(--ink); box-shadow: var(--sh-sm), inset 0 1px 0 rgba(255, 255, 255, 0.12); }
 
 /* chip / pill / field / kbd --------------------------------------------- */
-.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid var(--line); padding: 3px 10px; font-size: 12px; color: var(--mut); }
-.field { background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line); border-radius: var(--r-md); transition: border-color .14s ease, box-shadow .14s ease; }
-.field:focus, .field:focus-within { outline: none; border-color: rgba(255, 106, 77, 0.6); box-shadow: 0 0 0 3px rgba(255, 106, 77, 0.14); }
-.kbd { font-family: var(--mono); font-size: 10.5px; color: var(--dim); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid var(--line); padding: 3px 10px; font-size: 12px; color: var(--mut); box-shadow: var(--glass-rim); }
+.field { background: rgba(0, 0, 0, 0.22); border: 1px solid var(--line); border-radius: var(--r-md); transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
+.field:focus, .field:focus-within { outline: none; border-color: rgba(255, 106, 77, 0.65); box-shadow: 0 0 0 3.5px rgba(255, 106, 77, 0.16); }
+.kbd { font-family: var(--mono); font-size: 10.5px; color: var(--dim); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 1px 5px; }
 
-.card-hover { transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-.card-hover:hover { transform: translateY(-2px); border-color: var(--line2); background: var(--s2); box-shadow: var(--sh-md); }
+.card-hover { transition: transform .26s var(--spring), border-color .2s var(--ease), background .2s var(--ease), box-shadow .26s var(--ease); }
+.card-hover:hover { transform: translateY(-3px) scale(1.012); border-color: var(--line2); box-shadow: var(--sh-md); }
+.card-hover:active { transform: translateY(-1px) scale(.99); transition-duration: .1s; }
 
 /* animation ------------------------------------------------------------- */
 @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -100,9 +125,9 @@ body.awaiting .aurora::before, body.awaiting .aurora::after { animation-play-sta
 @keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @keyframes pulseSoft { 0%, 100% { opacity: 1; } 50% { opacity: .42; } }
 @keyframes loadbar { 0% { left: -45%; width: 45%; } 50% { width: 60%; } 100% { left: 100%; width: 45%; } }
-.fade-up { animation: fadeUp .26s cubic-bezier(.2, .7, .3, 1) both; }
-.fade-in { animation: fadeIn .2s ease both; }
-.slide-down { animation: slideDown .16s ease both; }
+.fade-up { animation: fadeUp .34s var(--ease) both; }
+.fade-in { animation: fadeIn .22s var(--ease) both; }
+.slide-down { animation: slideDown .24s var(--spring) both; }
 .pulse-soft { animation: pulseSoft 1.4s ease-in-out infinite; }
 
 /* top run-progress bar -------------------------------------------------- */
@@ -115,8 +140,8 @@ body.awaiting .aurora::before, body.awaiting .aurora::after { animation-play-sta
 @keyframes orbPulse { 0% { transform: scale(.5); opacity: .8; } 100% { transform: scale(2); opacity: 0; } }
 
 /* command palette + boot splash ----------------------------------------- */
-@keyframes popIn { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
-.pop-in { animation: popIn .2s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes popIn { from { opacity: 0; transform: translateY(14px) scale(.965); } to { opacity: 1; transform: none; } }
+.pop-in { animation: popIn .32s var(--spring) both; }
 @keyframes bootOut { 0%, 68% { opacity: 1; visibility: visible; } 100% { opacity: 0; visibility: hidden; } }
 @keyframes markIn { 0% { opacity: 0; transform: scale(.6); } 60% { opacity: 1; transform: scale(1.08); } 100% { transform: scale(1); } }
 .boot { animation: bootOut 1.15s ease forwards; }
