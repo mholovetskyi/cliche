@@ -17,6 +17,7 @@ type Command struct {
 type slashMenu struct {
 	commands []Command
 	filtered []Command
+	matchPos [][]int // rune indices in filtered[i].Name that matched the query (for bolding)
 	sel      int
 	open     bool
 }
@@ -24,7 +25,7 @@ type slashMenu struct {
 func newSlashMenu(cmds []Command) *slashMenu { return &slashMenu{commands: cmds} }
 
 func (m *slashMenu) reset() {
-	m.open, m.sel, m.filtered = false, 0, nil
+	m.open, m.sel, m.filtered, m.matchPos = false, 0, nil, nil
 }
 
 // update recomputes open/filtered/sel from the current buffer. The menu is open
@@ -33,25 +34,28 @@ func (m *slashMenu) reset() {
 func (m *slashMenu) update(buf string) {
 	m.open = strings.HasPrefix(buf, "/") && !strings.Contains(buf, " ")
 	if !m.open {
-		m.filtered, m.sel = nil, 0
+		m.filtered, m.matchPos, m.sel = nil, nil, 0
 		return
 	}
 	// Fuzzy-match each command against the buffer and rank by score, so "/mdl"
 	// finds "/models", a typo'd middle still hits, and exact prefixes stay on top.
 	type scored struct {
-		c  Command
-		sc int
+		c   Command
+		sc  int
+		pos []int
 	}
 	var hits []scored
 	for _, c := range m.commands {
-		if sc, _, ok := fuzzyMatch(buf, c.Name); ok {
-			hits = append(hits, scored{c, sc})
+		if sc, pos, ok := fuzzyMatch(buf, c.Name); ok {
+			hits = append(hits, scored{c, sc, pos})
 		}
 	}
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].sc > hits[j].sc })
 	m.filtered = m.filtered[:0]
+	m.matchPos = m.matchPos[:0]
 	for _, h := range hits {
 		m.filtered = append(m.filtered, h.c)
+		m.matchPos = append(m.matchPos, h.pos)
 	}
 	if m.sel >= len(m.filtered) {
 		m.sel = 0

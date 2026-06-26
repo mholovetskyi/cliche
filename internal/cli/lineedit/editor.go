@@ -331,6 +331,32 @@ func physicalRows(cells, cols int) int {
 	return (cells + cols - 1) / cols
 }
 
+// emphasizeMatch styles a command label so the runes the fuzzy query matched
+// (indices into the command name) pop in bold accent, the rest in the row's base
+// color (bright on the selected row). Returns s unchanged when styling is off.
+func emphasizeMatch(s string, pos []int, selected bool) string {
+	if !style.Enabled {
+		return s
+	}
+	hit := make(map[int]bool, len(pos))
+	for _, p := range pos {
+		hit[p] = true
+	}
+	base := style.White
+	if selected {
+		base = style.BoldGreen
+	}
+	var b strings.Builder
+	for i, r := range []rune(s) {
+		if hit[i] {
+			b.WriteString(style.BoldRed(string(r))) // matched rune: bold coral accent
+		} else {
+			b.WriteString(base(string(r)))
+		}
+	}
+	return b.String()
+}
+
 // displayLine renders a (possibly multi-line, from a paste) buffer on a single
 // visual line: each newline becomes a ↵ marker so the in-place render stays
 // one-line. The buffer itself keeps real newlines (returned verbatim on submit).
@@ -365,10 +391,16 @@ func (e *Editor) menuRows() []string {
 		if c.Args != "" {
 			name += " " + c.Args
 		}
-		if start+i == e.menu.sel {
-			rows[i] = "  " + style.BoldGreen("›") + " " + style.BoldGreen(style.Pad(name, 16)) + style.Gray(c.Desc)
+		selected := start+i == e.menu.sel
+		var pos []int
+		if start+i < len(e.menu.matchPos) {
+			pos = e.menu.matchPos[start+i]
+		}
+		labeled := style.Pad(emphasizeMatch(name, pos, selected), 16)
+		if selected {
+			rows[i] = "  " + style.BoldGreen("›") + " " + labeled + style.Gray(c.Desc)
 		} else {
-			rows[i] = "    " + style.White(style.Pad(name, 16)) + style.Gray(c.Desc)
+			rows[i] = "    " + labeled + style.Gray(c.Desc)
 		}
 	}
 	return rows
