@@ -627,6 +627,12 @@ func (s *session) slash(line string) bool {
 		s.showMCP()
 	case "/connect":
 		s.connect(strings.Fields(line)[1:])
+	case "/image":
+		if f := strings.Fields(line); len(f) >= 2 {
+			renderImageFile(f[1], s.out, s.out)
+		} else {
+			fmt.Fprintln(s.out, "  usage: /image <file.png|.jpg|.gif>")
+		}
 	case "/memory":
 		s.showMemory()
 	case "/browse":
