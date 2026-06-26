@@ -7,8 +7,22 @@ import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
-  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard,
+  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star,
 } from "lucide-react";
+import ShaderField from "./ShaderField";
+import DepthField from "./DepthField";
+import MemoryConstellation from "./MemoryConstellation";
+import { enableAudio, disableAudio, scoreActivity, ping } from "./lib/audio";
+import { REDUCE, flag, setFlag } from "./lib/reduced";
+
+const QUIPS: Record<string, string[]> = {
+  idle: ["Standing by. The ledger is quiet.", "Every action, signed. Ask away.", "I keep the receipts so you don't have to."],
+  focused: ["Working — watching every write.", "On it. Nothing slips the ledger.", "Forging. Each step is accounted for."],
+  proud: ["Done, and verified. The chain holds.", "Receipts filed. Spotless.", "Built it — and I can prove every step."],
+  frugal: ["Spend's getting warm. Mind the meter.", "We're nearing the cap. Want me to ease off?", "Costs are climbing — I'm watching."],
+  wary: ["The ledger doesn't match. I don't like it.", "Tamper detected. Tread carefully.", "Something rewrote the record. Stay sharp."],
+};
+function pickQuip(mood: string): string { const a = QUIPS[mood] || QUIPS.idle; return a[Math.floor(Math.random() * a.length)]; }
 
 const ACCENTS = [
   { id: "coral", a: "#ff6a4d", a2: "#ff9468" },
@@ -173,10 +187,10 @@ function relTime(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function Sigil({ size = 28, running, trust = "idle", load = 0 }: { size?: number; running?: boolean; trust?: "idle" | "intact" | "tamper"; load?: number }) {
+function Sigil({ size = 28, running, trust = "idle", load = 0, oracle, celebrate }: { size?: number; running?: boolean; trust?: "idle" | "intact" | "tamper"; load?: number; oracle?: boolean; celebrate?: boolean }) {
   const lit = Math.round(Math.max(0, Math.min(1, load)) * 24);
   return (
-    <svg className="sigil shrink-0" data-running={!!running} data-trust={trust} viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
+    <svg className="sigil shrink-0" data-running={!!running} data-trust={trust} data-celebrate={!!celebrate} viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
       <g className="corona">
         {Array.from({ length: 24 }, (_, i) => (
           <line key={i} x1="50" y1="7" x2="50" y2="13" strokeWidth="2.2" strokeLinecap="round" className={`tick ${i < lit ? "lit" : ""}`} transform={`rotate(${i * 15} 50 50)`} />
@@ -191,11 +205,73 @@ function Sigil({ size = 28, running, trust = "idle", load = 0 }: { size?: number
         <circle className="arc2" cx="50" cy="50" r="21" strokeDasharray="14 110" strokeDashoffset="92" />
       </g>
       <circle className="core" cx="50" cy="50" r="11" />
+      {oracle && (
+        <g className="eyes" fill="#0b0b0d">
+          <circle cx="45.6" cy="50" r="2.2" /><circle cx="54.4" cy="50" r="2.2" />
+        </g>
+      )}
     </svg>
   );
 }
 function Mark({ size = 28, running, trust, load }: { size?: number; running?: boolean; trust?: "idle" | "intact" | "tamper"; load?: number }) {
   return <Sigil size={size} running={running} trust={trust} load={load} />;
+}
+
+function Sparks({ origin, onDone }: { origin: { x: number; y: number }; onDone: () => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current; if (!cv) return;
+    const ctx = cv.getContext("2d"); if (!ctx) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cs = getComputedStyle(document.documentElement);
+    const cols = [cs.getPropertyValue("--accent").trim() || "#ff6a4d", cs.getPropertyValue("--accent2").trim() || "#ff9468", cs.getPropertyValue("--ok").trim() || "#34d399"];
+    const parts = Array.from({ length: 120 }, () => { const a = Math.random() * 6.283, sp = 2 + Math.random() * 7.5; return { x: origin.x, y: origin.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2.5, life: 1, c: cols[Math.floor(Math.random() * 3)], r: 1.4 + Math.random() * 2.2 }; });
+    let raf = 0; const t = setTimeout(onDone, 1600);
+    const frame = () => {
+      raf = requestAnimationFrame(frame);
+      if (document.hidden) return;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      ctx.globalCompositeOperation = "lighter";
+      for (const p of parts) { p.vy += 0.18; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.life -= 0.016; ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill(); }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+    };
+    raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, []);
+  return <canvas ref={ref} className="pointer-events-none fixed inset-0 z-[130]" aria-hidden="true" />;
+}
+
+function Kiln() {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (REDUCE.matches) return;
+    const cv = ref.current; if (!cv) return;
+    const ctx = cv.getContext("2d"); if (!ctx) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const root = document.documentElement;
+    const cols = () => [getComputedStyle(root).getPropertyValue("--accent").trim() || "#ff6a4d", getComputedStyle(root).getPropertyValue("--accent2").trim() || "#ff9468"];
+    function resize() { cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    const ro = new ResizeObserver(resize); ro.observe(cv);
+    let parts: any[] = [], raf = 0, last = 0;
+    const frame = (t: number) => {
+      raf = requestAnimationFrame(frame);
+      if (document.hidden || t - last < 32) return; last = t;
+      const W = cv.clientWidth, H = cv.clientHeight, cx = W / 2, cy = H / 2;
+      const act = parseFloat(getComputedStyle(root).getPropertyValue("--activity")) || 0;
+      const cl = cols();
+      const spawn = Math.min(4, 1 + Math.floor(act * 6));
+      for (let i = 0; i < spawn && parts.length < 110; i++) { const a = Math.random() * 6.283, d = 30 + Math.random() * 40; parts.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d + 20, vy: -(0.5 + Math.random() * 1.4), a, life: 1, c: cl[i % 2], r: 1 + Math.random() * 2 }); }
+      ctx.clearRect(0, 0, W, H);
+      ctx.globalCompositeOperation = "lighter";
+      for (const p of parts) { p.a += 0.04; p.x += Math.cos(p.a) * 0.6; p.y += p.vy; p.life -= 0.012; ctx.globalAlpha = Math.min(0.5, Math.max(0, p.life) * 0.5); ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill(); }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+      parts = parts.filter((p) => p.life > 0);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, []);
+  return <canvas ref={ref} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" />;
 }
 function trustOf(audit: Audit | null): "idle" | "intact" | "tamper" {
   if (!audit || audit.entries === 0) return "idle";
@@ -405,19 +481,24 @@ function Setup({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, accent, onNew, onPick, onToggleTask, onClearTasks, onAccent, onSearch }: {
-  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string;
+function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, onToggleTask, onClearTasks, onAccent, onSearch, onToggleInst, onMemory }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean };
   onNew: () => void; onPick: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
-  onAccent: (id: string) => void; onSearch: () => void;
+  onAccent: (id: string) => void; onSearch: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
 }) {
   const cap = state.cap_usd || 0;
   const doneCount = tasks.filter((t) => t.done).length;
   const trust = trustOf(audit);
   const load = cap > 0 ? (state.spent_usd || 0) / cap : 0;
+  const [quip, setQuip] = useState("");
+  const mood = trust === "tamper" ? "wary" : state.running ? "focused" : load > 0.85 ? "frugal" : (audit && audit.ok && audit.entries > 0 ? "proud" : "idle");
   return (
     <aside className="flex w-[244px] shrink-0 flex-col border-r border-[var(--line)]">
       <div className="flex h-[52px] items-center gap-2.5 px-4">
-        <Sigil size={28} running={state.running} trust={trust} load={load} />
+        <span className="relative" onMouseEnter={() => inst.oracle && setQuip(pickQuip(mood))} onMouseLeave={() => setQuip("")}>
+          <Sigil size={28} running={state.running} trust={trust} load={load} oracle={inst.oracle} />
+          {quip && <div className="pop-in glass elev absolute left-0 top-9 z-30 w-52 rounded-xl border px-3 py-2 text-[12px] leading-snug text-[var(--mut)]" style={{ borderColor: trust === "tamper" ? "var(--danger)" : "var(--line2)" }}>{quip}</div>}
+        </span>
         <span className="flex-1 text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
         <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
       </div>
@@ -477,6 +558,14 @@ function Sidebar({ sessions, state, audit, tasks, accent, onNew, onPick, onToggl
               className={`h-3.5 w-3.5 rounded-full transition-transform hover:scale-110 ${accent === ac.id ? "ring-2 ring-white/70 ring-offset-1 ring-offset-[var(--bg)]" : ""}`}
               style={{ background: ac.a }} />
           ))}
+        </div>
+        <div className="mt-2 flex items-center gap-1 px-1">
+          <span className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--faint)]">Live</span>
+          <span className="flex-1" />
+          <button onClick={onMemory} title="Memory — fly through past sessions" className="icon-btn h-7 w-7"><Star size={14} /></button>
+          <button onClick={() => onToggleInst("substrate")} title="Living substrate (WebGL)" className={`icon-btn h-7 w-7 ${inst.substrate ? "text-[var(--accent)]" : ""}`}><Sparkle size={14} /></button>
+          <button onClick={() => onToggleInst("sound")} title="Sound — the agent's score" className={`icon-btn h-7 w-7 ${inst.sound ? "text-[var(--accent)]" : ""}`}><Volume2 size={14} /></button>
+          <button onClick={() => onToggleInst("oracle")} title="Oracle — the Sigil speaks" className={`icon-btn h-7 w-7 ${inst.oracle ? "text-[var(--accent)]" : ""}`}><Eye size={14} /></button>
         </div>
       </div>
     </aside>
@@ -681,6 +770,9 @@ export default function App() {
   const [awaiting, setAwaiting] = useState(false);
   const [ritual, setRitual] = useState(false);
   const [accent, setAccent] = useState("coral");
+  const [inst, setInst] = useState({ substrate: false, sound: false, oracle: false });
+  const [showMemory, setShowMemory] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -692,9 +784,11 @@ export default function App() {
   const tabBarRef = useRef<HTMLDivElement>(null);
   const activityRef = useRef(0);
   const tracerRef = useRef<(kind: string) => void>(() => {});
+  const depthRef = useRef<(kind: string) => void>(() => {});
   const leaderRef = useRef(false);
+  const lastCelebRef = useRef(0);
 
-  const refreshAudit = () => fetch("/api/audit").then((r) => r.json()).then(setAudit).catch(() => {});
+  const refreshAudit = () => fetch("/api/audit").then((r) => r.json()).then((a) => { setAudit(a); if (lastCelebRef.current === 0) lastCelebRef.current = a.entries || 0; }).catch(() => {});
   const refreshSessions = () => fetch("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {});
   const refreshFiles = () => fetch("/api/files").then((r) => r.json()).then(setTree).catch(() => {});
   const refreshChanges = () => fetch("/api/changes").then((r) => r.json()).then(setChanges).catch(() => {});
@@ -706,6 +800,9 @@ export default function App() {
     let saved = "coral";
     try { saved = localStorage.getItem("cliche-accent") || "coral"; } catch { /* ignore */ }
     setAccent(saved); applyAccent(saved);
+    const sub = flag("cliche-substrate"), orc = flag("cliche-oracle");
+    setInst({ substrate: sub, sound: false, oracle: orc });
+    document.documentElement.setAttribute("data-substrate", sub ? "on" : "off");
     const t = setTimeout(() => setBooting(false), 1150);
     let leaderTimer = 0;
     const isTyping = () => { const el = document.activeElement as HTMLElement | null; const tag = el?.tagName; return tag === "INPUT" || tag === "TEXTAREA" || !!el?.isContentEditable; };
@@ -719,7 +816,7 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((o) => !o); return; }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); return; }
-      if (e.key === "Escape") { setBooting(false); setShowKeys(false); setPaletteOpen(false); return; }
+      if (e.key === "Escape") { setBooting(false); setShowKeys(false); setPaletteOpen(false); setShowMemory(false); return; }
       if (isTyping() || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "?") { e.preventDefault(); setShowKeys(true); }
       else if (e.key === "g") { leaderRef.current = true; setLeader(true); leaderTimer = window.setTimeout(() => { leaderRef.current = false; setLeader(false); }, 800); }
@@ -728,6 +825,13 @@ export default function App() {
     return () => { clearTimeout(t); window.clearTimeout(leaderTimer); window.removeEventListener("keydown", onKey); };
   }, []);
   function setAccentTheme(id: string) { setAccent(id); applyAccent(id); }
+  function toggleInst(k: "substrate" | "sound" | "oracle") {
+    const on = !inst[k];
+    if (k === "substrate") { setFlag("cliche-substrate", on); document.documentElement.setAttribute("data-substrate", on ? "on" : "off"); }
+    if (k === "oracle") setFlag("cliche-oracle", on);
+    if (k === "sound") { if (on) { if (!enableAudio()) return; } else disableAudio(); setFlag("cliche-sound", on); }
+    setInst((p) => ({ ...p, [k]: on }));
+  }
 
   useEffect(() => {
     fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
@@ -742,11 +846,20 @@ export default function App() {
       setItems((prev) => reduce(prev, e));
       if (e.kind === "delta") activityRef.current = Math.min(1, activityRef.current + 0.06);
       if (e.kind === "tool_call" || e.kind === "tool_result") { activityRef.current = Math.min(1, activityRef.current + 0.2); tracerRef.current(e.kind); }
+      if (e.kind === "tool_result") depthRef.current("tool_result");
       if (e.kind === "error") tracerRef.current("error");
       if (e.kind === "approval") setAwaiting(true);
       if (e.kind === "end" || e.kind === "error") setAwaiting(false);
+      if (e.kind === "delta" || e.kind === "tool_call" || e.kind === "tool_result" || e.kind === "approval" || e.kind === "error" || e.kind === "end") ping(e.kind);
       if (e.kind === "state" && e.data) setState(e.data);
-      if (e.kind === "end") { setPreviewKey((k) => k + 1); refreshAudit(); refreshSessions(); refreshFiles(); refreshChanges(); refreshTasks(); }
+      if (e.kind === "end") {
+        setPreviewKey((k) => k + 1); refreshSessions(); refreshFiles(); refreshChanges(); refreshTasks();
+        fetch("/api/audit").then((r) => r.json()).then((fresh) => {
+          setAudit(fresh);
+          if (fresh.ok && lastCelebRef.current > 0 && fresh.entries > lastCelebRef.current && !REDUCE.matches) setCelebrate(true);
+          lastCelebRef.current = fresh.entries || 0;
+        }).catch(() => {});
+      }
     };
     return () => es.close();
   }, []);
@@ -754,11 +867,21 @@ export default function App() {
   // activity spine: decay the signal each frame into a CSS var (no React re-render)
   useEffect(() => {
     let raf = 0;
-    const tick = () => { activityRef.current *= 0.94; document.documentElement.style.setProperty("--activity", activityRef.current.toFixed(3)); raf = requestAnimationFrame(tick); };
+    const tick = () => { activityRef.current *= 0.94; document.documentElement.style.setProperty("--activity", activityRef.current.toFixed(3)); scoreActivity(activityRef.current); raf = requestAnimationFrame(tick); };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
   useEffect(() => { document.body.classList.toggle("awaiting", awaiting); }, [awaiting]);
+  useEffect(() => { document.documentElement.setAttribute("data-sigtrust", trustOf(audit)); }, [audit]);
+  useEffect(() => {
+    let q = 0;
+    const onMove = (e: PointerEvent) => {
+      if (q) return;
+      q = requestAnimationFrame(() => { q = 0; const dx = Math.max(-1, Math.min(1, (e.clientX / innerWidth - 0.5) * 2)), dy = Math.max(-1, Math.min(1, (e.clientY / innerHeight - 0.5) * 2)); const r = document.documentElement.style; r.setProperty("--eye-x", `${dx * 2}px`); r.setProperty("--eye-y", `${dy * 2}px`); });
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, []);
   useEffect(() => {
     if (!state.running) { setRitual(false); return; }
     const t = setTimeout(() => setRitual(true), 400);
@@ -862,6 +985,10 @@ export default function App() {
     ...allCommands.map((c) => ({ id: "cmd-" + c.cmd, group: "Cmd", label: "/" + c.cmd + " — " + c.desc, run: () => { if (c.arg) setPrompt("/" + c.cmd + " "); else runCommand("/" + c.cmd); } })),
     ...sessions.map((s) => ({ id: "sess-" + s.id, group: "Chat", label: s.title || "New chat", hint: relTime(s.updated), run: () => pickSession(s.id) })),
     ...tabs.map((t) => ({ id: "tab-" + t.id, group: "View", label: String(t.label).replace(/ ·.*/, ""), run: () => setTab(t.id) })),
+    { id: "mem", group: "Go", label: "Memory — fly through past sessions", run: () => setShowMemory(true) },
+    { id: "i-sub", group: "Live", label: `Living substrate — ${inst.substrate ? "on" : "off"}`, run: () => toggleInst("substrate") },
+    { id: "i-snd", group: "Live", label: `Sound — the agent's score — ${inst.sound ? "on" : "off"}`, run: () => toggleInst("sound") },
+    { id: "i-ora", group: "Live", label: `Oracle — the Sigil speaks — ${inst.oracle ? "on" : "off"}`, run: () => toggleInst("oracle") },
     ...ACCENTS.map((ac) => ({ id: "acc-" + ac.id, group: "Theme", label: "Accent · " + ac.id, run: () => setAccentTheme(ac.id) })),
   ];
 
@@ -869,17 +996,21 @@ export default function App() {
 
   return (
     <>
+      {inst.substrate && <ShaderField />}
+      <DepthField bind={(fn) => { depthRef.current = fn; }} />
       <div className="aurora" />
       <div className="aurora-pulse" />
       <TracerField bind={(fn) => { tracerRef.current = fn; }} />
       <div className="grain" />
       {booting && <Boot />}
+      {celebrate && <Sparks origin={{ x: 32, y: 26 }} onDone={() => setCelebrate(false)} />}
+      {showMemory && <MemoryConstellation sessions={sessions} relTime={relTime} onPick={pickSession} onClose={() => setShowMemory(false)} />}
       {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
       {showKeys && <KeysOverlay onClose={() => setShowKeys(false)} />}
       {leader && <div className="fade-up glass elev fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--mut)]">go to <span className="kbd">p</span><span className="kbd">f</span><span className="kbd">c</span><span className="kbd">t</span><span className="kbd">n</span></div>}
       <div className="relative flex h-full">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} />
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
 
       {/* conversation */}
       <section className="flex min-w-0 flex-1 flex-col">
@@ -977,7 +1108,8 @@ export default function App() {
               <iframe key={previewKey} src={`/preview/?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />
               {ritual && (
                 <div className="fade-in pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(8,8,11,.6)", backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)" }}>
-                  <div className="text-center">
+                  <Kiln />
+                  <div className="relative z-10 text-center">
                     <div className="mx-auto mb-4 w-[88px]"><Sigil size={88} running trust="intact" load={1} /></div>
                     <div className="caret text-sm font-medium text-[var(--ink)]">forging</div>
                     {lastActText && <div className="mx-auto mt-2 max-w-[300px] truncate px-4 font-mono text-[12px] text-[var(--mut)]">{lastActText}</div>}

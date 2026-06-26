@@ -186,11 +186,18 @@ body.awaiting .aurora::before, body.awaiting .aurora::after { animation-play-sta
 @keyframes caret { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 .caret::after { content: "▋"; margin-left: 2px; animation: caret 1s steps(1) infinite; color: var(--accent); }
 
+/* instrument layers --------------------------------------------------- */
+.substrate { position: fixed; inset: 0; z-index: -3; pointer-events: none; }
+.depth { position: fixed; inset: 0; z-index: -2; pointer-events: none; }
+html[data-substrate="on"] .aurora, html[data-substrate="on"] .aurora-pulse { display: none; }
+.sigil .eyes { transform: translate(var(--eye-x, 0px), var(--eye-y, 0px)); transition: transform .12s ease; }
+.sigil[data-celebrate="true"] .corona { filter: drop-shadow(0 0 9px var(--accent)); }
+
 /* respect reduced motion --------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .aurora, .aurora::before, .aurora::after, .aurora-pulse, .grain { animation: none !important; transition: none !important; }
   .aurora { opacity: .55 !important; filter: blur(70px) !important; }
-  .aurora-pulse, .tracer, .reactor-sweep { display: none !important; }
+  .aurora-pulse, .tracer, .reactor-sweep, .substrate, .depth { display: none !important; }
   .sigil .g1, .sigil .g2, .sigil .core, .sigil[data-trust="tamper"] { animation: none !important; }
   .seg-pill { transition: none !important; }
   .loadbar::after, .orb::after, .caret::after { animation: none !important; }
