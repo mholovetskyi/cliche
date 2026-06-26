@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -275,6 +276,33 @@ func TestSetupEndpoint(t *testing.T) {
 	// Connected now → a second setup is rejected.
 	if r, _ := http.Post(ts.URL+"/api/setup", "application/json", strings.NewReader(`{"provider":"x","key":"y"}`)); r.StatusCode != http.StatusConflict {
 		t.Fatalf("second setup should be 409, got %d", r.StatusCode)
+	}
+}
+
+func TestProviderSwitchEndpoint(t *testing.T) {
+	var got [3]string
+	srv := NewServer(nil, func() State { return State{} }, nil)
+	srv.SetReconnect(func(p, k, m string) error {
+		got = [3]string{p, k, m}
+		if p == "bad" {
+			return errors.New("no key for bad")
+		}
+		return nil
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	if r, _ := http.Post(ts.URL+"/api/provider", "application/json", strings.NewReader(`{"provider":"anthropic","key":"sk","model":"claude-opus-4-8"}`)); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("switch = %d, want 204", r.StatusCode)
+	}
+	if got != [3]string{"anthropic", "sk", "claude-opus-4-8"} {
+		t.Fatalf("reconnect got %v", got)
+	}
+	if r, _ := http.Post(ts.URL+"/api/provider", "application/json", strings.NewReader(`{"provider":"bad"}`)); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a reconnect error should be 400, got %d", r.StatusCode)
+	}
+	if r, _ := http.Post(ts.URL+"/api/provider", "application/json", strings.NewReader(`{}`)); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty provider should be 400, got %d", r.StatusCode)
 	}
 }
 

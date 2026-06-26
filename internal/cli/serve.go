@@ -128,26 +128,9 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	}
 	srv.SetState(curState)
 
-	wire := func() error {
-		na, journal, ncfg, cl, err := buildAgent(f, webApprove, true)
-		if err != nil {
-			return err
-		}
-		amu.Lock()
-		a, acfg, acleanup, ajournal = na, ncfg, cl, journal
-		// Resume the most recent chat (cap-honest: Restore seeds the budget from
-		// the saved session), or start a fresh one.
-		if id := sess.Latest(f.dir); id != "" {
-			if rec, lerr := sess.Load(f.dir, id); lerr == nil {
-				na.Restore(rec.Messages, rec.Usage)
-				curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
-				curTasks, nextTaskID = rec.Tasks, maxTaskID(rec.Tasks)
-			}
-		}
-		if curID == "" {
-			curID, curCreated = sess.NewID(time.Now()), time.Now()
-		}
-		amu.Unlock()
+	// installRunner binds the run loop to a specific agent — shared by the initial
+	// wire and a live provider/model switch so the two can never drift.
+	installRunner := func(na *agent.Agent) {
 		srv.SetRunner(func(ctx context.Context, prompt string, emit func(web.Event)) error {
 			// A /<name> that matches a user command expands to its body (CLI parity);
 			// @file refs inline the file's contents. Both happen before the model sees
@@ -198,6 +181,71 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			amu.Unlock()
 			return runErr
 		})
+	}
+
+	wire := func() error {
+		na, journal, ncfg, cl, err := buildAgent(f, webApprove, true)
+		if err != nil {
+			return err
+		}
+		amu.Lock()
+		a, acfg, acleanup, ajournal = na, ncfg, cl, journal
+		// Resume the most recent chat (cap-honest: Restore seeds the budget from
+		// the saved session), or start a fresh one.
+		if id := sess.Latest(f.dir); id != "" {
+			if rec, lerr := sess.Load(f.dir, id); lerr == nil {
+				na.Restore(rec.Messages, rec.Usage)
+				curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
+				curTasks, nextTaskID = rec.Tasks, maxTaskID(rec.Tasks)
+			}
+		}
+		if curID == "" {
+			curID, curCreated = sess.NewID(time.Now()), time.Now()
+		}
+		amu.Unlock()
+		installRunner(na)
+		return nil
+	}
+
+	// reconnect rebuilds the agent on a different provider/model from the browser,
+	// WITHOUT losing the current conversation. The new agent is built first; only
+	// on success is it swapped in, so a bad key leaves the running agent untouched.
+	reconnect := func(prov, key, model string) error {
+		amu.Lock()
+		busy := running
+		amu.Unlock()
+		if busy {
+			return fmt.Errorf("a run is in progress — stop it first, then switch")
+		}
+		if key != "" {
+			if _, err := secrets.Save(prov, key); err != nil {
+				return err
+			}
+		}
+		amu.Lock()
+		prevProvider, prevModel := f.provider, f.model
+		f.provider, f.model = prov, strings.TrimSpace(model)
+		var keep []provider.Message
+		if a != nil {
+			keep = a.Transcript()
+		}
+		amu.Unlock()
+		na, journal, ncfg, cl, err := buildAgent(f, webApprove, true)
+		if err != nil {
+			amu.Lock()
+			f.provider, f.model = prevProvider, prevModel // restore the flags on failure
+			amu.Unlock()
+			return err
+		}
+		amu.Lock()
+		old := acleanup
+		a, acfg, acleanup, ajournal = na, ncfg, cl, journal
+		na.RestoreTranscript(keep) // carry the conversation across the switch (budget stays honest)
+		amu.Unlock()
+		if old != nil {
+			old()
+		}
+		installRunner(na)
 		return nil
 	}
 
@@ -219,6 +267,9 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		})
 		fmt.Fprintln(out, "  (no provider connected yet — finish setup in the browser)")
 	}
+
+	// Live provider/model switch from the browser (Settings → switch provider).
+	srv.SetReconnect(reconnect)
 
 	// Multi-chat history: list / new / switch / current, all guarded by amu and
 	// refused mid-run. Switching uses RestoreTranscript so the process-wide spend

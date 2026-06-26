@@ -7,8 +7,17 @@ import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
-  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star,
+  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
 } from "lucide-react";
+
+const PROVIDERS = [
+  { id: "anthropic", label: "Anthropic (Claude) — direct API", keyUrl: "https://console.anthropic.com", local: false },
+  { id: "openai", label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys", local: false },
+  { id: "openrouter", label: "OpenRouter — many models, one key", keyUrl: "https://openrouter.ai/keys", local: false },
+  { id: "google", label: "Google (Gemini)", keyUrl: "https://aistudio.google.com/apikey", local: false },
+  { id: "groq", label: "Groq — very fast", keyUrl: "https://console.groq.com/keys", local: false },
+  { id: "ollama", label: "Ollama — runs locally, no key", keyUrl: "", local: true },
+];
 import ShaderField from "./ShaderField";
 import DepthField from "./DepthField";
 import MemoryConstellation from "./MemoryConstellation";
@@ -481,10 +490,52 @@ function Setup({ onDone }: { onDone: () => void }) {
   );
 }
 
+function Settings({ state, onClose, onApplied }: { state: State; onClose: () => void; onApplied: () => void }) {
+  const [provider, setProvider] = useState(state.provider || "anthropic");
+  const [key, setKey] = useState("");
+  const [model, setModel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const p = PROVIDERS.find((x) => x.id === provider) || PROVIDERS[0];
+  async function apply() {
+    setBusy(true); setErr("");
+    const r = await fetch("/api/provider", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, key, model }) });
+    setBusy(false);
+    if (r.status === 204) { onApplied(); onClose(); } else setErr((await r.text()) || "could not switch provider");
+  }
+  return (
+    <div className="fade-in fixed inset-0 z-[110] grid place-items-center bg-black/55 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="glass elev pop-in w-[460px] rounded-2xl border border-[var(--line2)] p-6">
+        <div className="mb-1 flex items-center gap-2 text-sm font-semibold"><SlidersHorizontal size={16} className="text-[var(--accent)]" /> Settings</div>
+        <div className="mb-5 text-xs text-[var(--mut)]">Currently: <b className="text-[var(--ink)]">{state.provider || "—"}</b> · <span className="font-mono">{state.model || "—"}</span>{state.mode ? ` · ${state.mode}` : ""}</div>
+        <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Provider</label>
+        <select value={provider} onChange={(e) => setProvider(e.target.value)} className="field mb-3 w-full px-3 py-2 text-sm">
+          {PROVIDERS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+        </select>
+        {!p.local && (
+          <>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">API key {state.provider === provider ? "(blank = keep current)" : ""}</label>
+            <div className="field relative mb-1 flex items-center">
+              <KeyRound size={15} className="absolute left-3 text-[var(--dim)]" />
+              <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="paste your key…" className="w-full bg-transparent py-2 pl-9 pr-3 font-mono text-sm outline-none" />
+            </div>
+            {p.keyUrl && <a href={p.keyUrl} target="_blank" className="text-xs text-[var(--accent)]">get a key →</a>}
+          </>
+        )}
+        <label className="mb-1.5 mt-3 block text-xs font-medium text-[var(--mut)]">Model (optional)</label>
+        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={p.local ? "e.g. llama3.2" : "blank = the provider's strong default"} className="field w-full bg-transparent px-3 py-2 font-mono text-sm outline-none" />
+        {err && <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--accent)]"><CircleAlert size={13} /> {err}</div>}
+        <button onClick={apply} disabled={busy} className="btn-accent mt-5 w-full rounded-xl py-3 text-sm">{busy ? "switching…" : "Connect & switch"}</button>
+        <div className="mt-2 text-center text-[11px] text-[var(--dim)]">Keeps your current conversation. Your key stays on this computer.</div>
+      </div>
+    </div>
+  );
+}
+
 function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, onToggleTask, onClearTasks, onAccent, onSearch, onToggleInst, onMemory }: {
   sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean };
   onNew: () => void; onPick: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
-  onAccent: (id: string) => void; onSearch: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
+  onAccent: (id: string) => void; onSearch: () => void; onSettings: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
 }) {
   const cap = state.cap_usd || 0;
   const doneCount = tasks.filter((t) => t.done).length;
@@ -500,6 +551,7 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, o
           {quip && <div className="pop-in glass elev absolute left-0 top-9 z-30 w-52 rounded-xl border px-3 py-2 text-[12px] leading-snug text-[var(--mut)]" style={{ borderColor: trust === "tamper" ? "var(--danger)" : "var(--line2)" }}>{quip}</div>}
         </span>
         <span className="flex-1 text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
+        <button onClick={onSettings} className="icon-btn h-7 w-7" title="Settings — provider & model"><SlidersHorizontal size={15} /></button>
         <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
       </div>
       <div className="px-3 pb-1">
@@ -772,6 +824,7 @@ export default function App() {
   const [accent, setAccent] = useState("coral");
   const [inst, setInst] = useState({ substrate: false, sound: false, oracle: false });
   const [showMemory, setShowMemory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "trust">("preview");
@@ -816,7 +869,7 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((o) => !o); return; }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); return; }
-      if (e.key === "Escape") { setBooting(false); setShowKeys(false); setPaletteOpen(false); setShowMemory(false); return; }
+      if (e.key === "Escape") { setBooting(false); setShowKeys(false); setPaletteOpen(false); setShowMemory(false); setShowSettings(false); return; }
       if (isTyping() || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "?") { e.preventDefault(); setShowKeys(true); }
       else if (e.key === "g") { leaderRef.current = true; setLeader(true); leaderTimer = window.setTimeout(() => { leaderRef.current = false; setLeader(false); }, 800); }
@@ -986,6 +1039,7 @@ export default function App() {
     ...sessions.map((s) => ({ id: "sess-" + s.id, group: "Chat", label: s.title || "New chat", hint: relTime(s.updated), run: () => pickSession(s.id) })),
     ...tabs.map((t) => ({ id: "tab-" + t.id, group: "View", label: String(t.label).replace(/ ·.*/, ""), run: () => setTab(t.id) })),
     { id: "mem", group: "Go", label: "Memory — fly through past sessions", run: () => setShowMemory(true) },
+    { id: "settings", group: "Go", label: "Settings — switch provider / model / key", run: () => setShowSettings(true) },
     { id: "i-sub", group: "Live", label: `Living substrate — ${inst.substrate ? "on" : "off"}`, run: () => toggleInst("substrate") },
     { id: "i-snd", group: "Live", label: `Sound — the agent's score — ${inst.sound ? "on" : "off"}`, run: () => toggleInst("sound") },
     { id: "i-ora", group: "Live", label: `Oracle — the Sigil speaks — ${inst.oracle ? "on" : "off"}`, run: () => toggleInst("oracle") },
@@ -1005,12 +1059,13 @@ export default function App() {
       {booting && <Boot />}
       {celebrate && <Sparks origin={{ x: 32, y: 26 }} onDone={() => setCelebrate(false)} />}
       {showMemory && <MemoryConstellation sessions={sessions} relTime={relTime} onPick={pickSession} onClose={() => setShowMemory(false)} />}
+      {showSettings && <Settings state={state} onClose={() => setShowSettings(false)} onApplied={() => { refreshState(); fetch("/api/models").then((r) => r.json()).then(setModels).catch(() => {}); }} />}
       {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
       {showKeys && <KeysOverlay onClose={() => setShowKeys(false)} />}
       {leader && <div className="fade-up glass elev fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--mut)]">go to <span className="kbd">p</span><span className="kbd">f</span><span className="kbd">c</span><span className="kbd">t</span><span className="kbd">n</span></div>}
       <div className="relative flex h-full">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
 
       {/* conversation */}
       <section className="flex min-w-0 flex-1 flex-col">

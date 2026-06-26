@@ -51,7 +51,8 @@ type Server struct {
 	templates  []Template
 	previewDir string // project root, served read-only at /preview/ for the live preview iframe
 	audit      func() AuditView
-	setup      func(provider, key string) error // first-run: connect a provider (no terminal needed)
+	setup      func(provider, key string) error        // first-run: connect a provider (no terminal needed)
+	reconnect  func(provider, key, model string) error // live provider/model switch (Settings)
 
 	sessions    func() []SessionMeta
 	sessionNew  func() string
@@ -217,6 +218,36 @@ func (s *Server) SetAudit(f func() AuditView) { s.audit = f }
 // build the agent), so a non-technical user never has to touch a terminal.
 func (s *Server) SetSetup(f func(provider, key string) error) { s.setup = f }
 
+// SetReconnect binds the live provider/model switch (Settings) — rebuilds the
+// agent on a new provider/model without dropping the conversation.
+func (s *Server) SetReconnect(f func(provider, key, model string) error) { s.reconnect = f }
+
+func (s *Server) handleProvider(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.reconnect == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Provider string `json:"provider"`
+		Key      string `json:"key"`
+		Model    string `json:"model"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || body.Provider == "" {
+		http.Error(w, "expected {\"provider\":\"…\",\"key\":\"…\",\"model\":\"…\"}", http.StatusBadRequest)
+		return
+	}
+	if err := s.reconnect(body.Provider, body.Key, body.Model); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.hub.Emit(Event{Kind: "state", Data: s.snapshot(s.isRunning())})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -321,6 +352,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/audit", s.handleAudit)
 	mux.HandleFunc("/api/export", s.handleExport)
 	mux.HandleFunc("/api/setup", s.handleSetup)
+	mux.HandleFunc("/api/provider", s.handleProvider)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/sessions/new", s.handleSessionNew)
 	mux.HandleFunc("/api/sessions/select", s.handleSessionSelect)
