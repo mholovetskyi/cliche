@@ -90,7 +90,9 @@ func diffLines(a, b []string) []op {
 
 // renderDiff shows only changed lines (the -/+ ops), the most compact view for
 // an approval prompt, capped at maxPreviewLines with a tail summary of what was
-// elided so the preview never misrepresents the size of the change.
+// elided so the preview never misrepresents the size of the change. A single
+// line replaced in place (one '-' immediately followed by one '+') gets a
+// word-level highlight so the eye lands on exactly what changed.
 func renderDiff(ops []op) string {
 	var removed, added int
 	for _, o := range ops {
@@ -101,38 +103,108 @@ func renderDiff(ops []op) string {
 			added++
 		}
 	}
+	// Collect just the changed lines, in order.
+	var changed []op
+	for _, o := range ops {
+		if o.kind != ' ' {
+			changed = append(changed, o)
+		}
+	}
+
 	var b strings.Builder
 	// Color is applied HERE, where the op kind is known — not by re-parsing the
 	// rendered string for a leading -/+ (which mis-tints content that legitimately
 	// starts with - or +, e.g. a YAML "- item" or a "--force" flag).
 	b.WriteString(style.Gray(fmt.Sprintf("%d removed / %d added", removed, added)))
-	shown := 0
-	var shownRem, shownAdd int
-	for _, o := range ops {
-		if o.kind == ' ' {
+	i, shown := 0, 0
+	for i < len(changed) && shown < maxPreviewLines {
+		o := changed[i]
+		// An ISOLATED '-' immediately followed by a '+' (no adjacent '-' before or
+		// '+' after) is a single-line replacement: highlight only the words that
+		// differ. A multi-line block replace falls through to plain lines so we
+		// never pair an unrelated removal with an addition.
+		isolatedReplace := o.kind == '-' &&
+			i+1 < len(changed) && changed[i+1].kind == '+' &&
+			(i == 0 || changed[i-1].kind != '-') &&
+			(i+2 >= len(changed) || changed[i+2].kind != '+')
+		if isolatedReplace {
+			oldS, newS := intralineDiff(o.text, changed[i+1].text)
+			b.WriteString("\n" + style.Red("    - ") + oldS)
+			b.WriteString("\n" + style.Green("    + ") + newS)
+			i += 2
+			shown += 2
 			continue
 		}
-		if shown >= maxPreviewLines {
-			break
-		}
-		line := fmt.Sprintf("    %c %s", o.kind, clipPreview(o.text))
-		switch o.kind {
-		case '-':
-			b.WriteString("\n" + style.Red(line))
-		case '+':
-			b.WriteString("\n" + style.Green(line)) // additions are now visible, not blank
-		}
-		shown++
+		line := clipPreview(o.text)
 		if o.kind == '-' {
-			shownRem++
+			b.WriteString("\n" + style.Red("    - "+line))
 		} else {
-			shownAdd++
+			b.WriteString("\n" + style.Green("    + "+line))
 		}
+		i++
+		shown++
 	}
-	if rem := (removed - shownRem) + (added - shownAdd); rem > 0 {
+	if rem := len(changed) - i; rem > 0 {
 		b.WriteString("\n" + style.Gray(fmt.Sprintf("    … %d more changed line(s)", rem)))
 	}
 	return b.String()
+}
+
+// diff token tints: the unchanged parts of a changed line stay a muted version of
+// the line color, so the bright bold word(s) that actually differ stand out.
+var (
+	diffOldDim = style.RGB{R: 152, G: 82, B: 84}
+	diffNewDim = style.RGB{R: 96, G: 142, B: 100}
+)
+
+// intralineDiff word-diffs a replaced line and returns the two styled halves: the
+// shared tokens muted, the differing tokens bright + bold. Content is preserved
+// exactly (the escapes carry zero display width); under NO_COLOR it returns the
+// two lines plain.
+func intralineDiff(oldText, newText string) (string, string) {
+	oldC, newC := clipPreview(oldText), clipPreview(newText)
+	if !style.Enabled {
+		return oldC, newC
+	}
+	ops := diffLines(tokenize(oldC), tokenize(newC)) // same LCS, over word tokens
+	var ob, nb strings.Builder
+	for _, o := range ops {
+		switch o.kind {
+		case ' ':
+			ob.WriteString(style.Color(o.text, diffOldDim))
+			nb.WriteString(style.Color(o.text, diffNewDim))
+		case '-':
+			ob.WriteString(style.BoldRed(o.text))
+		case '+':
+			nb.WriteString(style.BoldGreen(o.text))
+		}
+	}
+	return ob.String(), nb.String()
+}
+
+// tokenize splits a line into maximal runs of word vs non-word runes, so a
+// word-level diff aligns on words and punctuation rather than characters.
+func tokenize(s string) []string {
+	rs := []rune(s)
+	var toks []string
+	for i := 0; i < len(rs); {
+		w := isWordRune(rs[i])
+		j := i + 1
+		for j < len(rs) && isWordRune(rs[j]) == w {
+			j++
+		}
+		toks = append(toks, string(rs[i:j]))
+		i = j
+	}
+	return toks
+}
+
+func isWordRune(r rune) bool {
+	return r == '_' ||
+		(r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') ||
+		r >= 0x80 // keep multibyte runs grouped
 }
 
 func clipPreview(s string) string {
