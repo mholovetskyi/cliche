@@ -8,7 +8,7 @@ import {
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
   FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
-  GitBranch, AtSign,
+  GitBranch, AtSign, PanelRight,
 } from "lucide-react";
 
 type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
@@ -184,6 +184,8 @@ const COMMANDS: { cmd: string; desc: string; arg?: boolean }[] = [
   { cmd: "preview", desc: "Show the live preview" },
   { cmd: "files", desc: "Show the file tree" },
   { cmd: "trust", desc: "Show the trust ledger + rules" },
+  { cmd: "focus", desc: "Chat only — hide the side panel (⌘\\)" },
+  { cmd: "split", desc: "Show the side panel" },
   { cmd: "export", desc: "Download the project (.zip)" },
 ];
 type Item =
@@ -382,6 +384,7 @@ const SHORTCUTS = [
   { keys: "⌘K", desc: "Command palette" },
   { keys: "⌘N", desc: "New chat" },
   { keys: "?", desc: "This cheat-sheet" },
+  { keys: "⌘\\", desc: "Hide / show the side panel (chat only)" },
   { keys: "g p / f / c / t", desc: "Go to Preview / Files / Changes / Trust" },
   { keys: "g n", desc: "New chat" },
   { keys: "/", desc: "Slash commands" },
@@ -915,6 +918,7 @@ export default function App() {
   const [showMemory, setShowMemory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem("cliche-workspace") !== "off"; } catch { return true; } });
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "git" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -958,6 +962,7 @@ export default function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((o) => !o); return; }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key === "\\") { e.preventDefault(); setWorkspaceOpen((v) => { try { localStorage.setItem("cliche-workspace", v ? "off" : "on"); } catch { /* */ } return !v; }); return; }
       if (e.key === "Escape") { setBooting(false); setShowKeys(false); setPaletteOpen(false); setShowMemory(false); setShowSettings(false); return; }
       if (isTyping() || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "?") { e.preventDefault(); setShowKeys(true); }
@@ -967,6 +972,9 @@ export default function App() {
     return () => { clearTimeout(t); window.clearTimeout(leaderTimer); window.removeEventListener("keydown", onKey); };
   }, []);
   function setAccentTheme(id: string) { setAccent(id); applyAccent(id); }
+  const persistWs = (on: boolean) => { try { localStorage.setItem("cliche-workspace", on ? "on" : "off"); } catch { /* ignore */ } };
+  const toggleWs = () => setWorkspaceOpen((v) => { persistWs(!v); return !v; });
+  const showWs = () => { setWorkspaceOpen(true); persistWs(true); };
   function toggleInst(k: "substrate" | "sound" | "oracle") {
     const on = !inst[k];
     if (k === "substrate") { setFlag("cliche-substrate", on); document.documentElement.setAttribute("data-substrate", on ? "on" : "off"); }
@@ -1087,11 +1095,13 @@ export default function App() {
       case "model": if (arg) { setModel(arg); return true; } return false;
       case "undo": undo(); return true;
       case "rewind": rewind(); return true;
-      case "changes": case "diff": setTab("changes"); return true;
-      case "git": case "commit": case "pr": setTab("git"); return true;
-      case "preview": setTab("preview"); return true;
-      case "files": setTab("files"); return true;
-      case "trust": case "rules": case "status": setTab("trust"); return true;
+      case "changes": case "diff": showWs(); setTab("changes"); return true;
+      case "git": case "commit": case "pr": showWs(); setTab("git"); return true;
+      case "preview": showWs(); setTab("preview"); return true;
+      case "files": showWs(); setTab("files"); return true;
+      case "trust": case "rules": case "status": showWs(); setTab("trust"); return true;
+      case "focus": case "chat": setWorkspaceOpen(false); persistWs(false); return true;
+      case "split": case "panel": showWs(); return true;
       case "export": window.location.href = "/api/export"; return true;
       default: return false;
     }
@@ -1190,6 +1200,9 @@ export default function App() {
             {state.model && !models.some((m) => m.model === state.model) && <option value={state.model}>{state.model}</option>}
             {models.map((m) => <option key={m.model} value={m.model}>{m.model}</option>)}
           </select>
+          <button onClick={toggleWs} className={`icon-btn h-8 w-8 ${workspaceOpen ? "text-[var(--accent)]" : ""}`} title={workspaceOpen ? "Hide the panel — chat only (⌘\\)" : "Show the panel (⌘\\)"}>
+            <PanelRight size={16} />
+          </button>
         </header>
 
         <div ref={feedRef} className="flex-1 overflow-auto">
@@ -1248,6 +1261,7 @@ export default function App() {
       </section>
 
       {/* workspace */}
+      {workspaceOpen && (
       <aside className="flex w-[42%] min-w-[360px] flex-col border-l border-[var(--line)]">
         <div className="flex h-[52px] items-center gap-2 border-b border-[var(--line)] px-3">
           <div ref={tabBarRef} className="seg seg-morph">
@@ -1309,6 +1323,7 @@ export default function App() {
         {tab === "git" && <GitPanel onAsk={run} onChanged={() => { refreshChanges(); refreshFiles(); }} />}
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
+      )}
       </div>
     </>
   );
