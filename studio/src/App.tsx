@@ -6,7 +6,7 @@ import hljs from "highlight.js";
 import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
-  MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight,
+  MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
 } from "lucide-react";
 
 type Ev = { kind: string; text?: string; data?: any };
@@ -16,6 +16,28 @@ type Audit = { ok: boolean; entries: number; verified: number; usd: number; turn
 type SessionMeta = { id: string; title: string; model: string; updated: string; messages: number; active: boolean };
 type FileNode = { name: string; path: string; dir: boolean; children?: FileNode[] };
 type Msg = { role: string; text: string };
+type ModelInfo = { model: string; input_per_m: number; output_per_m: number };
+
+const MODES = [
+  { id: "plan", label: "Plan", hint: "read-only" },
+  { id: "suggest", label: "Suggest", hint: "ask each step" },
+  { id: "auto-edit", label: "Auto-edit", hint: "auto-apply edits" },
+  { id: "full", label: "Full", hint: "auto-approve all" },
+];
+
+const COMMANDS: { cmd: string; desc: string; arg?: boolean }[] = [
+  { cmd: "new", desc: "Start a new chat" },
+  { cmd: "stop", desc: "Stop the current run" },
+  { cmd: "plan", desc: "Mode → read-only" },
+  { cmd: "suggest", desc: "Mode → ask before each action" },
+  { cmd: "auto", desc: "Mode → auto-apply edits" },
+  { cmd: "full", desc: "Mode → auto-approve everything" },
+  { cmd: "model", desc: "Switch model", arg: true },
+  { cmd: "preview", desc: "Show the live preview" },
+  { cmd: "files", desc: "Show the file tree" },
+  { cmd: "trust", desc: "Show the trust ledger" },
+  { cmd: "export", desc: "Download the project (.zip)" },
+];
 type Item =
   | { t: "you"; text: string }
   | { t: "assistant"; text: string }
@@ -282,6 +304,7 @@ export default function App() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [audit, setAudit] = useState<Audit | null>(null);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [models, setModels] = useState<ModelInfo[]>([]);
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -298,6 +321,7 @@ export default function App() {
     fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
     fetch("/api/templates").then((r) => r.json()).then(setTemplates).catch(() => {});
     fetch("/api/session").then((r) => r.json()).then((d) => setItems(msgsToItems(d.messages || []))).catch(() => {});
+    fetch("/api/models").then((r) => r.json()).then(setModels).catch(() => {});
     refreshSessions(); refreshAudit(); refreshFiles();
     const es = new EventSource("/api/events");
     es.onmessage = (m) => {
@@ -327,6 +351,42 @@ export default function App() {
     const r = await fetch("/api/sessions/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     const d = await r.json(); setItems(msgsToItems(d.messages || [])); refreshSessions();
   }
+  const refreshState = () => fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
+  async function setMode(mode: string) {
+    await fetch("/api/mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
+    refreshState();
+  }
+  async function setModel(model: string) {
+    await fetch("/api/model", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
+    refreshState();
+  }
+  function stop() { fetch("/api/stop", { method: "POST" }); }
+
+  // runCommand interprets a /slash entry the way the CLI does. Returns true if it
+  // was a recognized command (so it isn't sent to the model as a prompt).
+  function runCommand(line: string): boolean {
+    const [cmd, ...rest] = line.slice(1).split(/\s+/);
+    const arg = rest.join(" ").trim();
+    switch (cmd) {
+      case "new": case "clear": newChat(); return true;
+      case "stop": stop(); return true;
+      case "plan": case "suggest": case "full": setMode(cmd); return true;
+      case "auto": case "auto-edit": setMode("auto-edit"); return true;
+      case "mode": if (arg) { setMode(arg === "auto" ? "auto-edit" : arg); return true; } return false;
+      case "model": if (arg) { setModel(arg); return true; } return false;
+      case "preview": setTab("preview"); return true;
+      case "files": setTab("files"); return true;
+      case "trust": setTab("trust"); return true;
+      case "export": window.location.href = "/api/export"; return true;
+      default: return false;
+    }
+  }
+  function submit() {
+    const p = prompt.trim();
+    if (p.startsWith("/") && runCommand(p)) { setPrompt(""); return; }
+    run(p);
+  }
+
   async function openFileAt(path: string) {
     const r = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
     if (!r.ok) return;
@@ -351,11 +411,24 @@ export default function App() {
 
       {/* conversation */}
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center gap-3 border-b border-[var(--line)] px-5">
-          <span className="truncate text-sm font-medium">{activeTitle || "New chat"}</span>
-          {state.mode && <span className="rounded-full border border-[var(--line)] px-2 py-0.5 font-mono text-[11px] uppercase tracking-wider text-[var(--mut)]">{state.mode}</span>}
-          <span className="flex-1" />
+        <header className="flex h-14 items-center gap-2 border-b border-[var(--line)] px-5">
+          <span className="min-w-0 truncate text-sm font-medium">{activeTitle || "New chat"}</span>
           {state.running && <span className="pulse-soft flex items-center gap-1 text-xs text-[var(--accent)]"><Sparkles size={13} /> working</span>}
+          <span className="flex-1" />
+          {state.running && (
+            <button onClick={stop} className="flex items-center gap-1.5 rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/[0.08] px-2.5 py-1 text-xs text-[var(--accent)] hover:bg-[var(--accent)]/[0.15]" title="Stop the run (Esc)">
+              <Square size={11} /> Stop
+            </button>
+          )}
+          <select value={state.mode || "suggest"} onChange={(e) => setMode(e.target.value)} title="Permission mode"
+            className="rounded-lg border border-[var(--line)] bg-black/30 px-2 py-1 text-xs text-[var(--mut)] outline-none hover:text-[var(--ink)] focus:border-[var(--accent)]">
+            {MODES.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.hint}</option>)}
+          </select>
+          <select value={state.model || ""} onChange={(e) => setModel(e.target.value)} title="Model"
+            className="max-w-[180px] rounded-lg border border-[var(--line)] bg-black/30 px-2 py-1 font-mono text-xs text-[var(--mut)] outline-none hover:text-[var(--ink)] focus:border-[var(--accent)]">
+            {state.model && !models.some((m) => m.model === state.model) && <option value={state.model}>{state.model}</option>}
+            {models.map((m) => <option key={m.model} value={m.model}>{m.model}</option>)}
+          </select>
         </header>
         <div ref={feedRef} className="flex-1 overflow-auto">
           {items.length === 0 ? <Welcome templates={templates} onPick={run} /> : (
@@ -365,10 +438,24 @@ export default function App() {
           )}
         </div>
         <div className="px-5 pb-5">
-          <form onSubmit={(e) => { e.preventDefault(); run(prompt); }} className="surface mx-auto flex max-w-3xl items-center gap-2 rounded-2xl p-2 pl-4 shadow-xl focus-within:border-[var(--accent)]/60">
-            <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what you want to build…" autoFocus className="flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
-            <button disabled={state.running || !prompt.trim()} className="btn-accent grid h-9 w-9 place-items-center rounded-xl" title="Build"><ArrowUp size={18} /></button>
-          </form>
+          <div className="mx-auto max-w-3xl">
+            {prompt.startsWith("/") && (
+              <div className="surface mb-2 overflow-hidden rounded-xl shadow-xl">
+                {COMMANDS.filter((c) => ("/" + c.cmd).startsWith(prompt.split(/\s+/)[0])).slice(0, 7).map((c) => (
+                  <button key={c.cmd} type="button"
+                    onClick={() => { if (c.arg) setPrompt("/" + c.cmd + " "); else { runCommand("/" + c.cmd); setPrompt(""); } }}
+                    className="flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-white/[0.05]">
+                    <span className="font-mono text-[var(--accent)]">/{c.cmd}</span>
+                    <span className="text-[var(--mut)]">{c.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="surface flex items-center gap-2 rounded-2xl p-2 pl-4 shadow-xl focus-within:border-[var(--accent)]/60">
+              <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what you want to build…   ( / for commands )" autoFocus className="flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
+              <button disabled={(state.running && !prompt.startsWith("/")) || !prompt.trim()} className="btn-accent grid h-9 w-9 place-items-center rounded-xl" title="Build"><ArrowUp size={18} /></button>
+            </form>
+          </div>
         </div>
       </section>
 

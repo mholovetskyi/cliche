@@ -59,6 +59,24 @@ type Server struct {
 	sessionCur  func() (string, []Msg)
 	files       func() []FileNode
 	fileRead    func(rel string) (string, bool)
+
+	cancel     context.CancelFunc // cancels the in-flight run (Stop)
+	setModeFn  func(mode string) bool
+	modelsFn   func() []ModelInfo
+	setModelFn func(model string)
+}
+
+// ModelInfo is one selectable model + its price (for the model picker).
+type ModelInfo struct {
+	Model      string  `json:"model"`
+	InputPerM  float64 `json:"input_per_m"`
+	OutputPerM float64 `json:"output_per_m"`
+}
+
+// SetControls wires the CLI-parity controls: change permission mode, list
+// models, switch model — the same levers /mode and /model pull in the terminal.
+func (s *Server) SetControls(setMode func(string) bool, models func() []ModelInfo, setModel func(string)) {
+	s.setModeFn, s.modelsFn, s.setModelFn = setMode, models, setModel
 }
 
 // SessionMeta is a saved chat shown in the sidebar.
@@ -240,6 +258,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
+	mux.HandleFunc("/api/stop", s.handleStop)
+	mux.HandleFunc("/api/mode", s.handleMode)
+	mux.HandleFunc("/api/models", s.handleModels)
+	mux.HandleFunc("/api/model", s.handleModel)
 	// The live preview serves the project files (what the agent is building) so
 	// an iframe can show the result. Localhost-only, the user's own files;
 	// http.Dir blocks path traversal outside the root.
@@ -489,22 +511,90 @@ func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "a run is already in progress", http.StatusConflict)
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	s.running = true
+	s.cancel = cancel
 	s.mu.Unlock()
 
 	go func() {
 		s.hub.Emit(Event{Kind: "state", Data: s.snapshot(true)})
-		err := s.run(context.Background(), body.Prompt, s.hub.Emit)
+		err := s.run(ctx, body.Prompt, s.hub.Emit)
 		if err != nil {
 			s.hub.Emit(Event{Kind: "error", Text: err.Error()})
 		}
 		s.mu.Lock()
 		s.running = false
+		s.cancel = nil
 		s.mu.Unlock()
 		s.hub.Emit(Event{Kind: "end"})
 		s.hub.Emit(Event{Kind: "state", Data: s.snapshot(false)})
 	}()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleStop aborts the in-flight run (the web equivalent of Ctrl-C / Esc).
+func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.Lock()
+	c := s.cancel
+	s.mu.Unlock()
+	if c != nil {
+		c()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&body); err != nil || body.Mode == "" {
+		http.Error(w, "expected {\"mode\":\"…\"}", http.StatusBadRequest)
+		return
+	}
+	if s.setModeFn == nil || !s.setModeFn(body.Mode) {
+		http.Error(w, "unknown mode", http.StatusBadRequest)
+		return
+	}
+	s.hub.Emit(Event{Kind: "state", Data: s.snapshot(s.isRunning())})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	list := []ModelInfo{}
+	if s.modelsFn != nil {
+		if got := s.modelsFn(); got != nil {
+			list = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(list)
+}
+
+func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&body); err != nil || body.Model == "" {
+		http.Error(w, "expected {\"model\":\"…\"}", http.StatusBadRequest)
+		return
+	}
+	if s.setModelFn != nil {
+		s.setModelFn(body.Model)
+	}
+	s.hub.Emit(Event{Kind: "state", Data: s.snapshot(s.isRunning())})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleState(w http.ResponseWriter, _ *http.Request) {

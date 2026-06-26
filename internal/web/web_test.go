@@ -378,6 +378,77 @@ func TestFileEndpoints(t *testing.T) {
 	r.Body.Close()
 }
 
+func TestControlEndpoints(t *testing.T) {
+	var gotMode, gotModel string
+	srv := NewServer(nil, func() State { return State{Mode: "suggest"} }, nil)
+	srv.SetControls(
+		func(m string) bool {
+			if m == "bogus" {
+				return false
+			}
+			gotMode = m
+			return true
+		},
+		func() []ModelInfo { return []ModelInfo{{Model: "gpt-4o", InputPerM: 2.5, OutputPerM: 10}} },
+		func(m string) { gotModel = m },
+	)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	if r, _ := http.Post(ts.URL+"/api/mode", "application/json", strings.NewReader(`{"mode":"plan"}`)); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("mode = %d, want 204", r.StatusCode)
+	}
+	if gotMode != "plan" {
+		t.Fatalf("mode not applied: %q", gotMode)
+	}
+	if r, _ := http.Post(ts.URL+"/api/mode", "application/json", strings.NewReader(`{"mode":"bogus"}`)); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown mode should 400, got %d", r.StatusCode)
+	}
+
+	var ms []ModelInfo
+	r, _ := http.Get(ts.URL + "/api/models")
+	_ = json.NewDecoder(r.Body).Decode(&ms)
+	r.Body.Close()
+	if len(ms) != 1 || ms[0].Model != "gpt-4o" {
+		t.Fatalf("models wrong: %+v", ms)
+	}
+
+	if r, _ := http.Post(ts.URL+"/api/model", "application/json", strings.NewReader(`{"model":"gpt-4o"}`)); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("model = %d, want 204", r.StatusCode)
+	}
+	if gotModel != "gpt-4o" {
+		t.Fatalf("model not switched: %q", gotModel)
+	}
+}
+
+func TestStopCancelsRun(t *testing.T) {
+	started := make(chan struct{})
+	run := func(ctx context.Context, _ string, _ func(Event)) error {
+		close(started)
+		<-ctx.Done() // blocks until /api/stop cancels the context
+		return ctx.Err()
+	}
+	srv := NewServer(run, func() State { return State{} }, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	_, _ = http.Post(ts.URL+"/api/prompt", "application/json", strings.NewReader(`{"prompt":"go"}`))
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("run never started")
+	}
+	if r, _ := http.Post(ts.URL+"/api/stop", "application/json", nil); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("stop = %d, want 204", r.StatusCode)
+	}
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if !srv.isRunning() {
+			return // run unblocked after cancel — success
+		}
+	}
+	t.Fatal("run did not stop after /api/stop")
+}
+
 func TestStateEndpoint(t *testing.T) {
 	srv := NewServer(nil, func() State { return State{Model: "claude", SpentUSD: 0.5, CapUSD: 5} }, nil)
 	ts := httptest.NewServer(srv.Handler())

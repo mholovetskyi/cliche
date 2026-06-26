@@ -15,6 +15,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
+	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/web"
@@ -61,9 +62,34 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		curID      string    // current session id (persisted to .cliche/sessions)
 		curTitle   string    // session title (first prompt)
 		curCreated time.Time // session start
+		curMode    = f.mode  // permission mode (mutable from the web, like /mode)
 		running    bool      // a run is in flight → session switches are refused
 	)
 	defer func() { acleanup() }()
+
+	// webApprove is the agent's approver in the web app — it applies the live
+	// permission mode exactly like the CLI's approver (plan blocks writes/commands,
+	// full auto-approves, auto-edit auto-approves writes), and only suggest mode
+	// falls through to a browser Allow/Not-now card. The Trust Kernel's deny rules
+	// and caps still enforce underneath every mode.
+	webApprove := func(action, detail string) bool {
+		amu.Lock()
+		m := curMode
+		amu.Unlock()
+		switch m {
+		case modePlan:
+			if action == "write" || action == "run" {
+				return false
+			}
+		case modeFull:
+			return true
+		case modeAutoEdit:
+			if action == "write" {
+				return true
+			}
+		}
+		return srv.Approve(action, detail)
+	}
 
 	// persist saves the live session to disk. Caller holds amu.
 	persist := func() {
@@ -82,17 +108,17 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 
 	curState := func() web.State {
 		amu.Lock()
-		cur, c := a, acfg
+		cur, c, m := a, acfg, curMode
 		amu.Unlock()
 		if cur == nil {
-			return web.State{Mode: f.mode, NeedsSetup: true}
+			return web.State{Mode: m, NeedsSetup: true}
 		}
-		return webState(cur, c, f.mode)
+		return webState(cur, c, m)
 	}
 	srv.SetState(curState)
 
 	wire := func() error {
-		na, _, ncfg, cl, err := buildAgent(f, srv.Approve, true)
+		na, _, ncfg, cl, err := buildAgent(f, webApprove, true)
 		if err != nil {
 			return err
 		}
@@ -224,6 +250,34 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	srv.SetFiles(
 		func() []web.FileNode { return fileTree(previewDir) },
 		func(rel string) (string, bool) { return readProjectFile(previewDir, rel) },
+	)
+
+	// CLI-parity controls: switch permission mode, list models with pricing, and
+	// switch the active model — the web equivalents of /mode and /model.
+	srv.SetControls(
+		func(m string) bool {
+			if !validMode(m) {
+				return false
+			}
+			amu.Lock()
+			curMode = m
+			amu.Unlock()
+			return true
+		},
+		func() []web.ModelInfo {
+			var out []web.ModelInfo
+			for _, e := range pricing.Models() {
+				out = append(out, web.ModelInfo{Model: e.Model, InputPerM: e.Price.InputPerM, OutputPerM: e.Price.OutputPerM})
+			}
+			return out
+		},
+		func(m string) {
+			amu.Lock()
+			if a != nil {
+				a.SetModel(m)
+			}
+			amu.Unlock()
+		},
 	)
 
 	ln, err := listenLocal()
