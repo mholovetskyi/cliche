@@ -17,13 +17,14 @@ import (
 
 // State is the trust snapshot the UI shows in its header (spend, caps, model).
 type State struct {
-	Model    string  `json:"model"`
-	Provider string  `json:"provider"`
-	Mode     string  `json:"mode"`
-	SpentUSD float64 `json:"spent_usd"`
-	CapUSD   float64 `json:"cap_usd"`
-	CtxFrac  float64 `json:"ctx_frac"`
-	Running  bool    `json:"running"`
+	Model      string  `json:"model"`
+	Provider   string  `json:"provider"`
+	Mode       string  `json:"mode"`
+	SpentUSD   float64 `json:"spent_usd"`
+	CapUSD     float64 `json:"cap_usd"`
+	CtxFrac    float64 `json:"ctx_frac"`
+	Running    bool    `json:"running"`
+	NeedsSetup bool    `json:"needs_setup"` // no provider connected yet → show the welcome/setup screen
 }
 
 // Runner executes one prompt, emitting events as the agent works. It is injected
@@ -50,6 +51,7 @@ type Server struct {
 	templates  []Template
 	previewDir string // project root, served read-only at /preview/ for the live preview iframe
 	audit      func() AuditView
+	setup      func(provider, key string) error // first-run: connect a provider (no terminal needed)
 }
 
 // Template is a one-click starting point for a non-technical user — a friendly
@@ -81,6 +83,35 @@ type AuditView struct {
 
 // SetAudit binds the function that reads the (signed, hash-chained) ledger.
 func (s *Server) SetAudit(f func() AuditView) { s.audit = f }
+
+// SetSetup binds the first-run connect callback (save a key / pick a provider and
+// build the agent), so a non-technical user never has to touch a terminal.
+func (s *Server) SetSetup(f func(provider, key string) error) { s.setup = f }
+
+func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.setup == nil {
+		http.Error(w, "already set up", http.StatusConflict)
+		return
+	}
+	var body struct {
+		Provider string `json:"provider"`
+		Key      string `json:"key"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || body.Provider == "" {
+		http.Error(w, "expected {\"provider\":\"…\",\"key\":\"…\"}", http.StatusBadRequest)
+		return
+	}
+	if err := s.setup(body.Provider, body.Key); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.setup = nil // connected; the welcome screen gives way to the app
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func NewServer(run Runner, state func() State, static fs.FS) *Server {
 	return &Server{hub: NewHub(), run: run, state: state, static: static, approvals: map[string]chan bool{}}
@@ -160,6 +191,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/audit", s.handleAudit)
 	mux.HandleFunc("/api/export", s.handleExport)
+	mux.HandleFunc("/api/setup", s.handleSetup)
 	// The live preview serves the project files (what the agent is building) so
 	// an iframe can show the result. Localhost-only, the user's own files;
 	// http.Dir blocks path traversal outside the root.

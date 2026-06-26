@@ -258,6 +258,35 @@ func TestAuditEndpoint(t *testing.T) {
 	}
 }
 
+func TestSetupEndpoint(t *testing.T) {
+	var got string
+	srv := NewServer(nil, nil, nil)
+	srv.SetSetup(func(p, k string) error { got = p + ":" + k; return nil })
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	if r, _ := http.Post(ts.URL+"/api/setup", "application/json", strings.NewReader(`{"provider":"groq","key":"gsk_x"}`)); r.StatusCode != http.StatusNoContent {
+		t.Fatalf("setup = %d, want 204", r.StatusCode)
+	}
+	if got != "groq:gsk_x" {
+		t.Fatalf("setup callback got %q", got)
+	}
+	// Connected now → a second setup is rejected.
+	if r, _ := http.Post(ts.URL+"/api/setup", "application/json", strings.NewReader(`{"provider":"x","key":"y"}`)); r.StatusCode != http.StatusConflict {
+		t.Fatalf("second setup should be 409, got %d", r.StatusCode)
+	}
+}
+
+func TestSetupRejectsEmptyProvider(t *testing.T) {
+	srv := NewServer(nil, nil, nil)
+	srv.SetSetup(func(p, k string) error { return nil })
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	if r, _ := http.Post(ts.URL+"/api/setup", "application/json", strings.NewReader(`{}`)); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty provider should be 400, got %d", r.StatusCode)
+	}
+}
+
 func TestStateEndpoint(t *testing.T) {
 	srv := NewServer(nil, func() State { return State{Model: "claude", SpentUSD: 0.5, CapUSD: 5} }, nil)
 	ts := httptest.NewServer(srv.Handler())

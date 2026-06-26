@@ -83,6 +83,64 @@ function ApprovalCard({ it, onAnswer }: { it: Extract<Item, { t: "approval" }>; 
   );
 }
 
+const PROVIDERS: { id: string; label: string; keyUrl?: string; local?: boolean }[] = [
+  { id: "anthropic", label: "Anthropic (Claude)", keyUrl: "https://console.anthropic.com" },
+  { id: "openai", label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys" },
+  { id: "openrouter", label: "OpenRouter (many models, one key)", keyUrl: "https://openrouter.ai/keys" },
+  { id: "google", label: "Google (Gemini)", keyUrl: "https://aistudio.google.com/apikey" },
+  { id: "groq", label: "Groq (very fast)", keyUrl: "https://console.groq.com/keys" },
+  { id: "ollama", label: "Ollama — runs locally, no key", local: true },
+];
+
+function Setup({ onDone }: { onDone: () => void }) {
+  const [provider, setProvider] = useState("anthropic");
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const p = PROVIDERS.find((x) => x.id === provider)!;
+
+  async function connect() {
+    setBusy(true);
+    setErr("");
+    const r = await fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, key }) });
+    setBusy(false);
+    if (r.status === 204) onDone();
+    else setErr((await r.text()) || "could not connect");
+  }
+
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="w-[440px] rounded-2xl border border-line bg-panel p-7">
+        <div className="mb-1 font-mono text-lg font-bold">welcome to cli<span className="text-accent">che</span> studio</div>
+        <p className="mb-6 text-sm text-mut">Connect a model to get started. Your key stays on this computer.</p>
+
+        <label className="mb-1 block text-xs text-mut">Provider</label>
+        <select value={provider} onChange={(e) => setProvider(e.target.value)} className="mb-4 w-full rounded-lg border border-line bg-bg px-3 py-2 outline-none focus:border-accent">
+          {PROVIDERS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+        </select>
+
+        {!p.local && (
+          <>
+            <label className="mb-1 block text-xs text-mut">API key</label>
+            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="paste your key…" className="mb-2 w-full rounded-lg border border-line bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" />
+            {p.keyUrl && <a href={p.keyUrl} target="_blank" className="text-xs text-accent">get a key →</a>}
+          </>
+        )}
+        {p.local && <p className="mb-2 text-xs text-mut">Make sure Ollama is running on your machine — no key needed.</p>}
+
+        {err && <div className="mt-3 text-xs text-[#ff5a4d]">{err}</div>}
+        <button
+          onClick={connect}
+          disabled={busy || (!p.local && !key.trim())}
+          className="mt-5 w-full rounded-xl bg-accent py-3 font-bold text-[#1a0c0a] disabled:opacity-50"
+        >
+          {busy ? "connecting…" : "Connect & start building"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [state, setState] = useState<State>({});
@@ -121,6 +179,10 @@ export default function App() {
     setPrompt("");
     const r = await fetch("/api/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: p }) });
     if (!r.ok) setItems((prev) => [...prev, { t: "error", text: r.status === 409 ? "a run is already in progress" : `request failed (${r.status})` }]);
+  }
+
+  if (state.needs_setup) {
+    return <Setup onDone={() => fetch("/api/state").then((r) => r.json()).then(setState)} />;
   }
 
   return (

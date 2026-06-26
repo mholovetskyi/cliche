@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
+	"github.com/mholovetskyi/cliche/internal/secrets"
 	"github.com/mholovetskyi/cliche/internal/web"
 )
 
@@ -35,17 +37,8 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	}
 
 	// The server exists first so the agent's approver IS the server's Approve —
-	// every write/command becomes a browser "allow this?" card. The Trust Kernel
-	// (caps, governor, deny rules, egress) still enforces underneath.
+	// every write/command becomes a browser "allow this?" card.
 	srv := web.NewServer(nil, nil, web.StaticFS())
-
-	a, _, cfg, cleanup, err := buildAgent(f, srv.Approve, true)
-	if err != nil {
-		fmt.Fprintln(errOut, "serve: "+err.Error())
-		return 1
-	}
-	defer cleanup()
-
 	previewDir := f.dir
 	if previewDir == "" {
 		previewDir = "."
@@ -53,32 +46,84 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	srv.SetPreviewDir(previewDir) // serve the project files for the live preview iframe
 	srv.SetTemplates(studioTemplates())
 	srv.SetAudit(func() web.AuditView { return auditView(f.dir) })
-	srv.SetState(func() web.State { return webState(a, cfg, f.mode) })
-	srv.SetRunner(func(ctx context.Context, prompt string, emit func(web.Event)) error {
-		a.SetObserver(func(e agent.Event) {
-			switch e.Kind {
-			case "delta", "text":
-				emit(web.Event{Kind: "delta", Text: e.Text})
-			case "tool_call":
-				emit(web.Event{Kind: "tool_call", Text: strings.TrimSpace(e.Tool + " " + e.Detail)})
-				emit(web.Event{Kind: "state", Data: webState(a, cfg, f.mode)})
-			case "tool_result":
-				label := e.Tool
-				if !e.OK {
-					label += " — failed"
+
+	// The agent is built lazily: if a provider key is already configured we build
+	// now; otherwise the server starts in SETUP mode and the browser welcome
+	// screen connects a provider via /api/setup — a non-technical user never opens
+	// a terminal.
+	var (
+		amu      sync.Mutex
+		a        *agent.Agent
+		acfg     config.Config
+		acleanup = func() {}
+	)
+	defer func() { acleanup() }()
+
+	curState := func() web.State {
+		amu.Lock()
+		cur, c := a, acfg
+		amu.Unlock()
+		if cur == nil {
+			return web.State{Mode: f.mode, NeedsSetup: true}
+		}
+		return webState(cur, c, f.mode)
+	}
+	srv.SetState(curState)
+
+	wire := func() error {
+		na, _, ncfg, cl, err := buildAgent(f, srv.Approve, true)
+		if err != nil {
+			return err
+		}
+		amu.Lock()
+		a, acfg, acleanup = na, ncfg, cl
+		amu.Unlock()
+		srv.SetRunner(func(ctx context.Context, prompt string, emit func(web.Event)) error {
+			na.SetObserver(func(e agent.Event) {
+				switch e.Kind {
+				case "delta", "text":
+					emit(web.Event{Kind: "delta", Text: e.Text})
+				case "tool_call":
+					emit(web.Event{Kind: "tool_call", Text: strings.TrimSpace(e.Tool + " " + e.Detail)})
+					emit(web.Event{Kind: "state", Data: curState()})
+				case "tool_result":
+					label := e.Tool
+					if !e.OK {
+						label += " — failed"
+					}
+					if e.Detail != "" {
+						label += " · " + e.Detail
+					}
+					emit(web.Event{Kind: "tool_result", Text: label})
+					emit(web.Event{Kind: "state", Data: curState()})
+				case "halt", "budget":
+					emit(web.Event{Kind: "error", Text: strings.TrimSpace(e.Text + " " + e.Detail)})
 				}
-				if e.Detail != "" {
-					label += " · " + e.Detail
-				}
-				emit(web.Event{Kind: "tool_result", Text: label})
-				emit(web.Event{Kind: "state", Data: webState(a, cfg, f.mode)})
-			case "halt", "budget":
-				emit(web.Event{Kind: "error", Text: strings.TrimSpace(e.Text + " " + e.Detail)})
-			}
+			})
+			_, runErr := na.Run(ctx, prompt)
+			return runErr
 		})
-		_, runErr := a.Run(ctx, prompt)
-		return runErr
-	})
+		return nil
+	}
+
+	cfg0, _ := config.Load(f.dir)
+	if f.provider != "" || firstProviderWithKey(cfg0) != "" {
+		if err := wire(); err != nil {
+			fmt.Fprintln(errOut, "serve: "+err.Error())
+			return 1
+		}
+	} else {
+		srv.SetSetup(func(provider, key string) error {
+			if key != "" {
+				if _, err := secrets.Save(provider, key); err != nil {
+					return err
+				}
+			}
+			f.provider = provider // so resolveBackend picks the chosen provider
+			return wire()
+		})
+		fmt.Fprintln(out, "  (no provider connected yet — finish setup in the browser)")
+	}
 
 	ln, err := listenLocal()
 	if err != nil {
