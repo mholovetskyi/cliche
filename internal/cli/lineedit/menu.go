@@ -1,6 +1,9 @@
 package lineedit
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Command is one selectable slash command in the dropdown (mirrors the cli
 // slashCommands table — passed in so there is one source of truth).
@@ -33,11 +36,22 @@ func (m *slashMenu) update(buf string) {
 		m.filtered, m.sel = nil, 0
 		return
 	}
-	m.filtered = m.filtered[:0]
+	// Fuzzy-match each command against the buffer and rank by score, so "/mdl"
+	// finds "/models", a typo'd middle still hits, and exact prefixes stay on top.
+	type scored struct {
+		c  Command
+		sc int
+	}
+	var hits []scored
 	for _, c := range m.commands {
-		if strings.HasPrefix(c.Name, buf) {
-			m.filtered = append(m.filtered, c)
+		if sc, _, ok := fuzzyMatch(buf, c.Name); ok {
+			hits = append(hits, scored{c, sc})
 		}
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].sc > hits[j].sc })
+	m.filtered = m.filtered[:0]
+	for _, h := range hits {
+		m.filtered = append(m.filtered, h.c)
 	}
 	if m.sel >= len(m.filtered) {
 		m.sel = 0

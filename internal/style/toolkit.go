@@ -186,11 +186,15 @@ func Badge(text string, fg, bg RGB) string {
 
 // ---- gauge ----
 
-// Gauge renders a proportion as a small coral bar of the given cell width
-// (filled ▰ / empty ▱). Returns "" when styling is off, so callers pair it with
-// a numeric "NN%" that carries the meaning under NO_COLOR. The fill count is
-// round-half-up (int(frac*width + 0.5)); frac is clamped to [0,1] and a NaN
-// (e.g. 0/0 when a cap is unset) renders empty rather than panicking.
+// Gauge renders a proportion as a smooth bar of the given cell width, filled with
+// eighth-of-a-cell precision (so 31% of 6 cells reads as a partial glyph, not a
+// rounded block) and colored by LEVEL through the semantic ramp — sage when low,
+// amber midway, coral near full — over a dim track. Consumption gauges (spend,
+// context, governor pressure) thus turn red as they approach their cap. Returns
+// "" when styling is off, so callers pair it with a numeric "NN%" that carries
+// the meaning under NO_COLOR. frac is clamped to [0,1]; a NaN (e.g. 0/0 when a
+// cap is unset) renders an empty track rather than panicking. The result is
+// always exactly `width` single-width cells.
 func Gauge(frac float64, width int) string {
 	if !Enabled || width <= 0 {
 		return ""
@@ -204,17 +208,17 @@ func Gauge(frac float64, width int) string {
 	if frac > 1 {
 		frac = 1
 	}
-	filled := int(frac*float64(width) + 0.5)
-	denom := float64(width - 1)
-	if denom < 1 {
-		denom = 1
-	}
+	c := RampAt(frac)
+	total := int(frac*float64(width)*8 + 0.5) // fill in eighths of a cell
 	var b strings.Builder
 	for i := 0; i < width; i++ {
-		if i < filled {
-			b.WriteString(Color("▰", Sample(float64(i)/denom)))
-		} else {
-			b.WriteString(Gray("▱"))
+		switch e := total - i*8; {
+		case e >= 8:
+			b.WriteString(Color(string(eighthBlocks[8]), c)) // full cell
+		case e <= 0:
+			b.WriteString(Gray("░")) // unfilled track
+		default:
+			b.WriteString(Color(string(eighthBlocks[e]), c)) // partial cell at the tip
 		}
 	}
 	return b.String()
