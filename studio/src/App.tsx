@@ -51,6 +51,7 @@ const PROVIDERS = [
 import ShaderField from "./ShaderField";
 import DepthField from "./DepthField";
 import MemoryConstellation from "./MemoryConstellation";
+import { LogoMark } from "./Logo";
 import { enableAudio, disableAudio, scoreActivity, ping } from "./lib/audio";
 import { REDUCE, flag, setFlag } from "./lib/reduced";
 
@@ -139,7 +140,7 @@ function Boot() {
   return (
     <div className="boot fixed inset-0 z-[200] grid place-items-center bg-[var(--bg)]">
       <div className="text-center">
-        <div className="boot-mark mx-auto mb-4 w-16"><Sigil size={64} running trust="intact" load={1} /></div>
+        <div className="boot-mark mx-auto mb-4 w-16 text-[#e8e8ea]"><LogoMark size={64} /></div>
         <div className="fade-up text-xl font-semibold tracking-tight" style={{ animationDelay: ".15s" }}>Cliché <span className="text-[var(--dim)]">Studio</span></div>
         <div className="fade-up text-xs text-[var(--mut)]" style={{ animationDelay: ".25s" }}>the trustworthy build-anything app</div>
       </div>
@@ -584,8 +585,8 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, o
   return (
     <aside className="flex w-[244px] shrink-0 flex-col border-r border-[var(--line)]">
       <div className="flex h-[52px] items-center gap-2.5 px-4">
-        <span className="relative" onMouseEnter={() => inst.oracle && setQuip(pickQuip(mood))} onMouseLeave={() => setQuip("")}>
-          <Sigil size={28} running={state.running} trust={trust} load={load} oracle={inst.oracle} />
+        <span className="relative text-[#dcdce0]" onMouseEnter={() => inst.oracle && setQuip(pickQuip(mood))} onMouseLeave={() => setQuip("")}>
+          <LogoMark size={28} />
           {quip && <div className="pop-in glass elev absolute left-0 top-9 z-30 w-52 rounded-xl border px-3 py-2 text-[12px] leading-snug text-[var(--mut)]" style={{ borderColor: trust === "tamper" ? "var(--danger)" : "var(--line2)" }}>{quip}</div>}
         </span>
         <span className="flex-1 text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
@@ -988,6 +989,9 @@ export default function App() {
   // Skip the in-page intro when launched from the desktop shell — its native
   // splash already covered the boot (so the hand-off isn't a double animation).
   const [booting, setBooting] = useState(() => { try { return !new URLSearchParams(location.search).has("desktop"); } catch { return true; } });
+  // loaded gates the main render on the first /api/state result, so a fresh install
+  // never flashes the empty workspace for a frame before the Setup screen.
+  const [loaded, setLoaded] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [leader, setLeader] = useState(false);
@@ -1064,7 +1068,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
+    fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {}).finally(() => setLoaded(true));
     fetch("/api/templates").then((r) => r.json()).then(setTemplates).catch(() => {});
     fetch("/api/session").then((r) => r.json()).then((d) => setItems(msgsToItems(d.messages || []))).catch(() => {});
     fetch("/api/models").then((r) => r.json()).then(setModels).catch(() => {});
@@ -1214,6 +1218,7 @@ export default function App() {
     setExpanded((prev) => { const n = new Set(prev); if (n.has(p)) n.delete(p); else n.add(p); return n; });
   }
 
+  if (!loaded) return <Boot />;
   if (state.needs_setup) return <Setup onDone={() => fetch("/api/state").then((r) => r.json()).then(setState)} />;
 
   const activeTitle = sessions.find((s) => s.active)?.title;

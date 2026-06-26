@@ -142,6 +142,12 @@ body.awaiting .aurora::before, body.awaiting .aurora::after { animation-play-sta
 /* command palette + boot splash ----------------------------------------- */
 @keyframes popIn { from { opacity: 0; transform: translateY(14px) scale(.965); } to { opacity: 1; transform: none; } }
 .pop-in { animation: popIn .32s var(--spring) both; }
+
+/* logo mark: the geodesic globe rotates slowly behind the fixed red C --------- */
+@keyframes logoSpin { to { transform: rotate(360deg); } }
+.logo-globe { transform-box: view-box; transform-origin: 256px 256px; animation: logoSpin 24s linear infinite; }
+body.awaiting .logo-globe { animation-duration: 8s; }
+@media (prefers-reduced-motion: reduce) { .logo-globe { animation: none; } }
 @keyframes bootOut { 0%, 68% { opacity: 1; visibility: visible; } 100% { opacity: 0; visibility: hidden; } }
 @keyframes markIn { 0% { opacity: 0; transform: scale(.6); } 60% { opacity: 1; transform: scale(1.08); } 100% { transform: scale(1); } }
 .boot { animation: bootOut 1.15s ease forwards; }

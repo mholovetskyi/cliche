@@ -11,7 +11,9 @@
 VERSION ?= 0.1.0
 DIST    := dist
 
-.PHONY: all ui cli desktop installer test clean
+WEBVIEW2_BOOTSTRAP := installer/MicrosoftEdgeWebview2Setup.exe
+
+.PHONY: all ui cli desktop webview2 installer test clean
 
 ## ui: rebuild the React Studio UI into the embedded dir
 ui:
@@ -27,8 +29,12 @@ desktop:
 	mkdir -p $(DIST)
 	cd desktop && GOOS=windows GOARCH=amd64 go build -o ../$(DIST)/cliche-studio.exe .
 
+## webview2: fetch the Evergreen WebView2 bootstrapper (gitignored) if missing
+webview2:
+	test -s $(WEBVIEW2_BOOTSTRAP) || curl -L -o $(WEBVIEW2_BOOTSTRAP) "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+
 ## installer: build the Windows .exe installer (requires Inno Setup's ISCC on PATH)
-installer: ui cli desktop
+installer: ui cli desktop webview2
 	ISCC installer/cliche-studio.iss
 
 ## test: vet + the full Go test suite (CLI core)
