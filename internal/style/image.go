@@ -1,8 +1,12 @@
 package style
 
 import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"strings"
 )
 
@@ -19,6 +23,74 @@ func RenderImage(img image.Image, maxCols int) string {
 	if !Enabled || img == nil || maxCols < 1 {
 		return ""
 	}
+	// On a terminal with a real graphics protocol, send crisp pixels; otherwise
+	// fall back to the universal half-block raster.
+	switch caps.Image {
+	case ImageKitty, ImageITerm2:
+		if s := protoImage(img, maxCols); s != "" {
+			return s
+		}
+	}
+	return halfBlockImage(img, maxCols)
+}
+
+// protoImage PNG-encodes the image (bounded) and wraps it in the terminal's
+// native inline-image escape. Returns "" on any encode failure so the caller
+// falls back to half-blocks.
+func protoImage(img image.Image, maxCols int) string {
+	small := boundForTransmit(img, 720) // cap the longest side; the terminal scales to `width` cells
+	var buf bytes.Buffer
+	if png.Encode(&buf, small) != nil {
+		return ""
+	}
+	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
+	if caps.Image == ImageKitty {
+		return kittyImage(b64)
+	}
+	return fmt.Sprintf("\x1b]1337;File=inline=1;width=%d;preserveAspectRatio=1:%s\x07\n", maxCols, b64)
+}
+
+// kittyImage chunks the base64 PNG into the kitty graphics protocol (transmit +
+// display); chunks are ≤4096 bytes with m=1 until the final m=0.
+func kittyImage(b64 string) string {
+	const chunk = 4096
+	var sb strings.Builder
+	for first := true; len(b64) > 0; first = false {
+		n := chunk
+		if n > len(b64) {
+			n = len(b64)
+		}
+		part := b64[:n]
+		b64 = b64[n:]
+		more := 0
+		if len(b64) > 0 {
+			more = 1
+		}
+		if first {
+			fmt.Fprintf(&sb, "\x1b_Gf=100,a=T,m=%d;%s\x1b\\", more, part)
+		} else {
+			fmt.Fprintf(&sb, "\x1b_Gm=%d;%s\x1b\\", more, part)
+		}
+	}
+	sb.WriteByte('\n')
+	return sb.String()
+}
+
+// boundForTransmit scales an image down so its longest side is at most max px
+// (never up), for a reasonably small protocol payload. Aspect preserved.
+func boundForTransmit(img image.Image, max int) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= max && h <= max {
+		return img
+	}
+	if w >= h {
+		return resize(img, max, max*h/w)
+	}
+	return resize(img, max*w/h, max)
+}
+
+func halfBlockImage(img image.Image, maxCols int) string {
 	b := img.Bounds()
 	iw, ih := b.Dx(), b.Dy()
 	if iw <= 0 || ih <= 0 {
