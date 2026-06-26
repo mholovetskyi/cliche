@@ -41,6 +41,15 @@ type Result struct {
 	Output  string
 	IsEdit  bool // true for file-mutating tools (write/edit/apply_diff)
 	Success bool
+	Images  []Image // visual output (e.g. a screenshot) the agent forwards to a vision model
+}
+
+// Image is a captured image a tool returns so the agent can SEE the result — the
+// agent forwards it to the model as a vision input. (Local to the tools package
+// to avoid coupling tools to the provider layer.)
+type Image struct {
+	MediaType string
+	Data      []byte
 }
 
 // Executor runs a single tool call by name with string args.
@@ -254,6 +263,9 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 
 	case "web_fetch":
 		return e.webFetch(ctx, args)
+
+	case "screenshot":
+		return e.screenshot(ctx, args)
 
 	case "write_file":
 		if strings.TrimSpace(args["file"]) == "" {

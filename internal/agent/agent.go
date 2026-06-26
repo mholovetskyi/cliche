@@ -309,6 +309,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 
 		madeProgress := false
 		results := make([]provider.ToolResult, 0, len(resp.ToolCalls))
+		var shotImages []provider.Image // screenshots a tool returned this turn, fed to the model as vision
 		var pendingHalt *governor.HaltReason
 		for i, call := range resp.ToolCalls {
 			if h := gov.RecordToolCall(call.Signature); h != nil {
@@ -360,6 +361,9 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 				madeProgress = true
 			}
 			results = append(results, provider.ToolResult{ID: call.ID, Content: res.Output, IsError: !res.Success})
+			for _, im := range res.Images {
+				shotImages = append(shotImages, provider.Image{MediaType: im.MediaType, Data: im.Data})
+			}
 			if res.IsEdit {
 				if h := gov.RecordEdit(res.Success); h != nil {
 					for _, c := range resp.ToolCalls[i+1:] {
@@ -373,7 +377,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 
 		// Always feed back a COMPLETE set of tool results (one per tool_use),
 		// even on a halt, so the transcript stays valid for the next turn.
-		a.messages = append(a.messages, provider.Message{Role: "user", ToolResults: results})
+		a.messages = append(a.messages, provider.Message{Role: "user", ToolResults: results, Images: shotImages})
 
 		if pendingHalt != nil {
 			return a.halted(*pendingHalt), nil
@@ -520,6 +524,18 @@ func DefaultToolSpecs() []provider.ToolSpec {
 				"type":       "object",
 				"properties": map[string]any{"url": strProp("the http(s) URL to fetch")},
 				"required":   []string{"url"},
+			},
+		},
+		{
+			Name:        "screenshot",
+			Description: "Render a web UI with a headless browser and return a screenshot image so you can SEE the result and judge it. ALWAYS use this after building or changing any visual UI, then critique what you see (layout, spacing, type, color, polish) and iterate until it looks world-class — do not ship a UI you have not looked at. The target is a project-relative file (default index.html) or a localhost URL. Returns the image directly to you.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"target": strProp("project-relative file to render (e.g. index.html or dist/index.html), or a http://localhost URL; defaults to index.html"),
+					"width":  strProp("optional viewport width in px (default 1366)"),
+					"height": strProp("optional viewport height in px (default 900)"),
+				},
 			},
 		},
 		{

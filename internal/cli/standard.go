@@ -8,7 +8,7 @@ import "strings"
 const baseStandard = "\nStandard of work — aim for production quality, not throwaway demos:\n" +
 	"- Match the project's existing stack, structure, and conventions. When starting something new, scaffold a real, modern setup rather than one giant single-file script.\n" +
 	"- Prefer typed, modular, reusable code over one huge file; name things well and keep functions small and focused.\n" +
-	"- For any UI, make it accessible (semantic HTML, labels, keyboard support, adequate contrast) and responsive, with a consistent visual system (a type scale, spacing, and color tokens) — never unstyled browser defaults.\n" +
+	"- For any UI, make it accessible (semantic HTML, labels, keyboard support, adequate contrast) and responsive, with a consistent visual system (a type scale, spacing, and color tokens) — never unstyled browser defaults. After building or changing a UI, use the screenshot tool to actually SEE the rendered result and fix what looks off.\n" +
 	"- Add or update tests for behavior you change, and run the project's build / typecheck / linter / tests; read the output and fix what it reports before you call the work done.\n" +
 	"- Handle errors and edge cases. Don't leave TODOs, stubs, or placeholder lorem-ipsum in the path you were asked to deliver."
 
@@ -18,7 +18,7 @@ const baseStandard = "\nStandard of work — aim for production quality, not thr
 const productStandard = "\n\nPRODUCT BUILD MODE — you are building a world-class product, not a sample. Hold a senior-engineer bar:\n" +
 	"1. PLAN FIRST. State the goal, the stack you'll use, and a short milestone list before writing code. Pick a real, modern stack for the task (for a web app, e.g. Vite or Next + TypeScript + a styling system + a component approach) and scaffold it with proper tooling: a package manager, typechecking, linting, formatting, and a test runner.\n" +
 	"2. BUILD IN VERTICAL SLICES. Get a thin end-to-end version working and verified first, then iterate. After each slice, run the build/typecheck/tests and fix failures before moving on.\n" +
-	"3. DESIGN LIKE A PRODUCT. Define design tokens (color, type scale, spacing, radius) up front and use them everywhere. Aim for a polished, cohesive, responsive, accessible UI with real empty / loading / error states, sensible defaults, and thoughtful microcopy.\n" +
+	"3. DESIGN LIKE A PRODUCT. Define design tokens (color, type scale, spacing, radius) up front and use them everywhere. Aim for a polished, cohesive, responsive, accessible UI with real empty / loading / error states, sensible defaults, and thoughtful microcopy. SEE YOUR WORK: after each visual change, call the screenshot tool, look hard at the result, and keep iterating until it genuinely looks world-class — never ship a UI you haven't viewed.\n" +
 	"4. ENGINEER FOR REAL USE. Validate inputs, handle errors and edge cases, keep secrets out of code, and structure things so the codebase can grow. Write a short README and meaningful tests.\n" +
 	"5. QUALITY GATE — do NOT call it done until every check below passes and you have RUN the commands to prove it: the build succeeds, typecheck is clean, the linter is clean, tests pass, and the app actually runs. Then self-review the result against this list and fix any gap. If a check genuinely cannot run in this environment, say so explicitly instead of assuming it passes.\n" +
 	"Budget your turns and spend for a substantial build; if you genuinely need a higher cap to finish properly, ask rather than shipping something half-built."

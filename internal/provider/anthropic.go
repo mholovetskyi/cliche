@@ -172,6 +172,16 @@ func (a *Anthropic) buildRequestBody(req Request, stream bool) ([]byte, error) {
 					}
 					blocks = append(blocks, contentBlock{Type: "tool_result", ToolUseID: tr.ID, Content: content, IsError: tr.IsError})
 				}
+				// A tool (e.g. screenshot) can return images alongside its text result;
+				// Anthropic accepts image blocks in the same user message.
+				for _, img := range m.Images {
+					if !strings.HasPrefix(img.MediaType, "image/") {
+						continue
+					}
+					blocks = append(blocks, contentBlock{Type: "image", Source: &imageSource{
+						Type: "base64", MediaType: img.MediaType, Data: base64.StdEncoding.EncodeToString(img.Data),
+					}})
+				}
 			} else {
 				for _, img := range m.Images {
 					blockType := "image"

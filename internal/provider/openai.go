@@ -147,6 +147,23 @@ type oaiResponse struct {
 
 func strPtr(s string) *string { return &s }
 
+// imageParts builds an OpenAI multi-part (vision) content array: a lead text part
+// followed by one image_url part per supported image.
+func imageParts(lead string, imgs []Image) []oaiContentPart {
+	parts := make([]oaiContentPart, 0, len(imgs)+1)
+	if lead != "" {
+		parts = append(parts, oaiContentPart{Type: "text", Text: lead})
+	}
+	for _, img := range imgs {
+		if !strings.HasPrefix(img.MediaType, "image/") {
+			continue
+		}
+		uri := "data:" + img.MediaType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
+		parts = append(parts, oaiContentPart{Type: "image_url", ImageURL: &oaiImageURL{URL: uri}})
+	}
+	return parts
+}
+
 func (o *OpenAICompat) buildRequestBody(req Request, stream bool) ([]byte, error) {
 	var msgs []oaiMessage
 	if req.System != "" {
@@ -174,6 +191,12 @@ func (o *OpenAICompat) buildRequestBody(req Request, stream bool) ([]byte, error
 						content = "(no output)"
 					}
 					msgs = append(msgs, oaiMessage{Role: "tool", ToolCallID: tr.ID, Content: strPtr(content)})
+				}
+				// A tool (e.g. screenshot) can return images. The OpenAI "tool" role
+				// can't carry images, so surface them in a following user message — a
+				// valid ordering (tool replies, then the user shows what they produced).
+				if vp := imageParts("Screenshot from the tool call above:", m.Images); len(vp) > 1 {
+					msgs = append(msgs, oaiMessage{Role: "user", Content: vp})
 				}
 			} else if len(m.Images) > 0 {
 				// Vision message: content is an array of text + image_url parts.
