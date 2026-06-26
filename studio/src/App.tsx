@@ -6,7 +6,7 @@ import hljs from "highlight.js";
 import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
-  MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
+  MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square, FileDiff,
 } from "lucide-react";
 
 type Ev = { kind: string; text?: string; data?: any };
@@ -17,6 +17,27 @@ type SessionMeta = { id: string; title: string; model: string; updated: string; 
 type FileNode = { name: string; path: string; dir: boolean; children?: FileNode[] };
 type Msg = { role: string; text: string };
 type ModelInfo = { model: string; input_per_m: number; output_per_m: number };
+type Change = { path: string; before: string; after: string; was_new: boolean; deleted: boolean };
+type Rules = { mode: string; mode_desc: string; allow: string[]; deny: string[]; egress: string[]; hooks: string[]; max_turns: number; max_wall_sec: number; max_failed_edits: number };
+
+type DiffRow = { type: "ctx" | "add" | "del"; text: string };
+function lineDiff(before: string, after: string): DiffRow[] {
+  const a = before.split("\n"), b = after.split("\n");
+  const n = a.length, m = b.length;
+  if (n * m > 400000) return b.map((t) => ({ type: "add", text: t })); // too big for LCS — show as added
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out: DiffRow[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ type: "ctx", text: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ type: "del", text: a[i] }); i++; }
+    else { out.push({ type: "add", text: b[j] }); j++; }
+  }
+  while (i < n) out.push({ type: "del", text: a[i++] });
+  while (j < m) out.push({ type: "add", text: b[j++] });
+  return out;
+}
 
 const MODES = [
   { id: "plan", label: "Plan", hint: "read-only" },
@@ -33,9 +54,12 @@ const COMMANDS: { cmd: string; desc: string; arg?: boolean }[] = [
   { cmd: "auto", desc: "Mode → auto-apply edits" },
   { cmd: "full", desc: "Mode → auto-approve everything" },
   { cmd: "model", desc: "Switch model", arg: true },
+  { cmd: "undo", desc: "Undo the last file change" },
+  { cmd: "rewind", desc: "Revert every change this session" },
+  { cmd: "changes", desc: "Show what changed (diffs)" },
   { cmd: "preview", desc: "Show the live preview" },
   { cmd: "files", desc: "Show the file tree" },
-  { cmd: "trust", desc: "Show the trust ledger" },
+  { cmd: "trust", desc: "Show the trust ledger + rules" },
   { cmd: "export", desc: "Download the project (.zip)" },
 ];
 type Item =
@@ -262,37 +286,101 @@ function Tree({ nodes, depth, expanded, onToggle, onOpen, active }: { nodes: Fil
   );
 }
 
-function TrustPanel({ a }: { a: Audit | null }) {
-  if (!a || a.entries === 0) return <div className="p-6 text-sm text-[var(--mut)]">No receipts yet — the trust ledger fills in as Cliche works.</div>;
-  const tiles = [
+function RuleList({ label, items, empty }: { label: string; items: string[]; empty: string }) {
+  return (
+    <div className="flex gap-2 border-t border-[var(--line)] py-2 text-[13px] first:border-0">
+      <span className="w-16 shrink-0 text-[var(--dim)]">{label}</span>
+      {items.length === 0 ? <span className="text-[var(--dim)]">{empty}</span> :
+        <span className="flex flex-wrap gap-1.5">{items.map((x, i) => <code key={i} className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[12px]">{x}</code>)}</span>}
+    </div>
+  );
+}
+
+function TrustPanel({ a, rules }: { a: Audit | null; rules: Rules | null }) {
+  const tiles = a ? [
     { label: "receipts", value: a.entries }, { label: "turns", value: a.turns },
     { label: "spent", value: `$${(a.usd || 0).toFixed(4)}` },
     { label: "tokens", value: `${(((a.input_tokens || 0) + (a.output_tokens || 0)) / 1000).toFixed(1)}k` },
-  ];
+  ] : [];
   return (
     <div className="overflow-auto p-5">
-      <div className={`mb-4 flex items-center gap-2 rounded-xl border p-3 ${a.ok ? "border-[var(--ok)]/30 bg-[var(--ok)]/[0.06] text-[var(--ok)]" : "border-[var(--accent)]/40 bg-[var(--accent)]/[0.06] text-[var(--accent)]"}`}>
-        {a.ok ? <ShieldCheck size={18} /> : <ShieldAlert size={18} />}
-        <span className="text-sm font-medium">{a.ok ? "Ledger intact — every action is a signed, hash-chained receipt." : `Tamper detected${a.reason ? `: ${a.reason}` : ""}`}</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {tiles.map((t) => (
-          <div key={t.label} className="surface rounded-xl p-4">
-            <div className="text-[11px] uppercase tracking-wider text-[var(--dim)]">{t.label}</div>
-            <div className="mt-1 font-mono text-2xl">{t.value}</div>
+      {a && a.entries > 0 ? (
+        <>
+          <div className={`mb-4 flex items-center gap-2 rounded-xl border p-3 ${a.ok ? "border-[var(--ok)]/30 bg-[var(--ok)]/[0.06] text-[var(--ok)]" : "border-[var(--accent)]/40 bg-[var(--accent)]/[0.06] text-[var(--accent)]"}`}>
+            {a.ok ? <ShieldCheck size={18} /> : <ShieldAlert size={18} />}
+            <span className="text-sm font-medium">{a.ok ? "Ledger intact — every action is a signed, hash-chained receipt." : `Tamper detected${a.reason ? `: ${a.reason}` : ""}`}</span>
           </div>
-        ))}
-      </div>
-      {a.verdicts && Object.keys(a.verdicts).length > 0 && (
-        <div className="mt-5">
-          <div className="mb-2 text-[11px] uppercase tracking-wider text-[var(--dim)]">Verifier verdicts</div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(a.verdicts).map(([k, v]) => (
-              <span key={k} className="rounded-full border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--mut)]">{k}: <b className="text-[var(--ink)]">{v}</b></span>
+          <div className="grid grid-cols-2 gap-3">
+            {tiles.map((t) => (
+              <div key={t.label} className="surface rounded-xl p-4">
+                <div className="text-[11px] uppercase tracking-wider text-[var(--dim)]">{t.label}</div>
+                <div className="mt-1 font-mono text-2xl">{t.value}</div>
+              </div>
             ))}
+          </div>
+          {a.verdicts && Object.keys(a.verdicts).length > 0 && (
+            <div className="mt-5">
+              <div className="mb-2 text-[11px] uppercase tracking-wider text-[var(--dim)]">Verifier verdicts</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(a.verdicts).map(([k, v]) => (
+                  <span key={k} className="rounded-full border border-[var(--line)] px-2.5 py-1 text-xs text-[var(--mut)]">{k}: <b className="text-[var(--ink)]">{v}</b></span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : <div className="mb-2 text-sm text-[var(--mut)]">No receipts yet — the trust ledger fills in as Cliche works.</div>}
+      {rules && (
+        <div className="mt-6">
+          <div className="mb-2 text-[11px] uppercase tracking-wider text-[var(--dim)]">Rules in force</div>
+          <div className="surface rounded-xl px-4 py-2">
+            <RuleList label="mode" items={[`${rules.mode} — ${rules.mode_desc}`]} empty="" />
+            <RuleList label="allow" items={rules.allow || []} empty="nothing pre-allowed (mode + prompts govern)" />
+            <RuleList label="deny" items={rules.deny || []} empty="no hard denies" />
+            <RuleList label="egress" items={rules.egress || []} empty="unrestricted (the web gate still applies)" />
+            <RuleList label="hooks" items={rules.hooks || []} empty="none" />
+            <RuleList label="guards" items={[`${rules.max_turns} turns · ${rules.max_wall_sec}s wall · ${rules.max_failed_edits} failed-edits`]} empty="" />
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ChangesPanel({ changes, onUndo, onRevertAll }: { changes: Change[]; onUndo: () => void; onRevertAll: () => void }) {
+  if (changes.length === 0) return <div className="p-6 text-sm text-[var(--mut)]">No file changes yet — edits the agent makes show here as diffs you can undo.</div>;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b border-[var(--line)] px-4 py-2 text-xs">
+        <span className="text-[var(--mut)]">{changes.length} file{changes.length > 1 ? "s" : ""} changed</span>
+        <span className="flex-1" />
+        <button onClick={onUndo} className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-[var(--mut)] hover:text-[var(--ink)]">Undo last</button>
+        <button onClick={onRevertAll} className="rounded-lg border border-[var(--accent)]/40 px-2.5 py-1 text-[var(--accent)] hover:bg-[var(--accent)]/10">Revert all</button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        {changes.map((c) => {
+          const badge = c.was_new ? "new" : c.deleted ? "deleted" : "modified";
+          const rows = lineDiff(c.before, c.after);
+          const shown = rows.slice(0, 400);
+          return (
+            <div key={c.path} className="surface mb-3 overflow-hidden rounded-xl">
+              <div className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2 font-mono text-[12px]">
+                <FileText size={13} className="text-[var(--dim)]" />
+                <span className="min-w-0 truncate">{c.path}</span>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${c.deleted ? "bg-[var(--accent)]/15 text-[var(--accent)]" : c.was_new ? "bg-[var(--ok)]/15 text-[var(--ok)]" : "bg-white/10 text-[var(--mut)]"}`}>{badge}</span>
+              </div>
+              <pre className="overflow-auto p-2 text-[12px] leading-[1.5]">
+                {shown.map((r, i) => (
+                  <div key={i} className={r.type === "add" ? "bg-[var(--ok)]/[0.10] text-[var(--ok)]" : r.type === "del" ? "bg-[var(--accent)]/[0.10] text-[var(--accent)]" : "text-[var(--mut)]"}>
+                    <span className="select-none opacity-50">{r.type === "add" ? "+ " : r.type === "del" ? "- " : "  "}</span>{r.text || " "}
+                  </div>
+                ))}
+                {rows.length > shown.length && <div className="text-[var(--dim)]">… {rows.length - shown.length} more lines</div>}
+              </pre>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -305,8 +393,10 @@ export default function App() {
   const [audit, setAudit] = useState<Audit | null>(null);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [changes, setChanges] = useState<Change[]>([]);
+  const [rules, setRules] = useState<Rules | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
-  const [tab, setTab] = useState<"preview" | "files" | "trust">("preview");
+  const [tab, setTab] = useState<"preview" | "files" | "changes" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openFile, setOpenFile] = useState<{ path: string; html: string } | null>(null);
@@ -315,6 +405,8 @@ export default function App() {
   const refreshAudit = () => fetch("/api/audit").then((r) => r.json()).then(setAudit).catch(() => {});
   const refreshSessions = () => fetch("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {});
   const refreshFiles = () => fetch("/api/files").then((r) => r.json()).then(setTree).catch(() => {});
+  const refreshChanges = () => fetch("/api/changes").then((r) => r.json()).then(setChanges).catch(() => {});
+  const refreshRules = () => fetch("/api/rules").then((r) => r.json()).then(setRules).catch(() => {});
   useEffect(() => { feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" }); }, [items]);
 
   useEffect(() => {
@@ -322,13 +414,13 @@ export default function App() {
     fetch("/api/templates").then((r) => r.json()).then(setTemplates).catch(() => {});
     fetch("/api/session").then((r) => r.json()).then((d) => setItems(msgsToItems(d.messages || []))).catch(() => {});
     fetch("/api/models").then((r) => r.json()).then(setModels).catch(() => {});
-    refreshSessions(); refreshAudit(); refreshFiles();
+    refreshSessions(); refreshAudit(); refreshFiles(); refreshChanges(); refreshRules();
     const es = new EventSource("/api/events");
     es.onmessage = (m) => {
       const e: Ev = JSON.parse(m.data);
       setItems((prev) => reduce(prev, e));
       if (e.kind === "state" && e.data) setState(e.data);
-      if (e.kind === "end") { setPreviewKey((k) => k + 1); refreshAudit(); refreshSessions(); refreshFiles(); }
+      if (e.kind === "end") { setPreviewKey((k) => k + 1); refreshAudit(); refreshSessions(); refreshFiles(); refreshChanges(); }
     };
     return () => es.close();
   }, []);
@@ -354,7 +446,15 @@ export default function App() {
   const refreshState = () => fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
   async function setMode(mode: string) {
     await fetch("/api/mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
-    refreshState();
+    refreshState(); refreshRules();
+  }
+  async function undo() {
+    await fetch("/api/undo", { method: "POST" });
+    refreshChanges(); refreshFiles(); setPreviewKey((k) => k + 1);
+  }
+  async function rewind() {
+    await fetch("/api/rewind", { method: "POST" });
+    refreshChanges(); refreshFiles(); setPreviewKey((k) => k + 1);
   }
   async function setModel(model: string) {
     await fetch("/api/model", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
@@ -374,9 +474,12 @@ export default function App() {
       case "auto": case "auto-edit": setMode("auto-edit"); return true;
       case "mode": if (arg) { setMode(arg === "auto" ? "auto-edit" : arg); return true; } return false;
       case "model": if (arg) { setModel(arg); return true; } return false;
+      case "undo": undo(); return true;
+      case "rewind": rewind(); return true;
+      case "changes": case "diff": setTab("changes"); return true;
       case "preview": setTab("preview"); return true;
       case "files": setTab("files"); return true;
-      case "trust": setTab("trust"); return true;
+      case "trust": case "rules": case "status": setTab("trust"); return true;
       case "export": window.location.href = "/api/export"; return true;
       default: return false;
     }
@@ -402,7 +505,10 @@ export default function App() {
 
   const activeTitle = sessions.find((s) => s.active)?.title;
   const tabs: { id: typeof tab; label: string; icon: any }[] = [
-    { id: "preview", label: "Preview", icon: Eye }, { id: "files", label: "Files", icon: ListTree }, { id: "trust", label: "Trust", icon: ShieldCheck },
+    { id: "preview", label: "Preview", icon: Eye },
+    { id: "files", label: "Files", icon: ListTree },
+    { id: "changes", label: changes.length ? `Changes (${changes.length})` : "Changes", icon: FileDiff },
+    { id: "trust", label: "Trust", icon: ShieldCheck },
   ];
 
   return (
@@ -506,7 +612,8 @@ export default function App() {
           </div>
         )}
 
-        {tab === "trust" && <TrustPanel a={audit} />}
+        {tab === "changes" && <ChangesPanel changes={changes} onUndo={undo} onRevertAll={rewind} />}
+        {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
     </div>
   );

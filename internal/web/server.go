@@ -64,6 +64,11 @@ type Server struct {
 	setModeFn  func(mode string) bool
 	modelsFn   func() []ModelInfo
 	setModelFn func(model string)
+
+	changesFn func() []Change
+	undoFn    func() (string, bool)
+	rewindFn  func() []string
+	rulesFn   func() Rules
 }
 
 // ModelInfo is one selectable model + its price (for the model picker).
@@ -72,6 +77,36 @@ type ModelInfo struct {
 	InputPerM  float64 `json:"input_per_m"`
 	OutputPerM float64 `json:"output_per_m"`
 }
+
+// Change is one file the session edited (net before→after), for the Changes tab.
+type Change struct {
+	Path    string `json:"path"`
+	Before  string `json:"before"`
+	After   string `json:"after"`
+	WasNew  bool   `json:"was_new"`
+	Deleted bool   `json:"deleted"`
+}
+
+// Rules is the trust policy in force this session (the /status + /rules view).
+type Rules struct {
+	Mode           string   `json:"mode"`
+	ModeDesc       string   `json:"mode_desc"`
+	Allow          []string `json:"allow"`
+	Deny           []string `json:"deny"`
+	Egress         []string `json:"egress"`
+	Hooks          []string `json:"hooks"`
+	MaxTurns       int      `json:"max_turns"`
+	MaxWallSec     int      `json:"max_wall_sec"`
+	MaxFailedEdits int      `json:"max_failed_edits"`
+}
+
+// SetEdits wires the session edit journal: the net changes, undo-last, rewind-all.
+func (s *Server) SetEdits(changes func() []Change, undo func() (string, bool), rewind func() []string) {
+	s.changesFn, s.undoFn, s.rewindFn = changes, undo, rewind
+}
+
+// SetRules wires the read-only trust-policy view (/status + /rules).
+func (s *Server) SetRules(f func() Rules) { s.rulesFn = f }
 
 // SetControls wires the CLI-parity controls: change permission mode, list
 // models, switch model — the same levers /mode and /model pull in the terminal.
@@ -262,6 +297,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)
 	mux.HandleFunc("/api/model", s.handleModel)
+	mux.HandleFunc("/api/changes", s.handleChanges)
+	mux.HandleFunc("/api/undo", s.handleUndo)
+	mux.HandleFunc("/api/rewind", s.handleRewind)
+	mux.HandleFunc("/api/rules", s.handleRules)
 	// The live preview serves the project files (what the agent is building) so
 	// an iframe can show the result. Localhost-only, the user's own files;
 	// http.Dir blocks path traversal outside the root.
@@ -565,6 +604,56 @@ func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.Emit(Event{Kind: "state", Data: s.snapshot(s.isRunning())})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleChanges(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	list := []Change{}
+	if s.changesFn != nil {
+		if got := s.changesFn(); got != nil {
+			list = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(list)
+}
+
+func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	path, did := "", false
+	if s.undoFn != nil {
+		path, did = s.undoFn()
+	}
+	s.hub.Emit(Event{Kind: "state", Data: s.snapshot(s.isRunning())})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"path": path, "did": did})
+}
+
+func (s *Server) handleRewind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	reverted := []string{}
+	if s.rewindFn != nil {
+		if got := s.rewindFn(); got != nil {
+			reverted = got
+		}
+	}
+	s.hub.Emit(Event{Kind: "state", Data: s.snapshot(s.isRunning())})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"reverted": reverted})
+}
+
+func (s *Server) handleRules(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var rl Rules
+	if s.rulesFn != nil {
+		rl = s.rulesFn()
+	}
+	_ = json.NewEncoder(w).Encode(rl)
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, _ *http.Request) {

@@ -18,6 +18,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	sess "github.com/mholovetskyi/cliche/internal/session"
+	"github.com/mholovetskyi/cliche/internal/tools"
 	"github.com/mholovetskyi/cliche/internal/web"
 )
 
@@ -64,6 +65,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		curCreated time.Time // session start
 		curMode    = f.mode  // permission mode (mutable from the web, like /mode)
 		running    bool      // a run is in flight → session switches are refused
+		ajournal   *tools.EditJournal
 	)
 	defer func() { acleanup() }()
 
@@ -118,12 +120,12 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	srv.SetState(curState)
 
 	wire := func() error {
-		na, _, ncfg, cl, err := buildAgent(f, webApprove, true)
+		na, journal, ncfg, cl, err := buildAgent(f, webApprove, true)
 		if err != nil {
 			return err
 		}
 		amu.Lock()
-		a, acfg, acleanup = na, ncfg, cl
+		a, acfg, acleanup, ajournal = na, ncfg, cl, journal
 		// Resume the most recent chat (cap-honest: Restore seeds the budget from
 		// the saved session), or start a fresh one.
 		if id := sess.Latest(f.dir); id != "" {
@@ -279,6 +281,63 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			amu.Unlock()
 		},
 	)
+
+	// Edit journal: the net changes the agent made, undo-last, and rewind-all —
+	// the /diff, /undo, /rewind powers, now with a button.
+	srv.SetEdits(
+		func() []web.Change {
+			amu.Lock()
+			j := ajournal
+			amu.Unlock()
+			if j == nil {
+				return nil
+			}
+			var out []web.Change
+			for _, c := range j.Changes() {
+				out = append(out, web.Change{Path: c.Path, Before: c.Before, After: c.After, WasNew: c.WasNew, Deleted: c.Deleted})
+			}
+			return out
+		},
+		func() (string, bool) {
+			amu.Lock()
+			j := ajournal
+			amu.Unlock()
+			if j == nil {
+				return "", false
+			}
+			p, did, _ := j.Undo()
+			return p, did
+		},
+		func() []string {
+			amu.Lock()
+			j := ajournal
+			amu.Unlock()
+			if j == nil {
+				return nil
+			}
+			rev, _ := j.RewindAll()
+			return rev
+		},
+	)
+
+	// Rules/status: the trust policy in force (read-only glass box).
+	srv.SetRules(func() web.Rules {
+		amu.Lock()
+		c, m := acfg, curMode
+		amu.Unlock()
+		var hooks []string
+		if c.Hooks.PreToolUse != "" {
+			hooks = append(hooks, "pre-tool: "+c.Hooks.PreToolUse)
+		}
+		if c.Hooks.Stop != "" {
+			hooks = append(hooks, "stop: "+c.Hooks.Stop)
+		}
+		return web.Rules{
+			Mode: m, ModeDesc: modeDesc(m),
+			Allow: c.Permissions.Allow, Deny: c.Permissions.Deny, Egress: c.Egress.Allow, Hooks: hooks,
+			MaxTurns: c.Governor.MaxTurns, MaxWallSec: c.Governor.MaxWallClockSeconds, MaxFailedEdits: c.Governor.MaxConsecutiveFailedEdits,
+		}
+	})
 
 	ln, err := listenLocal()
 	if err != nil {

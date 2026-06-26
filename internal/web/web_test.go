@@ -421,6 +421,58 @@ func TestControlEndpoints(t *testing.T) {
 	}
 }
 
+func TestEditAndRulesEndpoints(t *testing.T) {
+	undone := false
+	srv := NewServer(nil, nil, nil)
+	srv.SetEdits(
+		func() []Change { return []Change{{Path: "a.txt", Before: "old", After: "new"}} },
+		func() (string, bool) { undone = true; return "a.txt", true },
+		func() []string { return []string{"a.txt", "b.txt"} },
+	)
+	srv.SetRules(func() Rules {
+		return Rules{Mode: "plan", ModeDesc: "read-only", Deny: []string{"rm -rf"}, MaxTurns: 50}
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	var ch []Change
+	r, _ := http.Get(ts.URL + "/api/changes")
+	_ = json.NewDecoder(r.Body).Decode(&ch)
+	r.Body.Close()
+	if len(ch) != 1 || ch[0].After != "new" {
+		t.Fatalf("changes wrong: %+v", ch)
+	}
+
+	var u struct {
+		Path string `json:"path"`
+		Did  bool   `json:"did"`
+	}
+	r, _ = http.Post(ts.URL+"/api/undo", "application/json", nil)
+	_ = json.NewDecoder(r.Body).Decode(&u)
+	r.Body.Close()
+	if !u.Did || u.Path != "a.txt" || !undone {
+		t.Fatalf("undo wrong: %+v", u)
+	}
+
+	var rw struct {
+		Reverted []string `json:"reverted"`
+	}
+	r, _ = http.Post(ts.URL+"/api/rewind", "application/json", nil)
+	_ = json.NewDecoder(r.Body).Decode(&rw)
+	r.Body.Close()
+	if len(rw.Reverted) != 2 {
+		t.Fatalf("rewind wrong: %+v", rw)
+	}
+
+	var rl Rules
+	r, _ = http.Get(ts.URL + "/api/rules")
+	_ = json.NewDecoder(r.Body).Decode(&rl)
+	r.Body.Close()
+	if rl.Mode != "plan" || len(rl.Deny) != 1 || rl.MaxTurns != 50 {
+		t.Fatalf("rules wrong: %+v", rl)
+	}
+}
+
 func TestStopCancelsRun(t *testing.T) {
 	started := make(chan struct{})
 	run := func(ctx context.Context, _ string, _ func(Event)) error {
