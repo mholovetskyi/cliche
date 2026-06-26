@@ -116,6 +116,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdOrg(rest, stdout, stderr)
 	case "image":
 		return cmdImage(rest, stdout, stderr)
+	case "serve", "studio":
+		return cmdServe(rest, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cliche: unknown command %q\n\n", cmd)
 		usage(stderr)
@@ -184,6 +186,9 @@ COMMANDS:
                      (tighten-only); 'org show' / 'org logout'. See COMMERCIAL.md.
   image <file>        Render an image (png/jpeg/gif) in the terminal as colored
                      half-blocks — no graphics protocol or dependencies needed.
+  serve               Launch Cliche Studio — the local web app (same agent +
+                     Trust Kernel, streamed to your browser). Read-only for now;
+                     binds to localhost. (Phase 0 of the desktop app.)
                      'mcp install <name>' builds + wires one in (no Docker needed).
                      Available: github
   insights           Usage & spend report from the ledger and saved sessions.
