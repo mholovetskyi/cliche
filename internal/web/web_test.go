@@ -3,8 +3,11 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +171,39 @@ func TestApproveBlocksUntilAnswered(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Approve did not unblock after /api/approve")
+	}
+}
+
+func TestTemplatesAndPreview(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>hi from preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(nil, nil, nil)
+	srv.SetTemplates([]Template{{Name: "Website", Prompt: "build a site"}})
+	srv.SetPreviewDir(dir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	r, err := http.Get(ts.URL + "/api/templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tpl []Template
+	_ = json.NewDecoder(r.Body).Decode(&tpl)
+	r.Body.Close()
+	if len(tpl) != 1 || tpl[0].Name != "Website" {
+		t.Fatalf("templates endpoint wrong: %+v", tpl)
+	}
+
+	pr, err := http.Get(ts.URL + "/preview/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(pr.Body)
+	pr.Body.Close()
+	if !strings.Contains(string(b), "hi from preview") {
+		t.Fatalf("preview should serve the project index.html, got %q", b)
 	}
 }
 

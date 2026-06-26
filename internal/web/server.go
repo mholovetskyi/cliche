@@ -42,7 +42,22 @@ type Server struct {
 	apMu      sync.Mutex
 	apSeq     int
 	approvals map[string]chan bool // pending approval id → answer channel
+
+	templates  []Template
+	previewDir string // project root, served read-only at /preview/ for the live preview iframe
 }
+
+// Template is a one-click starting point for a non-technical user — a friendly
+// name + a starter prompt that kicks off a build.
+type Template struct {
+	Name   string `json:"name"`
+	Desc   string `json:"desc"`
+	Prompt string `json:"prompt"`
+}
+
+// SetTemplates / SetPreviewDir configure the build-anything surface.
+func (s *Server) SetTemplates(t []Template) { s.templates = t }
+func (s *Server) SetPreviewDir(dir string)  { s.previewDir = dir }
 
 func NewServer(run Runner, state func() State, static fs.FS) *Server {
 	return &Server{hub: NewHub(), run: run, state: state, static: static, approvals: map[string]chan bool{}}
@@ -119,10 +134,26 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/prompt", s.handlePrompt)
 	mux.HandleFunc("/api/approve", s.handleApprove)
 	mux.HandleFunc("/api/state", s.handleState)
+	mux.HandleFunc("/api/templates", s.handleTemplates)
+	// The live preview serves the project files (what the agent is building) so
+	// an iframe can show the result. Localhost-only, the user's own files;
+	// http.Dir blocks path traversal outside the root.
+	if s.previewDir != "" {
+		mux.Handle("/preview/", http.StripPrefix("/preview/", http.FileServer(http.Dir(s.previewDir))))
+	}
 	if s.static != nil {
 		mux.Handle("/", http.FileServer(http.FS(s.static)))
 	}
 	return mux
+}
+
+func (s *Server) handleTemplates(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	t := s.templates
+	if t == nil {
+		t = []Template{}
+	}
+	_ = json.NewEncoder(w).Encode(t)
 }
 
 // handleEvents is the SSE stream: every agent event for every connected client.
