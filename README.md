@@ -31,6 +31,7 @@
 
 <p>
   <a href="#quickstart"><b>⚡ Quickstart</b></a> &nbsp;·&nbsp;
+  <a href="#cliché-studio--the-same-agent-in-a-browser">🎨 Studio</a> &nbsp;·&nbsp;
   <a href="#the-trust-kernel">🛡️ Trust Kernel</a> &nbsp;·&nbsp;
   <a href="#usage">🚀 Usage</a> &nbsp;·&nbsp;
   <a href="#command-reference">📖 Commands</a> &nbsp;·&nbsp;
@@ -61,9 +62,29 @@ The guarantees are **deterministic code, not prompts**: no LLM is ever in the li
 
 ---
 
+## Cliché Studio — the same agent, in a browser
+
+Prefer a window over a terminal? One command opens **Cliché Studio**, a local web app for the same agent and the same Trust Kernel:
+
+```bash
+cliche serve          # opens http://localhost:7878
+```
+
+No Node, no build step — the UI is baked into the single Go binary. It's a full studio, not a toy:
+
+- **Build by chatting** — describe what you want; **paste or drag in a screenshot** to clone a design or debug a UI. Cliché can even **see its own work** (a screenshot tool feeds the rendered page back to the model) and the screenshots show up right in the chat.
+- **Live preview · file tree · diffs · Git** — watch the site build in an iframe, browse files, review changes, then **commit, open a PR, or one-click Deploy to a live URL** — all from the app.
+- **The Trust Kernel, visible** — every write/command is an in-app **Allow** card; the budget, governor, and signed ledger are on a trust dashboard. `--yolo` still can't bypass them.
+- **Liquid-glass UI** — ⌘K palette, focus mode (chat only), provider/model switcher, session history. Switch providers without touching a config file.
+
+> Projects build in a dedicated workspace (`~/Cliche Projects`), never the folder you launched from. Point it anywhere with `cliche serve --dir .`.
+
+---
+
 ## Table of contents
 
 - [Quickstart](#quickstart)
+- [Cliché Studio (the visual app)](#cliché-studio--the-same-agent-in-a-browser)
 - [The Trust Kernel](#the-trust-kernel)
 - [See it fire](#see-it-fire)
 - [Usage](#usage)

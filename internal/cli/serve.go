@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +35,22 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	f, fs := parseRunFlags("serve", args)
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	// Unless the user explicitly pointed Studio at a folder (--dir), build in a
+	// dedicated workspace under the home directory — never the directory Studio
+	// happened to be launched from (which would litter, e.g., Cliché's own repo).
+	explicitDir := false
+	fs.Visit(func(fl *flag.Flag) {
+		if fl.Name == "dir" {
+			explicitDir = true
+		}
+	})
+	if !explicitDir {
+		if ws, err := studioWorkspace(); err == nil && ws != "" {
+			f.dir = ws
+			fmt.Fprintf(out, "Studio workspace: %s\n", ws)
+			fmt.Fprintln(out, "(projects build here, not in the launch folder — pass --dir . to work in the current folder)")
+		}
 	}
 	if f.mode == "" {
 		f.mode = modeSuggest // ask before each write/command — answered by in-browser approval cards
@@ -620,4 +638,20 @@ func webState(a *agent.Agent, cfg config.Config, mode string) web.State {
 		CapUSD:   lim.MaxUSD,
 		CtxFrac:  ctxFrac,
 	}
+}
+
+// studioWorkspace returns the default project directory for `cliche serve` when
+// no --dir was given: a dedicated folder under the user's home (honoring
+// $CLICHE_WORKSPACE), created on demand. This keeps Studio from building into
+// whatever directory it was launched from — e.g. Cliché's own source tree.
+func studioWorkspace() (string, error) {
+	if ws := strings.TrimSpace(os.Getenv("CLICHE_WORKSPACE")); ws != "" {
+		return ws, os.MkdirAll(ws, 0o755)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("could not locate home directory")
+	}
+	ws := filepath.Join(home, "Cliche Projects")
+	return ws, os.MkdirAll(ws, 0o755)
 }
