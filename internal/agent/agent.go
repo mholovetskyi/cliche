@@ -11,6 +11,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -354,16 +355,20 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			if !res.Success {
 				resDetail = truncate(res.Output, 200) // failures: show more of the error
 			}
-			a.emit(Event{Kind: "tool_result", Turn: turn, Tool: call.Name, OK: res.Success, Detail: resDetail})
+			// Surface any images a tool returned (e.g. screenshots) to the live UI
+			// feed as data: URLs — and feed the same bytes to the model as vision.
+			var shotURLs []string
+			for _, im := range res.Images {
+				shotImages = append(shotImages, provider.Image{MediaType: im.MediaType, Data: im.Data})
+				shotURLs = append(shotURLs, "data:"+im.MediaType+";base64,"+base64.StdEncoding.EncodeToString(im.Data))
+			}
+			a.emit(Event{Kind: "tool_result", Turn: turn, Tool: call.Name, OK: res.Success, Detail: resDetail, Images: shotURLs})
 			// Any successful tool call (not just an edit) counts as progress, so
 			// legitimately read-only/exploratory work is not falsely halted.
 			if res.Success {
 				madeProgress = true
 			}
 			results = append(results, provider.ToolResult{ID: call.ID, Content: res.Output, IsError: !res.Success})
-			for _, im := range res.Images {
-				shotImages = append(shotImages, provider.Image{MediaType: im.MediaType, Data: im.Data})
-			}
 			if res.IsEdit {
 				if h := gov.RecordEdit(res.Success); h != nil {
 					for _, c := range resp.ToolCalls[i+1:] {

@@ -212,7 +212,7 @@ type Item =
   | { t: "you"; text: string }
   | { t: "assistant"; text: string }
   | { t: "tool"; text: string }
-  | { t: "result"; text: string }
+  | { t: "result"; text: string; images?: string[] }
   | { t: "error"; text: string }
   | { t: "end" }
   | { t: "approval"; id: string; kind: string; target: string; answered?: "allowed" | "declined" };
@@ -462,7 +462,7 @@ function reduce(prev: Item[], e: Ev): Item[] {
       return [...prev, { t: "assistant", text: e.text || "" }];
     }
     case "tool_call": return [...prev, { t: "tool", text: e.text || "" }];
-    case "tool_result": return [...prev, { t: "result", text: e.text || "" }];
+    case "tool_result": return [...prev, { t: "result", text: e.text || "", images: e.data?.images }];
     case "approval": return [...prev, { t: "approval", id: e.data?.id, kind: e.data?.kind, target: e.data?.target }];
     case "error": return [...prev, { t: "error", text: e.text || "" }];
     case "end": return [...prev, { t: "end" }];
@@ -711,7 +711,20 @@ function Row({ it, onAnswer }: { it: Item; onAnswer: (id: string, allow: boolean
     case "you": return <div className="fade-up my-4 flex justify-end"><div className="max-w-[82%] rounded-2xl rounded-br-md border border-[var(--line)] bg-white/[0.05] px-4 py-2.5 text-[14.5px] leading-relaxed">{it.text}</div></div>;
     case "assistant": return <div className="md fade-up my-3"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={MD_COMPONENTS}>{it.text}</ReactMarkdown></div>;
     case "tool": return <div className="fade-up my-1 flex items-center gap-2 text-[12.5px] text-[var(--mut)]"><Wrench size={12} className="text-[var(--accent)]" /> <span className="font-mono">{it.text}</span></div>;
-    case "result": return <div className="fade-up my-1 flex items-center gap-2 text-[12.5px] text-[var(--mut)]"><Check size={12} className="text-[var(--ok)]" strokeWidth={3} /> <span className="font-mono">{it.text}</span></div>;
+    case "result": return (
+      <div className="fade-up my-1">
+        <div className="flex items-center gap-2 text-[12.5px] text-[var(--mut)]"><Check size={12} className="text-[var(--ok)]" strokeWidth={3} /> <span className="font-mono">{it.text}</span></div>
+        {it.images && it.images.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2 pl-5">
+            {it.images.map((src, i) => (
+              <a key={i} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-[var(--line2)] shadow-[var(--sh-md)] transition-transform hover:scale-[1.01]" title="What Cliché saw — click to open full size">
+                <img src={src} alt="screenshot" className="max-h-72 max-w-full object-contain" />
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    );
     case "error": return <div className="fade-up my-2 flex items-center gap-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/[0.06] px-3 py-2 text-[13px] text-[var(--accent)]"><CircleAlert size={14} /> {it.text}</div>;
     case "end": return <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-[var(--faint)]"><span className="h-px flex-1 bg-[var(--line)]" /> done <span className="h-px flex-1 bg-[var(--line)]" /></div>;
     case "approval": return <ApprovalCard it={it} onAnswer={onAnswer} />;

@@ -169,7 +169,11 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 					if e.Detail != "" {
 						label += " · " + e.Detail
 					}
-					emit(web.Event{Kind: "tool_result", Text: label})
+					ev := web.Event{Kind: "tool_result", Text: label}
+					if len(e.Images) > 0 {
+						ev.Data = map[string]any{"images": e.Images}
+					}
+					emit(ev)
 					emit(web.Event{Kind: "state", Data: curState()})
 				case "halt", "budget":
 					emit(web.Event{Kind: "error", Text: strings.TrimSpace(e.Text + " " + e.Detail)})

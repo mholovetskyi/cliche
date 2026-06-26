@@ -8,8 +8,9 @@ type Event struct {
 	Turn   int
 	Text   string // assistant text (Kind == "text")
 	Tool   string // tool name (tool_call / tool_result)
-	Detail string // compact human detail
-	OK     bool   // tool success (tool_result)
+	Detail string   // compact human detail
+	OK     bool     // tool success (tool_result)
+	Images []string // data: URLs a tool produced (e.g. screenshots), for the UI feed
 }
 
 // Observer receives Events as they happen. Optional; nil disables streaming.
