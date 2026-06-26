@@ -328,6 +328,41 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			return curID, toMsgs(a.Transcript())
 		},
 	)
+	srv.SetSessionOps(
+		// rename: retitle a saved session (the active one updates live too).
+		func(id, title string) error {
+			amu.Lock()
+			defer amu.Unlock()
+			title = firstLine(strings.TrimSpace(title))
+			if id == curID {
+				curTitle = title
+				persist() // writes the new title for the active chat
+				return nil
+			}
+			rec, err := sess.Load(f.dir, id)
+			if err != nil {
+				return err
+			}
+			rec.Title = title
+			return sess.Save(f.dir, rec)
+		},
+		// delete: remove a saved session; deleting the active one starts a fresh chat.
+		func(id string) error {
+			amu.Lock()
+			defer amu.Unlock()
+			if running {
+				return fmt.Errorf("can't delete while a run is in progress")
+			}
+			if id == curID {
+				if a != nil {
+					a.Reset()
+				}
+				curID, curTitle, curCreated = sess.NewID(time.Now()), "", time.Now()
+				curTasks, nextTaskID = nil, 0
+			}
+			return sess.Delete(f.dir, id)
+		},
+	)
 	srv.SetFiles(
 		func() []web.FileNode { return fileTree(previewDir) },
 		func(rel string) (string, bool) { return readProjectFile(previewDir, rel) },

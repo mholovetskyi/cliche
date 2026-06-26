@@ -8,7 +8,7 @@ import {
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
   FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
-  GitBranch, AtSign, PanelRight,
+  GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket,
 } from "lucide-react";
 
 type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
@@ -19,6 +19,26 @@ function flattenTree(nodes: any[]): string[] {
   return out;
 }
 const ansiRe = /\x1b\[[0-9;]*m/g;
+
+// CodeBlock — wraps a markdown <pre> with a hover copy button.
+function CodeBlock(props: any) {
+  const ref = useRef<HTMLPreElement>(null);
+  const [done, setDone] = useState(false);
+  const copy = () => {
+    const t = ref.current?.innerText ?? "";
+    navigator.clipboard?.writeText(t).then(() => { setDone(true); setTimeout(() => setDone(false), 1200); }).catch(() => {});
+  };
+  return (
+    <div className="group/code relative">
+      <pre ref={ref} {...props} />
+      <button onClick={copy} title="Copy code"
+        className="icon-btn absolute right-2 top-2 h-7 w-7 rounded-lg border border-[var(--line)] bg-[var(--s2)]/80 opacity-0 backdrop-blur transition-opacity group-hover/code:opacity-100">
+        {done ? <Check size={13} className="text-[var(--ok)]" /> : <Copy size={13} />}
+      </button>
+    </div>
+  );
+}
+const MD_COMPONENTS = { pre: CodeBlock };
 
 const PROVIDERS = [
   { id: "anthropic", label: "Anthropic (Claude) — direct API", keyUrl: "https://console.anthropic.com", local: false },
@@ -546,9 +566,9 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
+function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
   sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean };
-  onNew: () => void; onPick: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
+  onNew: () => void; onPick: (id: string) => void; onRename: (id: string, title: string) => void; onDelete: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
   onAccent: (id: string) => void; onSearch: () => void; onSettings: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
 }) {
   const cap = state.cap_usd || 0;
@@ -556,6 +576,10 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, o
   const trust = trustOf(audit);
   const load = cap > 0 ? (state.spent_usd || 0) / cap : 0;
   const [quip, setQuip] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const startEdit = (id: string, title: string) => { setEditId(id); setDraft(title); };
+  const commitEdit = () => { if (editId) onRename(editId, draft.trim()); setEditId(null); };
   const mood = trust === "tamper" ? "wary" : state.running ? "focused" : load > 0.85 ? "frugal" : (audit && audit.ok && audit.entries > 0 ? "proud" : "idle");
   return (
     <aside className="flex w-[244px] shrink-0 flex-col border-r border-[var(--line)]">
@@ -578,15 +602,27 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, o
         <div className="px-2 pb-1 pt-1 text-[10.5px] font-medium uppercase tracking-[0.08em] text-[var(--dim)]">Chats</div>
         {sessions.length === 0 && <div className="px-2 py-2 text-xs text-[var(--dim)]">No chats yet</div>}
         {sessions.map((s) => (
-          <button key={s.id} onClick={() => onPick(s.id)} title={s.title}
-            className={`group relative mb-0.5 flex w-full items-center gap-2.5 rounded-lg py-2 pl-3 pr-2 text-left text-[13px] transition-colors ${s.active ? "bg-white/[0.06] text-[var(--ink)]" : "text-[var(--mut)] hover:bg-white/[0.035]"}`}>
+          <div key={s.id} onClick={() => editId !== s.id && onPick(s.id)} title={s.title}
+            className={`group relative mb-0.5 flex w-full cursor-pointer items-center gap-2.5 rounded-lg py-2 pl-3 pr-1.5 text-left text-[13px] transition-colors ${s.active ? "bg-white/[0.06] text-[var(--ink)]" : "text-[var(--mut)] hover:bg-white/[0.035]"}`}>
             {s.active && <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--accent)]" />}
             <MessageSquare size={14} className={s.active ? "shrink-0 text-[var(--accent)]" : "shrink-0 text-[var(--dim)]"} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{s.title || "New chat"}</span>
-              <span className="block text-[11px] text-[var(--dim)]">{relTime(s.updated)} · {s.messages} msgs</span>
-            </span>
-          </button>
+            {editId === s.id ? (
+              <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditId(null); }} onBlur={commitEdit}
+                className="min-w-0 flex-1 rounded bg-black/30 px-1.5 py-0.5 text-[13px] outline-none ring-1 ring-[var(--accent)]/60" />
+            ) : (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{s.title || "New chat"}</span>
+                <span className="block text-[11px] text-[var(--dim)]">{relTime(s.updated)} · {s.messages} msgs</span>
+              </span>
+            )}
+            {editId !== s.id && (
+              <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100">
+                <button onClick={(e) => { e.stopPropagation(); startEdit(s.id, s.title || ""); }} className="icon-btn h-6 w-6" title="Rename"><Pencil size={12} /></button>
+                <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this chat? This can't be undone.")) onDelete(s.id); }} className="icon-btn h-6 w-6 hover:text-[var(--danger)]" title="Delete"><Trash2 size={12} /></button>
+              </span>
+            )}
+          </div>
         ))}
       </div>
       {tasks.length > 0 && (
@@ -673,7 +709,7 @@ function ApprovalCard({ it, onAnswer }: { it: Extract<Item, { t: "approval" }>; 
 function Row({ it, onAnswer }: { it: Item; onAnswer: (id: string, allow: boolean) => void }) {
   switch (it.t) {
     case "you": return <div className="fade-up my-4 flex justify-end"><div className="max-w-[82%] rounded-2xl rounded-br-md border border-[var(--line)] bg-white/[0.05] px-4 py-2.5 text-[14.5px] leading-relaxed">{it.text}</div></div>;
-    case "assistant": return <div className="md fade-up my-3"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{it.text}</ReactMarkdown></div>;
+    case "assistant": return <div className="md fade-up my-3"><ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={MD_COMPONENTS}>{it.text}</ReactMarkdown></div>;
     case "tool": return <div className="fade-up my-1 flex items-center gap-2 text-[12.5px] text-[var(--mut)]"><Wrench size={12} className="text-[var(--accent)]" /> <span className="font-mono">{it.text}</span></div>;
     case "result": return <div className="fade-up my-1 flex items-center gap-2 text-[12.5px] text-[var(--mut)]"><Check size={12} className="text-[var(--ok)]" strokeWidth={3} /> <span className="font-mono">{it.text}</span></div>;
     case "error": return <div className="fade-up my-2 flex items-center gap-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/[0.06] px-3 py-2 text-[13px] text-[var(--accent)]"><CircleAlert size={14} /> {it.text}</div>;
@@ -907,6 +943,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [imgCount, setImgCount] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const [booting, setBooting] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
@@ -1058,6 +1095,9 @@ export default function App() {
   async function toggleTask(id: number) { const r = await fetch("/api/tasks/done", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); setTasks(await r.json()); }
   async function clearTasks() { const r = await fetch("/api/tasks/clear", { method: "POST" }); setTasks(await r.json()); }
   async function uploadImage(file: File) { const fd = new FormData(); fd.append("file", file); const r = await fetch("/api/image", { method: "POST", body: fd }); if (r.ok) setImgCount((await r.json()).count); }
+  async function uploadImages(files: File[]) { for (const f of files) { if (f.type.startsWith("image/")) await uploadImage(f); } }
+  function onComposerPaste(e: React.ClipboardEvent) { const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/")); if (imgs.length) { e.preventDefault(); uploadImages(imgs); } }
+  function onComposerDrop(e: React.DragEvent) { e.preventDefault(); setDragOver(false); const imgs = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/")); if (imgs.length) uploadImages(imgs); }
   async function newChat() {
     await fetch("/api/sessions/new", { method: "POST" });
     setItems([]); refreshSessions();
@@ -1065,6 +1105,14 @@ export default function App() {
   async function pickSession(id: string) {
     const r = await fetch("/api/sessions/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     const d = await r.json(); setItems(msgsToItems(d.messages || [])); refreshSessions();
+  }
+  async function renameSession(id: string, title: string) {
+    await fetch("/api/sessions/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, title }) });
+    refreshSessions();
+  }
+  async function deleteSession(id: string) {
+    const r = await fetch("/api/sessions/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    if (r.ok) { const wasActive = sessions.find((s) => s.id === id)?.active; if (wasActive) setItems([]); refreshSessions(); }
   }
   const refreshState = () => fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
   async function setMode(mode: string) {
@@ -1172,7 +1220,7 @@ export default function App() {
       {leader && <div className="fade-up glass elev fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--mut)]">go to <span className="kbd">p</span><span className="kbd">f</span><span className="kbd">c</span><span className="kbd">t</span><span className="kbd">n</span></div>}
       <div className="relative flex h-full">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
 
       {/* conversation */}
       <section className="flex min-w-0 flex-1 flex-col">
@@ -1239,15 +1287,17 @@ export default function App() {
               </div>
             )}
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = ""; }} />
-            <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="surface field flex items-center gap-2 rounded-2xl p-2 pl-2.5 shadow-[var(--sh-md)]">
-              <button type="button" onClick={() => fileRef.current?.click()} className="icon-btn h-9 w-9 shrink-0" title="Attach an image"><ImagePlus size={18} /></button>
+            <form onSubmit={(e) => { e.preventDefault(); submit(); }}
+              onDrop={onComposerDrop} onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
+              className={`surface field flex items-center gap-2 rounded-2xl p-2 pl-2.5 shadow-[var(--sh-md)] transition-shadow ${dragOver ? "ring-2 ring-[var(--accent)]/70" : ""}`}>
+              <button type="button" onClick={() => fileRef.current?.click()} className="icon-btn h-9 w-9 shrink-0" title="Attach an image — or paste / drop one"><ImagePlus size={18} /></button>
               {imgCount > 0 && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--accent)]/15 px-2 py-1 text-xs text-[var(--accent)]">
                   {imgCount} image{imgCount > 1 ? "s" : ""}
                   <button type="button" onClick={() => { fetch("/api/image/clear", { method: "POST" }); setImgCount(0); }} title="Remove"><X size={11} /></button>
                 </span>
               )}
-              <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what you want to build…" autoFocus className="flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
+              <input value={prompt} onChange={(e) => setPrompt(e.target.value)} onPaste={onComposerPaste} placeholder={dragOver ? "Drop image to attach…" : "Describe what you want to build…"} autoFocus className="flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
               <button disabled={(state.running && !prompt.startsWith("/")) || !prompt.trim()} className="btn-accent grid h-9 w-9 place-items-center rounded-xl" title="Send"><ArrowUp size={18} /></button>
             </form>
             <div className="mt-2 flex items-center gap-3 px-1 text-[11px] text-[var(--faint)]">

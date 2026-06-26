@@ -54,11 +54,13 @@ type Server struct {
 	setup      func(provider, key string) error        // first-run: connect a provider (no terminal needed)
 	reconnect  func(provider, key, model string) error // live provider/model switch (Settings)
 
-	sessions    func() []SessionMeta
-	sessionNew  func() string
-	sessionPick func(id string) []Msg
-	sessionCur  func() (string, []Msg)
-	files       func() []FileNode
+	sessions      func() []SessionMeta
+	sessionNew    func() string
+	sessionPick   func(id string) []Msg
+	sessionCur    func() (string, []Msg)
+	sessionRename func(id, title string) error
+	sessionDelete func(id string) error
+	files         func() []FileNode
 	fileRead    func(rel string) (string, bool)
 
 	gitStatus func() GitStatus
@@ -182,6 +184,11 @@ type FileNode struct {
 // (returns its id), switch to one (returns its transcript), read the current.
 func (s *Server) SetSessions(list func() []SessionMeta, neww func() string, pick func(string) []Msg, cur func() (string, []Msg)) {
 	s.sessions, s.sessionNew, s.sessionPick, s.sessionCur = list, neww, pick, cur
+}
+
+// SetSessionOps wires rename + delete for saved sessions (the sidebar actions).
+func (s *Server) SetSessionOps(rename func(id, title string) error, del func(id string) error) {
+	s.sessionRename, s.sessionDelete = rename, del
 }
 
 // SetFiles wires the workspace file tree + read-only file viewer.
@@ -456,6 +463,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/sessions/new", s.handleSessionNew)
 	mux.HandleFunc("/api/sessions/select", s.handleSessionSelect)
+	mux.HandleFunc("/api/sessions/rename", s.handleSessionRename)
+	mux.HandleFunc("/api/sessions/delete", s.handleSessionDelete)
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
@@ -533,6 +542,51 @@ func (s *Server) handleSessionSelect(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"id": body.ID, "messages": msgs})
+}
+
+func (s *Server) handleSessionRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || body.ID == "" {
+		http.Error(w, "expected {\"id\":\"…\",\"title\":\"…\"}", http.StatusBadRequest)
+		return
+	}
+	if s.sessionRename != nil {
+		if err := s.sessionRename(body.ID, body.Title); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func (s *Server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil || body.ID == "" {
+		http.Error(w, "expected {\"id\":\"…\"}", http.StatusBadRequest)
+		return
+	}
+	if s.sessionDelete != nil {
+		if err := s.sessionDelete(body.ID); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, _ *http.Request) {
