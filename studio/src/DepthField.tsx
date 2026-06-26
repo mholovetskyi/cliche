@@ -14,7 +14,7 @@ export default function DepthField({ bind }: { bind: (fn: (kind: string) => void
     const root = document.documentElement;
     const accent = () => (getComputedStyle(root).getPropertyValue("--accent").trim() || "#ff6a4d");
     let W = innerWidth, H = innerHeight;
-    function resize() { W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    const resize = () => { W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
     resize(); window.addEventListener("resize", resize);
     const N = REDUCE.matches ? 90 : 140;
     const motes = Array.from({ length: N }, () => ({ x: Math.random(), y: Math.random(), z: Math.random(), tw: Math.random() * 6.28, surge: 0 }));

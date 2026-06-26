@@ -271,7 +271,7 @@ function Kiln() {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const root = document.documentElement;
     const cols = () => [getComputedStyle(root).getPropertyValue("--accent").trim() || "#ff6a4d", getComputedStyle(root).getPropertyValue("--accent2").trim() || "#ff9468"];
-    function resize() { cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    const resize = () => { cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
     const ro = new ResizeObserver(resize); ro.observe(cv);
     let parts: any[] = [], raf = 0, last = 0;
     const frame = (t: number) => {
@@ -342,7 +342,7 @@ function TracerField({ bind }: { bind: (fn: (kind: string) => void) => void }) {
     let parts: any[] = [];
     let raf = 0, last = 0;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    function resize() { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    const resize = () => { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
     resize(); window.addEventListener("resize", resize);
     bind((kind) => {
       if (parts.length > 110) return;
@@ -353,7 +353,7 @@ function TracerField({ bind }: { bind: (fn: (kind: string) => void) => void }) {
       if (kind === "tool_result") { parts.push({ ring: true, x: ex, y: ey, r: 3, c, life: 1 }); }
       else { const life = 60 + Math.random() * 20; parts.push({ x: sx, y: sy, vx: (ex - sx) / life, vy: (ey - sy) / life, c, life, maxLife: life, r: 1.8 + Math.random() }); }
     });
-    function frame(t: number) {
+    const frame = (t: number) => {
       raf = requestAnimationFrame(frame);
       if (document.hidden || parts.length === 0) { ctx.clearRect(0, 0, innerWidth, innerHeight); return; }
       if (t - last < 32) return; // ~30fps
@@ -371,7 +371,7 @@ function TracerField({ bind }: { bind: (fn: (kind: string) => void) => void }) {
       }
       ctx.globalAlpha = 1;
       parts = parts.filter((p) => p.life > 0);
-    }
+    };
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
   }, []);
@@ -543,7 +543,7 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, onToggleTask, onClearTasks, onAccent, onSearch, onToggleInst, onMemory }: {
+function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
   sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean };
   onNew: () => void; onPick: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
   onAccent: (id: string) => void; onSearch: () => void; onSettings: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
