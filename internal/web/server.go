@@ -69,7 +69,41 @@ type Server struct {
 	undoFn    func() (string, bool)
 	rewindFn  func() []string
 	rulesFn   func() Rules
+
+	tasksFn    func() []Task
+	taskAdd    func(title string) []Task
+	taskDone   func(id int) []Task
+	taskClear  func() []Task
+	imageAdd   func(data []byte, mediaType string) int
+	imageClear func()
+	commandsFn func() []CommandInfo
 }
+
+// Task is one item on the session plan (/plan /tasks /done).
+type Task struct {
+	ID    int    `json:"id"`
+	Title string `json:"title"`
+	Done  bool   `json:"done"`
+}
+
+// CommandInfo is a user-defined .cliche/commands shortcut, surfaced to the palette.
+type CommandInfo struct {
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+}
+
+// SetTasks wires the session plan: list, add, toggle-done, clear.
+func (s *Server) SetTasks(list func() []Task, add func(string) []Task, done func(int) []Task, clear func() []Task) {
+	s.tasksFn, s.taskAdd, s.taskDone, s.taskClear = list, add, done, clear
+}
+
+// SetImages wires image attachment for the next prompt (add returns the new count).
+func (s *Server) SetImages(add func(data []byte, mediaType string) int, clear func()) {
+	s.imageAdd, s.imageClear = add, clear
+}
+
+// SetCommands wires the user's custom slash commands for the palette.
+func (s *Server) SetCommands(f func() []CommandInfo) { s.commandsFn = f }
 
 // ModelInfo is one selectable model + its price (for the model picker).
 type ModelInfo struct {
@@ -301,6 +335,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/undo", s.handleUndo)
 	mux.HandleFunc("/api/rewind", s.handleRewind)
 	mux.HandleFunc("/api/rules", s.handleRules)
+	mux.HandleFunc("/api/tasks", s.handleTasks)
+	mux.HandleFunc("/api/tasks/done", s.handleTaskDone)
+	mux.HandleFunc("/api/tasks/clear", s.handleTaskClear)
+	mux.HandleFunc("/api/image", s.handleImage)
+	mux.HandleFunc("/api/image/clear", s.handleImageClear)
+	mux.HandleFunc("/api/commands", s.handleCommands)
 	// The live preview serves the project files (what the agent is building) so
 	// an iframe can show the result. Localhost-only, the user's own files;
 	// http.Dir blocks path traversal outside the root.
@@ -604,6 +644,121 @@ func (s *Server) handleMode(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.Emit(Event{Kind: "state", Data: s.snapshot(s.isRunning())})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodPost {
+		var body struct {
+			Title string `json:"title"`
+		}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body)
+		_ = json.NewEncoder(w).Encode(tasksOrEmpty(s.taskAdd, body.Title))
+		return
+	}
+	list := []Task{}
+	if s.tasksFn != nil {
+		if got := s.tasksFn(); got != nil {
+			list = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(list)
+}
+
+func (s *Server) handleTaskDone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ID int `json:"id"`
+	}
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&body)
+	list := []Task{}
+	if s.taskDone != nil {
+		if got := s.taskDone(body.ID); got != nil {
+			list = got
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(list)
+}
+
+func (s *Server) handleTaskClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	list := []Task{}
+	if s.taskClear != nil {
+		if got := s.taskClear(); got != nil {
+			list = got
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(list)
+}
+
+func tasksOrEmpty(add func(string) []Task, title string) []Task {
+	if add == nil {
+		return []Task{}
+	}
+	if got := add(title); got != nil {
+		return got
+	}
+	return []Task{}
+}
+
+func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.imageAdd == nil {
+		http.Error(w, "no image support", http.StatusNotFound)
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "expected a file field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 8<<20)) // 8 MB cap
+	if err != nil || len(data) == 0 {
+		http.Error(w, "could not read the file", http.StatusBadRequest)
+		return
+	}
+	mt := http.DetectContentType(data)
+	if !strings.HasPrefix(mt, "image/") {
+		http.Error(w, "not an image", http.StatusUnsupportedMediaType)
+		return
+	}
+	n := s.imageAdd(data, mt)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]int{"count": n})
+}
+
+func (s *Server) handleImageClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.imageClear != nil {
+		s.imageClear()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCommands(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	list := []CommandInfo{}
+	if s.commandsFn != nil {
+		if got := s.commandsFn(); got != nil {
+			list = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(list)
 }
 
 func (s *Server) handleChanges(w http.ResponseWriter, _ *http.Request) {

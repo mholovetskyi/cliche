@@ -16,6 +16,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/pricing"
+	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/tools"
@@ -66,8 +67,15 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		curMode    = f.mode  // permission mode (mutable from the web, like /mode)
 		running    bool      // a run is in flight → session switches are refused
 		ajournal   *tools.EditJournal
+		curTasks   []sess.Task      // the session plan (/plan /tasks /done)
+		nextTaskID int              // monotonic id for new plan tasks
+		pendingImg []provider.Image // images attached to the NEXT prompt (/image)
 	)
 	defer func() { acleanup() }()
+
+	// customCmds are the user's .cliche/commands/*.md prompt shortcuts; the web
+	// composer can invoke them just like the terminal (/<name> expands to its body).
+	customCmds := loadCommands(f.dir)
 
 	// webApprove is the agent's approver in the web app — it applies the live
 	// permission mode exactly like the CLI's approver (plan blocks writes/commands,
@@ -104,7 +112,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		}
 		_ = sess.Save(f.dir, sess.Record{
 			ID: curID, Title: title, Provider: acfg.Provider, Model: a.Model(),
-			Created: curCreated, Updated: time.Now(), Usage: a.Usage(), Messages: a.Transcript(),
+			Created: curCreated, Updated: time.Now(), Usage: a.Usage(), Messages: a.Transcript(), Tasks: curTasks,
 		})
 	}
 
@@ -132,6 +140,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			if rec, lerr := sess.Load(f.dir, id); lerr == nil {
 				na.Restore(rec.Messages, rec.Usage)
 				curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
+				curTasks, nextTaskID = rec.Tasks, maxTaskID(rec.Tasks)
 			}
 		}
 		if curID == "" {
@@ -139,10 +148,25 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		}
 		amu.Unlock()
 		srv.SetRunner(func(ctx context.Context, prompt string, emit func(web.Event)) error {
+			// A /<name> that matches a user command expands to its body (CLI parity);
+			// @file refs inline the file's contents. Both happen before the model sees
+			// the prompt, exactly as in the terminal.
+			if strings.HasPrefix(prompt, "/") {
+				if fields := strings.Fields(prompt[1:]); len(fields) > 0 {
+					if uc, ok := customCmds[fields[0]]; ok {
+						prompt = uc.expand(fields[1:])
+					}
+				}
+			}
+			prompt = expandAtRefs(previewDir, prompt)
 			amu.Lock()
 			running = true
 			if curTitle == "" {
 				curTitle = titleFrom(prompt)
+			}
+			if len(pendingImg) > 0 {
+				na.AttachImages(pendingImg)
+				pendingImg = nil
 			}
 			amu.Unlock()
 			na.SetObserver(func(e agent.Event) {
@@ -220,6 +244,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			persist() // save the chat we're leaving
 			a.Reset()
 			curID, curTitle, curCreated = sess.NewID(time.Now()), "", time.Now()
+			curTasks, nextTaskID = nil, 0
 			return curID
 		},
 		func(id string) []web.Msg {
@@ -238,6 +263,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			}
 			a.RestoreTranscript(rec.Messages)
 			curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
+			curTasks, nextTaskID = rec.Tasks, maxTaskID(rec.Tasks)
 			return toMsgs(rec.Messages)
 		},
 		func() (string, []web.Msg) {
@@ -337,6 +363,70 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			Allow: c.Permissions.Allow, Deny: c.Permissions.Deny, Egress: c.Egress.Allow, Hooks: hooks,
 			MaxTurns: c.Governor.MaxTurns, MaxWallSec: c.Governor.MaxWallClockSeconds, MaxFailedEdits: c.Governor.MaxConsecutiveFailedEdits,
 		}
+	})
+
+	// Plan/tasks (/plan /tasks /done), persisted with the session.
+	webTasks := func() []web.Task {
+		out := make([]web.Task, 0, len(curTasks))
+		for _, t := range curTasks {
+			out = append(out, web.Task{ID: t.ID, Title: t.Title, Done: t.Done})
+		}
+		return out
+	}
+	srv.SetTasks(
+		func() []web.Task { amu.Lock(); defer amu.Unlock(); return webTasks() },
+		func(title string) []web.Task {
+			amu.Lock()
+			defer amu.Unlock()
+			if title = strings.TrimSpace(title); title != "" {
+				nextTaskID++
+				curTasks = append(curTasks, sess.Task{ID: nextTaskID, Title: title})
+				persist()
+			}
+			return webTasks()
+		},
+		func(id int) []web.Task {
+			amu.Lock()
+			defer amu.Unlock()
+			for i := range curTasks {
+				if curTasks[i].ID == id {
+					curTasks[i].Done = !curTasks[i].Done
+				}
+			}
+			persist()
+			return webTasks()
+		},
+		func() []web.Task {
+			amu.Lock()
+			defer amu.Unlock()
+			curTasks, nextTaskID = nil, 0
+			persist()
+			return webTasks()
+		},
+	)
+
+	// Image attach (/image): stash images for the next prompt.
+	srv.SetImages(
+		func(data []byte, mediaType string) int {
+			amu.Lock()
+			defer amu.Unlock()
+			pendingImg = append(pendingImg, provider.Image{MediaType: mediaType, Data: data})
+			return len(pendingImg)
+		},
+		func() {
+			amu.Lock()
+			pendingImg = nil
+			amu.Unlock()
+		},
+	)
+
+	// Custom commands (.cliche/commands) surfaced to the composer's slash palette.
+	srv.SetCommands(func() []web.CommandInfo {
+		var out []web.CommandInfo
+		for _, c := range sortedCommands(customCmds) {
+			out = append(out, web.CommandInfo{Name: c.Name, Desc: c.Desc})
+		}
+		return out
 	})
 
 	ln, err := listenLocal()

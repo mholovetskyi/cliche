@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -470,6 +471,79 @@ func TestEditAndRulesEndpoints(t *testing.T) {
 	r.Body.Close()
 	if rl.Mode != "plan" || len(rl.Deny) != 1 || rl.MaxTurns != 50 {
 		t.Fatalf("rules wrong: %+v", rl)
+	}
+}
+
+func TestTaskAndCommandEndpoints(t *testing.T) {
+	tasks := []Task{}
+	srv := NewServer(nil, nil, nil)
+	srv.SetTasks(
+		func() []Task { return tasks },
+		func(title string) []Task { tasks = append(tasks, Task{ID: len(tasks) + 1, Title: title}); return tasks },
+		func(id int) []Task {
+			for i := range tasks {
+				if tasks[i].ID == id {
+					tasks[i].Done = !tasks[i].Done
+				}
+			}
+			return tasks
+		},
+		func() []Task { tasks = nil; return tasks },
+	)
+	srv.SetCommands(func() []CommandInfo { return []CommandInfo{{Name: "ship", Desc: "release it"}} })
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	var got []Task
+	r, _ := http.Post(ts.URL+"/api/tasks", "application/json", strings.NewReader(`{"title":"write tests"}`))
+	_ = json.NewDecoder(r.Body).Decode(&got)
+	r.Body.Close()
+	if len(got) != 1 || got[0].Title != "write tests" {
+		t.Fatalf("task add wrong: %+v", got)
+	}
+	r, _ = http.Post(ts.URL+"/api/tasks/done", "application/json", strings.NewReader(`{"id":1}`))
+	_ = json.NewDecoder(r.Body).Decode(&got)
+	r.Body.Close()
+	if !got[0].Done {
+		t.Fatalf("task not marked done: %+v", got)
+	}
+	r, _ = http.Post(ts.URL+"/api/tasks/clear", "application/json", nil)
+	_ = json.NewDecoder(r.Body).Decode(&got)
+	r.Body.Close()
+	if len(got) != 0 {
+		t.Fatalf("tasks not cleared: %+v", got)
+	}
+
+	var cmds []CommandInfo
+	r, _ = http.Get(ts.URL + "/api/commands")
+	_ = json.NewDecoder(r.Body).Decode(&cmds)
+	r.Body.Close()
+	if len(cmds) != 1 || cmds[0].Name != "ship" {
+		t.Fatalf("commands wrong: %+v", cmds)
+	}
+}
+
+func TestImageEndpoint(t *testing.T) {
+	var gotType string
+	srv := NewServer(nil, nil, nil)
+	srv.SetImages(func(_ []byte, mt string) int { gotType = mt; return 1 }, func() {})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0} // PNG signature
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("file", "x.png")
+	_, _ = fw.Write(png)
+	mw.Close()
+
+	r, _ := http.Post(ts.URL+"/api/image", mw.FormDataContentType(), &buf)
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("image upload = %d, want 200", r.StatusCode)
+	}
+	r.Body.Close()
+	if !strings.HasPrefix(gotType, "image/") {
+		t.Fatalf("detected media type = %q, want image/*", gotType)
 	}
 }
 

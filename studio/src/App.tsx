@@ -6,7 +6,7 @@ import hljs from "highlight.js";
 import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
-  MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square, FileDiff,
+  MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square, FileDiff, ImagePlus, X,
 } from "lucide-react";
 
 type Ev = { kind: string; text?: string; data?: any };
@@ -18,6 +18,8 @@ type FileNode = { name: string; path: string; dir: boolean; children?: FileNode[
 type Msg = { role: string; text: string };
 type ModelInfo = { model: string; input_per_m: number; output_per_m: number };
 type Change = { path: string; before: string; after: string; was_new: boolean; deleted: boolean };
+type Task = { id: number; title: string; done: boolean };
+type CommandInfo = { name: string; desc: string };
 type Rules = { mode: string; mode_desc: string; allow: string[]; deny: string[]; egress: string[]; hooks: string[]; max_turns: number; max_wall_sec: number; max_failed_edits: number };
 
 type DiffRow = { type: "ctx" | "add" | "del"; text: string };
@@ -48,8 +50,11 @@ const MODES = [
 
 const COMMANDS: { cmd: string; desc: string; arg?: boolean }[] = [
   { cmd: "new", desc: "Start a new chat" },
+  { cmd: "plan", desc: "Add a task to the plan", arg: true },
+  { cmd: "done", desc: "Mark a task done", arg: true },
+  { cmd: "image", desc: "Attach an image" },
   { cmd: "stop", desc: "Stop the current run" },
-  { cmd: "plan", desc: "Mode → read-only" },
+  { cmd: "mode", desc: "Set permission mode", arg: true },
   { cmd: "suggest", desc: "Mode → ask before each action" },
   { cmd: "auto", desc: "Mode → auto-apply edits" },
   { cmd: "full", desc: "Mode → auto-approve everything" },
@@ -168,8 +173,12 @@ function Setup({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Sidebar({ sessions, state, audit, onNew, onPick }: { sessions: SessionMeta[]; state: State; audit: Audit | null; onNew: () => void; onPick: (id: string) => void }) {
+function Sidebar({ sessions, state, audit, tasks, onNew, onPick, onToggleTask, onClearTasks }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[];
+  onNew: () => void; onPick: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
+}) {
   const cap = state.cap_usd || 0;
+  const doneCount = tasks.filter((t) => t.done).length;
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--line)]">
       <div className="flex h-14 items-center gap-2 px-4">
@@ -195,6 +204,20 @@ function Sidebar({ sessions, state, audit, onNew, onPick }: { sessions: SessionM
           </button>
         ))}
       </div>
+      {tasks.length > 0 && (
+        <div className="max-h-[40%] overflow-auto border-t border-[var(--line)] p-2">
+          <div className="flex items-center px-2 pb-1 text-[11px] uppercase tracking-wider text-[var(--dim)]">
+            <span className="flex-1">Plan · {doneCount}/{tasks.length}</span>
+            <button onClick={onClearTasks} className="hover:text-[var(--mut)]" title="Clear the plan">clear</button>
+          </div>
+          {tasks.map((t) => (
+            <button key={t.id} onClick={() => onToggleTask(t.id)} className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-[13px] hover:bg-white/[0.04]">
+              <span className={`mt-0.5 grid h-3.5 w-3.5 shrink-0 place-items-center rounded border ${t.done ? "border-[var(--ok)] bg-[var(--ok)]/20 text-[var(--ok)]" : "border-[var(--line2)]"}`}>{t.done && <Check size={10} />}</span>
+              <span className={t.done ? "text-[var(--dim)] line-through" : "text-[var(--mut)]"}>{t.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="border-t border-[var(--line)] p-3 text-xs">
         {audit && audit.entries > 0 && (
           <div className="mb-2 flex items-center gap-1.5">
@@ -395,18 +418,23 @@ export default function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [changes, setChanges] = useState<Change[]>([]);
   const [rules, setRules] = useState<Rules | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [commands, setCommands] = useState<CommandInfo[]>([]);
+  const [imgCount, setImgCount] = useState(0);
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openFile, setOpenFile] = useState<{ path: string; html: string } | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshAudit = () => fetch("/api/audit").then((r) => r.json()).then(setAudit).catch(() => {});
   const refreshSessions = () => fetch("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {});
   const refreshFiles = () => fetch("/api/files").then((r) => r.json()).then(setTree).catch(() => {});
   const refreshChanges = () => fetch("/api/changes").then((r) => r.json()).then(setChanges).catch(() => {});
   const refreshRules = () => fetch("/api/rules").then((r) => r.json()).then(setRules).catch(() => {});
+  const refreshTasks = () => fetch("/api/tasks").then((r) => r.json()).then(setTasks).catch(() => {});
   useEffect(() => { feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" }); }, [items]);
 
   useEffect(() => {
@@ -414,13 +442,14 @@ export default function App() {
     fetch("/api/templates").then((r) => r.json()).then(setTemplates).catch(() => {});
     fetch("/api/session").then((r) => r.json()).then((d) => setItems(msgsToItems(d.messages || []))).catch(() => {});
     fetch("/api/models").then((r) => r.json()).then(setModels).catch(() => {});
-    refreshSessions(); refreshAudit(); refreshFiles(); refreshChanges(); refreshRules();
+    fetch("/api/commands").then((r) => r.json()).then(setCommands).catch(() => {});
+    refreshSessions(); refreshAudit(); refreshFiles(); refreshChanges(); refreshRules(); refreshTasks();
     const es = new EventSource("/api/events");
     es.onmessage = (m) => {
       const e: Ev = JSON.parse(m.data);
       setItems((prev) => reduce(prev, e));
       if (e.kind === "state" && e.data) setState(e.data);
-      if (e.kind === "end") { setPreviewKey((k) => k + 1); refreshAudit(); refreshSessions(); refreshFiles(); refreshChanges(); }
+      if (e.kind === "end") { setPreviewKey((k) => k + 1); refreshAudit(); refreshSessions(); refreshFiles(); refreshChanges(); refreshTasks(); }
     };
     return () => es.close();
   }, []);
@@ -434,7 +463,12 @@ export default function App() {
     setItems((prev) => [...prev, { t: "you", text: p }]); setPrompt("");
     const r = await fetch("/api/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: p }) });
     if (!r.ok) setItems((prev) => [...prev, { t: "error", text: r.status === 409 ? "a run is already in progress" : `request failed (${r.status})` }]);
+    else setImgCount(0); // images ride this turn, then the server clears them
   }
+  async function addTask(title: string) { const r = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }); setTasks(await r.json()); }
+  async function toggleTask(id: number) { const r = await fetch("/api/tasks/done", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); setTasks(await r.json()); }
+  async function clearTasks() { const r = await fetch("/api/tasks/clear", { method: "POST" }); setTasks(await r.json()); }
+  async function uploadImage(file: File) { const fd = new FormData(); fd.append("file", file); const r = await fetch("/api/image", { method: "POST", body: fd }); if (r.ok) setImgCount((await r.json()).count); }
   async function newChat() {
     await fetch("/api/sessions/new", { method: "POST" });
     setItems([]); refreshSessions();
@@ -470,7 +504,11 @@ export default function App() {
     switch (cmd) {
       case "new": case "clear": newChat(); return true;
       case "stop": stop(); return true;
-      case "plan": case "suggest": case "full": setMode(cmd); return true;
+      case "plan": if (arg) { addTask(arg); return true; } return false;
+      case "tasks": return true;
+      case "done": { const id = parseInt(arg, 10); if (!isNaN(id)) { toggleTask(id); return true; } return false; }
+      case "image": fileRef.current?.click(); return true;
+      case "suggest": case "full": setMode(cmd); return true;
       case "auto": case "auto-edit": setMode("auto-edit"); return true;
       case "mode": if (arg) { setMode(arg === "auto" ? "auto-edit" : arg); return true; } return false;
       case "model": if (arg) { setModel(arg); return true; } return false;
@@ -504,6 +542,7 @@ export default function App() {
   if (state.needs_setup) return <Setup onDone={() => fetch("/api/state").then((r) => r.json()).then(setState)} />;
 
   const activeTitle = sessions.find((s) => s.active)?.title;
+  const allCommands = [...COMMANDS, ...commands.map((c) => ({ cmd: c.name, desc: c.desc, arg: true }))];
   const tabs: { id: typeof tab; label: string; icon: any }[] = [
     { id: "preview", label: "Preview", icon: Eye },
     { id: "files", label: "Files", icon: ListTree },
@@ -513,7 +552,7 @@ export default function App() {
 
   return (
     <div className="flex h-full">
-      <Sidebar sessions={sessions} state={state} audit={audit} onNew={newChat} onPick={pickSession} />
+      <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} />
 
       {/* conversation */}
       <section className="flex min-w-0 flex-1 flex-col">
@@ -547,7 +586,7 @@ export default function App() {
           <div className="mx-auto max-w-3xl">
             {prompt.startsWith("/") && (
               <div className="surface mb-2 overflow-hidden rounded-xl shadow-xl">
-                {COMMANDS.filter((c) => ("/" + c.cmd).startsWith(prompt.split(/\s+/)[0])).slice(0, 7).map((c) => (
+                {allCommands.filter((c) => ("/" + c.cmd).startsWith(prompt.split(/\s+/)[0])).slice(0, 8).map((c) => (
                   <button key={c.cmd} type="button"
                     onClick={() => { if (c.arg) setPrompt("/" + c.cmd + " "); else { runCommand("/" + c.cmd); setPrompt(""); } }}
                     className="flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-white/[0.05]">
@@ -557,8 +596,16 @@ export default function App() {
                 ))}
               </div>
             )}
-            <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="surface flex items-center gap-2 rounded-2xl p-2 pl-4 shadow-xl focus-within:border-[var(--accent)]/60">
-              <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what you want to build…   ( / for commands )" autoFocus className="flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = ""; }} />
+            <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="surface flex items-center gap-2 rounded-2xl p-2 pl-2 shadow-xl focus-within:border-[var(--accent)]/60">
+              <button type="button" onClick={() => fileRef.current?.click()} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[var(--mut)] hover:bg-white/5 hover:text-[var(--ink)]" title="Attach an image"><ImagePlus size={18} /></button>
+              {imgCount > 0 && (
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--accent)]/15 px-2 py-1 text-xs text-[var(--accent)]">
+                  {imgCount} image{imgCount > 1 ? "s" : ""}
+                  <button type="button" onClick={() => { fetch("/api/image/clear", { method: "POST" }); setImgCount(0); }} title="Remove"><X size={11} /></button>
+                </span>
+              )}
+              <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what you want to build…   ( / commands · @ files )" autoFocus className="flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
               <button disabled={(state.running && !prompt.startsWith("/")) || !prompt.trim()} className="btn-accent grid h-9 w-9 place-items-center rounded-xl" title="Build"><ArrowUp size={18} /></button>
             </form>
           </div>

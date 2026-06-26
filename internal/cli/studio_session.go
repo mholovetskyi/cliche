@@ -4,12 +4,52 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/mholovetskyi/cliche/internal/provider"
+	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/web"
 )
+
+// maxTaskID returns the highest task id in a plan, so a resumed session keeps
+// minting unique ids.
+func maxTaskID(tasks []sess.Task) int {
+	m := 0
+	for _, t := range tasks {
+		if t.ID > m {
+			m = t.ID
+		}
+	}
+	return m
+}
+
+// atRef matches @path tokens in a prompt (the include syntax).
+var atRef = regexp.MustCompile(`@([^\s]+)`)
+
+// expandAtRefs inlines the contents of any @path file references found in a
+// prompt — the web equivalent of the CLI's @file include. Each referenced file
+// (confined to the project root, secrets refused) is appended as a labeled block
+// so the model sees its content; unknown/blocked refs are left untouched.
+func expandAtRefs(root, line string) string {
+	seen := map[string]bool{}
+	var blocks []string
+	for _, m := range atRef.FindAllStringSubmatch(line, -1) {
+		rel := strings.Trim(m[1], ".,;:)")
+		if rel == "" || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		if body, ok := readProjectFile(root, rel); ok {
+			blocks = append(blocks, "----- "+rel+" -----\n"+body)
+		}
+	}
+	if len(blocks) == 0 {
+		return line
+	}
+	return line + "\n\n" + strings.Join(blocks, "\n\n")
+}
 
 // toMsgs flattens an agent transcript into the conversation rows the web UI
 // renders: user prompts, assistant replies, and a compact "ran X" line for tool

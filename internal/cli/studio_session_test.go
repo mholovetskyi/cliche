@@ -3,10 +3,38 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mholovetskyi/cliche/internal/provider"
+	sess "github.com/mholovetskyi/cliche/internal/session"
 )
+
+func TestExpandAtRefs(t *testing.T) {
+	root := t.TempDir()
+	_ = os.WriteFile(filepath.Join(root, "notes.md"), []byte("hello notes"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "api.txt"), []byte("sk-secret"), 0o644)
+
+	out := expandAtRefs(root, "summarize @notes.md please")
+	if !strings.Contains(out, "hello notes") || !strings.Contains(out, "notes.md") {
+		t.Fatalf("@notes.md should be inlined: %q", out)
+	}
+	if got := expandAtRefs(root, "see @nope.md"); got != "see @nope.md" {
+		t.Fatalf("unknown @ref should be left untouched: %q", got)
+	}
+	if strings.Contains(expandAtRefs(root, "look at @api.txt"), "sk-secret") {
+		t.Fatal("a secret file must not be inlined via @ref")
+	}
+}
+
+func TestMaxTaskID(t *testing.T) {
+	if got := maxTaskID([]sess.Task{{ID: 3}, {ID: 7}, {ID: 1}}); got != 7 {
+		t.Fatalf("maxTaskID = %d, want 7", got)
+	}
+	if maxTaskID(nil) != 0 {
+		t.Fatal("maxTaskID(nil) should be 0")
+	}
+}
 
 func TestReadProjectFileConfinedToRoot(t *testing.T) {
 	root := t.TempDir()
