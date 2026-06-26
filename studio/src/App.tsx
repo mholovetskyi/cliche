@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 
 type Ev = { kind: string; text?: string; data?: any };
 type State = {
@@ -259,7 +262,11 @@ function Welcome({ templates, onPick }: { templates: Template[]; onPick: (p: str
 function Row({ it, onAnswer }: { it: Item; onAnswer: (id: string, allow: boolean) => void }) {
   switch (it.t) {
     case "you": return <div className="my-1 text-mut">❯ {it.text}</div>;
-    case "assistant": return <div className="my-1 whitespace-pre-wrap text-ink">{it.text}</div>;
+    case "assistant": return (
+      <div className="md my-1 text-ink">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{it.text}</ReactMarkdown>
+      </div>
+    );
     case "tool": return <div className="my-0.5 text-accent">▸ {it.text}</div>;
     case "result": return <div className="my-0.5 text-ok">✓ {it.text}</div>;
     case "error": return <div className="my-0.5 text-[#ff5a4d]">✗ {it.text}</div>;
