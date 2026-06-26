@@ -149,8 +149,10 @@ type session struct {
 	awaitingApproval bool       // true while a y/N prompt is on screen — suppresses spinners so they can't repaint over it
 	tuiActive        bool       // true while the full-screen /tui chat owns the screen — suppresses inline spinners
 	mcpAllow         bool       // whether MCP tool calls auto-approve (for a hot-attached connector's adapter)
-	id               string     // session id for on-disk persistence
-	title            string     // first prompt, used as the session title
+	hudMu            sync.Mutex // guards hud: the main goroutine writes the snapshot, the spinner goroutine reads it
+	hud              hudSnapshot
+	id               string // session id for on-disk persistence
+	title            string // first prompt, used as the session title
 	created          time.Time
 	resumed          int                    // messages restored from a resumed session (0 if fresh)
 	streaming        bool                   // currently mid live-streamed assistant block
@@ -200,6 +202,7 @@ func (s *session) onEvent(e agent.Event) {
 	s.endStream()
 	s.stopSpin()
 	printEvent(s.out, e)
+	s.refreshHUD() // sample live spend/ctx so the spinner that follows breathes fresh numbers
 	switch e.Kind {
 	case "tool_call":
 		s.startSpin(spinLabel(e)) // spin while the tool runs (fills the old silent gap)
@@ -227,7 +230,64 @@ func (s *session) startSpin(label string) {
 		return // never paint a spinner over a pending approval prompt or the /tui frame
 	}
 	s.spin = newSpinner(s.out, label)
+	s.spin.hud = s.hudLine // the spinner breathes the live Trust line while it spins
 	s.spin.Start()
+}
+
+// hudSnapshot is the live Trust state the spinner paints, written by the main
+// goroutine (refreshHUD) and read by the spinner goroutine (hudLine) — both
+// under hudMu, so the "breathing" status is race-free.
+type hudSnapshot struct {
+	spent, capUSD, ctxFrac float64
+	start                  time.Time
+	active                 bool
+}
+
+// refreshHUD samples live spend / budget cap / context fill on the main goroutine
+// (safe: the agent is paused at this event callback) into the snapshot.
+func (s *session) refreshHUD() {
+	u := s.a.Usage()
+	lim := s.a.Limits()
+	ctxFrac := 0.0
+	if est, _ := s.a.ContextStats(); s.cfg.Context.LimitTokens > 0 {
+		ctxFrac = float64(est) / float64(s.cfg.Context.LimitTokens)
+	}
+	s.hudMu.Lock()
+	if s.hud.start.IsZero() {
+		s.hud.start = time.Now() // session-cumulative base for the burn-rate
+	}
+	s.hud.spent, s.hud.capUSD, s.hud.ctxFrac, s.hud.active = u.USD, lim.MaxUSD, ctxFrac, true
+	s.hudMu.Unlock()
+}
+
+// hudLine renders the live Trust line for the spinner (or "" before any sample).
+func (s *session) hudLine() string {
+	s.hudMu.Lock()
+	h := s.hud
+	s.hudMu.Unlock()
+	if !h.active {
+		return ""
+	}
+	return formatHUD(h.spent, h.capUSD, h.ctxFrac, time.Since(h.start))
+}
+
+// formatHUD is the pure formatter: spend, burn-rate ($/min, session-cumulative),
+// and semantic gauges for the budget and context caps. Compact so it rides one
+// spinner line.
+func formatHUD(spent, capUSD, ctxFrac float64, elapsed time.Duration) string {
+	seg := style.Gray("  ·  ")
+	out := style.Gray("$") + style.White(fmt.Sprintf("%.4f", spent))
+	if m := elapsed.Minutes(); m >= 0.1 && spent > 0 {
+		out += " " + style.Dim(fmt.Sprintf("$%.2f/min", spent/m))
+	}
+	if capUSD > 0 {
+		f := spent / capUSD
+		out += seg + style.Gauge(f, 5) + style.Gray(fmt.Sprintf(" %.0f%%", 100*f))
+	}
+	if ctxFrac > 0 {
+		out += seg + style.Gray("ctx ") + style.Gauge(ctxFrac, 5) + style.Gray(fmt.Sprintf(" %.0f%%", 100*ctxFrac))
+	}
+	return out
 }
 
 // beginPrompt is called by the approver right before it draws a y/N card: it

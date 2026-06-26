@@ -28,6 +28,11 @@ type spinner struct {
 	stop  chan struct{}
 	done  chan struct{}
 	once  sync.Once // makes Stop idempotent (no double close-of-closed-channel panic)
+	// hud, if set, returns the live Trust line (spend · burn-rate · caps) appended
+	// to each frame, so the status BREATHES while the agent works unattended — the
+	// anxious stretch where it used to be dead silence. Read on the spinner
+	// goroutine; the session keeps it race-free behind its own mutex.
+	hud func() string
 }
 
 func newSpinner(out io.Writer, label string) *spinner {
@@ -55,8 +60,14 @@ func (s *spinner) Start() {
 		defer tk.Stop()
 		paint := func(i int) {
 			frame := style.Color(spinnerFrames[i%len(spinnerFrames)], style.Sample(float64(i%len(spinnerFrames))/float64(len(spinnerFrames)-1)))
-			// \x1b[K clears any residue (e.g. when "10s" replaces a wider label).
-			fmt.Fprintf(s.out, "\r  %s %s %s\x1b[K", frame, style.Gray(s.label), style.Dim(fmt.Sprintf("%.0fs", time.Since(start).Seconds())))
+			line := fmt.Sprintf("\r  %s %s %s", frame, style.Gray(s.label), style.Dim(fmt.Sprintf("%.0fs", time.Since(start).Seconds())))
+			if s.hud != nil {
+				if h := s.hud(); h != "" {
+					line += style.Gray("  ·  ") + h
+				}
+			}
+			// \x1b[K clears any residue (e.g. when a shorter HUD replaces a wider one).
+			fmt.Fprint(s.out, line+"\x1b[K")
 		}
 		paint(0) // paint immediately once past the debounce — no extra blank tick
 		for i := 1; ; i++ {
