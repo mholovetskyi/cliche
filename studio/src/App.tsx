@@ -985,7 +985,9 @@ export default function App() {
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [imgCount, setImgCount] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const [booting, setBooting] = useState(true);
+  // Skip the in-page intro when launched from the desktop shell — its native
+  // splash already covered the boot (so the hand-off isn't a double animation).
+  const [booting, setBooting] = useState(() => { try { return !new URLSearchParams(location.search).has("desktop"); } catch { return true; } });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [leader, setLeader] = useState(false);
