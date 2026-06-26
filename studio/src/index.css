@@ -19,6 +19,8 @@
   --accent-ink: #2a0f08;
   --ok: #34d399;
   --warn: #fbbf24;
+  --danger: #ef4444;
+  --activity: 0;
   --sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
   --r-md: 12px;
@@ -42,13 +44,16 @@ body {
 }
 
 /* signature ambient: a slow theme-reactive aurora + a faint film grain --- */
-.aurora { position: fixed; inset: -25%; z-index: -2; pointer-events: none; filter: blur(70px); opacity: .6; }
+.aurora { position: fixed; inset: -25%; z-index: -2; pointer-events: none; opacity: calc(.6 + var(--activity, 0) * .22); filter: blur(70px) saturate(calc(1 + var(--activity, 0) * .5)); transition: opacity .8s ease, filter .8s ease; }
 .aurora::before, .aurora::after { content: ""; position: absolute; border-radius: 50%; }
 .aurora::before { width: 52vw; height: 52vw; left: 52%; top: -12%; background: radial-gradient(circle, var(--accent) 0%, transparent 68%); opacity: .42; animation: drift1 26s ease-in-out infinite; }
 .aurora::after { width: 46vw; height: 46vw; left: -8%; top: 46%; background: radial-gradient(circle, #6f5cff 0%, transparent 68%); opacity: .3; animation: drift2 33s ease-in-out infinite; }
 @keyframes drift1 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-9vw, 11vh) scale(1.18); } }
 @keyframes drift2 { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(11vw, -9vh) scale(1.22); } }
+.aurora-pulse { position: fixed; inset: -25%; z-index: -2; pointer-events: none; filter: blur(80px); border-radius: 50%; background: radial-gradient(circle at 42% 58%, var(--accent) 0%, transparent 60%); opacity: calc(var(--activity, 0) * .35); transition: opacity .8s ease; }
+body.awaiting .aurora::before, body.awaiting .aurora::after { animation-play-state: paused; }
 .grain { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .035; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+.tracer { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
 ::selection { background: rgba(255, 106, 77, 0.28); color: #fff; }
 
 /* surfaces -------------------------------------------------------------- */
@@ -142,3 +147,52 @@ body {
 .md table { border-collapse: collapse; margin: .7em 0; font-size: 13px; }
 .md th, .md td { border: 1px solid var(--line); padding: 6px 11px; text-align: left; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: .9em 0; }
+
+/* the Sigil — a living trust orb -------------------------------------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spinR { to { transform: rotate(-360deg); } }
+@keyframes breathe { 0%, 100% { r: 10.5; } 50% { r: 13.5; } }
+@keyframes jitter { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(.7px, -.5px); } 50% { transform: translate(-.5px, .5px); } 75% { transform: translate(.5px, .4px); } }
+.sigil { display: block; overflow: visible; }
+.sigil .arc { stroke: var(--accent); }
+.sigil .arc2 { stroke: var(--accent2); }
+.sigil .core { fill: var(--accent); }
+.sigil .tick { stroke: var(--accent); opacity: .16; transition: opacity .4s ease; }
+.sigil .tick.lit { opacity: .92; }
+.sigil .g1 { transform-origin: 50% 50%; animation: spin 11s linear infinite; }
+.sigil .g2 { transform-origin: 50% 50%; animation: spinR 16s linear infinite; }
+.sigil .core { animation: breathe 3.6s ease-in-out infinite; }
+.sigil[data-running="true"] .g1 { animation-duration: 3.4s; }
+.sigil[data-running="true"] .g2 { animation-duration: 5.2s; }
+.sigil[data-running="true"] .corona { opacity: 1; }
+.sigil[data-trust="intact"] .corona { filter: drop-shadow(0 0 4px var(--accent)); }
+.sigil[data-trust="tamper"] { animation: jitter .25s linear infinite; }
+.sigil[data-trust="tamper"] .arc, .sigil[data-trust="tamper"] .arc2, .sigil[data-trust="tamper"] .tick { stroke: var(--danger); }
+.sigil[data-trust="tamper"] .core { fill: var(--danger); }
+
+/* budget reactor sweep ------------------------------------------------ */
+.reactor-sweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent, color-mix(in srgb, var(--accent) 28%, transparent), transparent 55%); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 9px)); mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 9px)); animation: spin 4s linear infinite; }
+
+/* spring tab morph ---------------------------------------------------- */
+.seg-morph { position: relative; }
+.seg-pill { position: absolute; top: 3px; bottom: 3px; left: 0; border-radius: 8px; background: var(--s3); box-shadow: var(--sh-sm); transition: transform .5s cubic-bezier(.34, 1.56, .64, 1), width .5s cubic-bezier(.34, 1.56, .64, 1); z-index: 0; }
+.seg-morph .seg-item { position: relative; z-index: 1; }
+.seg-morph .seg-item[data-on="true"] { background: transparent; box-shadow: none; }
+
+/* holographic sheen (keys overlay) ------------------------------------ */
+.sheen::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(360px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%); }
+
+/* build ritual -------------------------------------------------------- */
+@keyframes caret { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.caret::after { content: "▋"; margin-left: 2px; animation: caret 1s steps(1) infinite; color: var(--accent); }
+
+/* respect reduced motion --------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .aurora, .aurora::before, .aurora::after, .aurora-pulse, .grain { animation: none !important; transition: none !important; }
+  .aurora { opacity: .55 !important; filter: blur(70px) !important; }
+  .aurora-pulse, .tracer, .reactor-sweep { display: none !important; }
+  .sigil .g1, .sigil .g2, .sigil .core, .sigil[data-trust="tamper"] { animation: none !important; }
+  .seg-pill { transition: none !important; }
+  .loadbar::after, .orb::after, .caret::after { animation: none !important; }
+  .fade-up, .fade-in, .slide-down, .pop-in, .pulse-soft { animation: none !important; }
+}

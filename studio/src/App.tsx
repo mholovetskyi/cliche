@@ -7,7 +7,7 @@ import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
-  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search,
+  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard,
 } from "lucide-react";
 
 const ACCENTS = [
@@ -86,7 +86,7 @@ function Boot() {
   return (
     <div className="boot fixed inset-0 z-[200] grid place-items-center bg-[var(--bg)]">
       <div className="text-center">
-        <div className="boot-mark mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl btn-accent" style={{ boxShadow: "0 0 50px -4px var(--accent)" }}><Sparkles size={30} /></div>
+        <div className="boot-mark mx-auto mb-4 w-16"><Sigil size={64} running trust="intact" load={1} /></div>
         <div className="fade-up text-xl font-semibold tracking-tight" style={{ animationDelay: ".15s" }}>Cliché <span className="text-[var(--dim)]">Studio</span></div>
         <div className="fade-up text-xs text-[var(--mut)]" style={{ animationDelay: ".25s" }}>the trustworthy build-anything app</div>
       </div>
@@ -173,11 +173,147 @@ function relTime(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function Mark({ size = 28 }: { size?: number }) {
+function Sigil({ size = 28, running, trust = "idle", load = 0 }: { size?: number; running?: boolean; trust?: "idle" | "intact" | "tamper"; load?: number }) {
+  const lit = Math.round(Math.max(0, Math.min(1, load)) * 24);
   return (
-    <span className="grid shrink-0 place-items-center rounded-[10px] btn-accent" style={{ width: size, height: size }}>
-      <Sparkles size={size * 0.55} />
-    </span>
+    <svg className="sigil shrink-0" data-running={!!running} data-trust={trust} viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
+      <g className="corona">
+        {Array.from({ length: 24 }, (_, i) => (
+          <line key={i} x1="50" y1="7" x2="50" y2="13" strokeWidth="2.2" strokeLinecap="round" className={`tick ${i < lit ? "lit" : ""}`} transform={`rotate(${i * 15} 50 50)`} />
+        ))}
+      </g>
+      <g className="g1" fill="none" strokeWidth="3" strokeLinecap="round">
+        <circle className="arc" cx="50" cy="50" r="30" strokeDasharray="42 160" />
+        <circle className="arc" cx="50" cy="50" r="30" strokeDasharray="20 160" strokeDashoffset="102" />
+      </g>
+      <g className="g2" fill="none" strokeWidth="2.5" strokeLinecap="round">
+        <circle className="arc2" cx="50" cy="50" r="21" strokeDasharray="30 110" strokeDashoffset="40" />
+        <circle className="arc2" cx="50" cy="50" r="21" strokeDasharray="14 110" strokeDashoffset="92" />
+      </g>
+      <circle className="core" cx="50" cy="50" r="11" />
+    </svg>
+  );
+}
+function Mark({ size = 28, running, trust, load }: { size?: number; running?: boolean; trust?: "idle" | "intact" | "tamper"; load?: number }) {
+  return <Sigil size={size} running={running} trust={trust} load={load} />;
+}
+function trustOf(audit: Audit | null): "idle" | "intact" | "tamper" {
+  if (!audit || audit.entries === 0) return "idle";
+  return audit.ok ? "intact" : "tamper";
+}
+
+function BudgetReactor({ frac, spent, cap, running }: { frac: number; spent: number; cap: number; running: boolean }) {
+  const [disp, setDisp] = useState(spent);
+  const fromRef = useRef(spent);
+  useEffect(() => {
+    const from = fromRef.current, to = spent, t0 = performance.now(), dur = 500;
+    let raf = 0;
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - t0) / dur);
+      setDisp(from + (to - from) * k);
+      if (k < 1) raf = requestAnimationFrame(tick); else fromRef.current = to;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [spent]);
+  const R = 42, C = 2 * Math.PI * R, vis = 0.75 * C;
+  const f = Math.max(0, Math.min(1, frac));
+  const color = f < 0.6 ? "var(--ok)" : f < 0.85 ? "var(--warn)" : "var(--accent)";
+  return (
+    <div className="relative mx-auto grid place-items-center" style={{ width: 104, height: 104 }}>
+      {running && <div className="reactor-sweep" />}
+      <svg viewBox="0 0 100 100" width={104} height={104} style={{ transform: "rotate(135deg)" }}>
+        <circle cx="50" cy="50" r={R} fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="7" strokeLinecap="round" strokeDasharray={`${vis} ${C}`} />
+        <circle cx="50" cy="50" r={R} fill="none" stroke={color} strokeWidth="7" strokeLinecap="round" strokeDasharray={`${f * vis} ${C}`} style={{ transition: "stroke-dasharray .6s cubic-bezier(.2,.7,.3,1), stroke .4s ease" }} />
+      </svg>
+      <div className="absolute text-center">
+        <div className="font-mono text-[17px] tabular-nums">${disp.toFixed(3)}</div>
+        {cap > 0 && <div className="text-[10px] text-[var(--dim)]">of ${cap.toFixed(2)}</div>}
+      </div>
+    </div>
+  );
+}
+
+function TracerField({ bind }: { bind: (fn: (kind: string) => void) => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    const root = getComputedStyle(document.documentElement);
+    const col = (k: string) => (k === "tool_result" ? root.getPropertyValue("--ok") : k === "error" ? "#ef4444" : root.getPropertyValue("--accent")).trim() || "#ff6a4d";
+    let parts: any[] = [];
+    let raf = 0, last = 0;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    function resize() { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    resize(); window.addEventListener("resize", resize);
+    bind((kind) => {
+      if (parts.length > 110) return;
+      const w = innerWidth, h = innerHeight;
+      const sx = w * (0.30 + Math.random() * 0.12), sy = h * (0.45 + Math.random() * 0.2);
+      const ex = w * (0.66 + Math.random() * 0.18), ey = h * (0.2 + Math.random() * 0.5);
+      const c = col(kind);
+      if (kind === "tool_result") { parts.push({ ring: true, x: ex, y: ey, r: 3, c, life: 1 }); }
+      else { const life = 60 + Math.random() * 20; parts.push({ x: sx, y: sy, vx: (ex - sx) / life, vy: (ey - sy) / life, c, life, maxLife: life, r: 1.8 + Math.random() }); }
+    });
+    function frame(t: number) {
+      raf = requestAnimationFrame(frame);
+      if (document.hidden || parts.length === 0) { ctx.clearRect(0, 0, innerWidth, innerHeight); return; }
+      if (t - last < 32) return; // ~30fps
+      last = t;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      for (const p of parts) {
+        if (p.ring) {
+          p.r += 1.6; p.life -= 0.04;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.strokeStyle = p.c; ctx.globalAlpha = Math.max(0, p.life) * 0.6; ctx.lineWidth = 1.4; ctx.stroke();
+        } else {
+          p.x += p.vx; p.y += p.vy; p.life -= 1;
+          const a = Math.max(0, p.life / p.maxLife);
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fillStyle = p.c; ctx.globalAlpha = a * 0.85; ctx.shadowBlur = 10; ctx.shadowColor = p.c; ctx.fill(); ctx.shadowBlur = 0;
+        }
+      }
+      ctx.globalAlpha = 1;
+      parts = parts.filter((p) => p.life > 0);
+    }
+    raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
+  }, []);
+  return <canvas ref={ref} className="tracer" aria-hidden="true" />;
+}
+
+const SHORTCUTS = [
+  { keys: "⌘K", desc: "Command palette" },
+  { keys: "⌘N", desc: "New chat" },
+  { keys: "?", desc: "This cheat-sheet" },
+  { keys: "g p / f / c / t", desc: "Go to Preview / Files / Changes / Trust" },
+  { keys: "g n", desc: "New chat" },
+  { keys: "/", desc: "Slash commands" },
+  { keys: "@", desc: "Include a file" },
+  { keys: "↵", desc: "Send" },
+  { keys: "Esc", desc: "Close · stop" },
+];
+function KeysOverlay({ onClose }: { onClose: () => void }) {
+  function move(e: React.MouseEvent<HTMLDivElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
+    e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
+  }
+  return (
+    <div className="fade-in fixed inset-0 z-[110] grid place-items-center bg-black/55 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div onMouseMove={move} onClick={(e) => e.stopPropagation()} className="sheen glass elev pop-in relative w-[560px] overflow-hidden rounded-2xl border border-[var(--line2)] p-6">
+        <div className="relative z-10">
+          <div className="mb-4 flex items-center gap-2 text-sm font-semibold"><Keyboard size={16} className="text-[var(--accent)]" /> Keyboard shortcuts</div>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-1">
+            {SHORTCUTS.map((s, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 py-1.5 text-[13px]">
+                <span className="text-[var(--mut)]">{s.desc}</span><span className="kbd">{s.keys}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -276,10 +412,12 @@ function Sidebar({ sessions, state, audit, tasks, accent, onNew, onPick, onToggl
 }) {
   const cap = state.cap_usd || 0;
   const doneCount = tasks.filter((t) => t.done).length;
+  const trust = trustOf(audit);
+  const load = cap > 0 ? (state.spent_usd || 0) / cap : 0;
   return (
     <aside className="flex w-[244px] shrink-0 flex-col border-r border-[var(--line)]">
       <div className="flex h-[52px] items-center gap-2.5 px-4">
-        <Mark size={26} />
+        <Sigil size={28} running={state.running} trust={trust} load={load} />
         <span className="flex-1 text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
         <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
       </div>
@@ -323,17 +461,14 @@ function Sidebar({ sessions, state, audit, tasks, accent, onNew, onPick, onToggl
       <div className="border-t border-[var(--line)] p-3">
         <div className="surface rounded-xl p-3">
           {audit && audit.entries > 0 && (
-            <div className="mb-2 flex items-center gap-1.5 text-xs">
+            <div className="mb-1 flex items-center gap-1.5 text-xs">
               {audit.ok ? <span className="flex items-center gap-1 text-[var(--ok)]"><ShieldCheck size={13} /> verified</span>
                         : <span className="flex items-center gap-1 text-[var(--accent)]"><ShieldAlert size={13} /> tamper</span>}
               <span className="text-[var(--dim)]">· {audit.entries} receipts</span>
             </div>
           )}
-          <div className="mb-1.5 flex items-center justify-between text-xs text-[var(--mut)]">
-            <span className="truncate font-mono text-[11px]">{state.model || "—"}</span>
-            <span className="font-mono tabular-nums">${(state.spent_usd || 0).toFixed(3)}</span>
-          </div>
-          {cap > 0 && <Gauge frac={(state.spent_usd || 0) / cap} />}
+          <BudgetReactor frac={load} spent={state.spent_usd || 0} cap={cap} running={!!state.running} />
+          <div className="mt-1 truncate text-center font-mono text-[11px] text-[var(--mut)]">{state.model || "—"}</div>
         </div>
         <div className="mt-2.5 flex items-center gap-2 px-1">
           <span className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--faint)]">Theme</span>
@@ -541,14 +676,23 @@ export default function App() {
   const [imgCount, setImgCount] = useState(0);
   const [booting, setBooting] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const [leader, setLeader] = useState(false);
+  const [awaiting, setAwaiting] = useState(false);
+  const [ritual, setRitual] = useState(false);
   const [accent, setAccent] = useState("coral");
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openFile, setOpenFile] = useState<{ path: string; html: string } | null>(null);
+  const [pill, setPill] = useState({ left: 0, width: 0 });
   const feedRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const activityRef = useRef(0);
+  const tracerRef = useRef<(kind: string) => void>(() => {});
+  const leaderRef = useRef(false);
 
   const refreshAudit = () => fetch("/api/audit").then((r) => r.json()).then(setAudit).catch(() => {});
   const refreshSessions = () => fetch("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {});
@@ -563,13 +707,25 @@ export default function App() {
     try { saved = localStorage.getItem("cliche-accent") || "coral"; } catch { /* ignore */ }
     setAccent(saved); applyAccent(saved);
     const t = setTimeout(() => setBooting(false), 1150);
+    let leaderTimer = 0;
+    const isTyping = () => { const el = document.activeElement as HTMLElement | null; const tag = el?.tagName; return tag === "INPUT" || tag === "TEXTAREA" || !!el?.isContentEditable; };
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((o) => !o); }
-      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); }
-      else if (e.key === "Escape") setBooting(false);
+      if (leaderRef.current) {
+        leaderRef.current = false; setLeader(false); window.clearTimeout(leaderTimer);
+        const map: Record<string, "preview" | "files" | "changes" | "trust"> = { p: "preview", f: "files", c: "changes", t: "trust" };
+        if (map[e.key]) { e.preventDefault(); setTab(map[e.key]); return; }
+        if (e.key === "n") { e.preventDefault(); newChat(); return; }
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen((o) => !o); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") { e.preventDefault(); newChat(); return; }
+      if (e.key === "Escape") { setBooting(false); setShowKeys(false); setPaletteOpen(false); return; }
+      if (isTyping() || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "?") { e.preventDefault(); setShowKeys(true); }
+      else if (e.key === "g") { leaderRef.current = true; setLeader(true); leaderTimer = window.setTimeout(() => { leaderRef.current = false; setLeader(false); }, 800); }
     };
     window.addEventListener("keydown", onKey);
-    return () => { clearTimeout(t); window.removeEventListener("keydown", onKey); };
+    return () => { clearTimeout(t); window.clearTimeout(leaderTimer); window.removeEventListener("keydown", onKey); };
   }, []);
   function setAccentTheme(id: string) { setAccent(id); applyAccent(id); }
 
@@ -584,11 +740,35 @@ export default function App() {
     es.onmessage = (m) => {
       const e: Ev = JSON.parse(m.data);
       setItems((prev) => reduce(prev, e));
+      if (e.kind === "delta") activityRef.current = Math.min(1, activityRef.current + 0.06);
+      if (e.kind === "tool_call" || e.kind === "tool_result") { activityRef.current = Math.min(1, activityRef.current + 0.2); tracerRef.current(e.kind); }
+      if (e.kind === "error") tracerRef.current("error");
+      if (e.kind === "approval") setAwaiting(true);
+      if (e.kind === "end" || e.kind === "error") setAwaiting(false);
       if (e.kind === "state" && e.data) setState(e.data);
       if (e.kind === "end") { setPreviewKey((k) => k + 1); refreshAudit(); refreshSessions(); refreshFiles(); refreshChanges(); refreshTasks(); }
     };
     return () => es.close();
   }, []);
+
+  // activity spine: decay the signal each frame into a CSS var (no React re-render)
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => { activityRef.current *= 0.94; document.documentElement.style.setProperty("--activity", activityRef.current.toFixed(3)); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  useEffect(() => { document.body.classList.toggle("awaiting", awaiting); }, [awaiting]);
+  useEffect(() => {
+    if (!state.running) { setRitual(false); return; }
+    const t = setTimeout(() => setRitual(true), 400);
+    return () => clearTimeout(t);
+  }, [state.running]);
+  useEffect(() => {
+    const c = tabBarRef.current; if (!c) return;
+    const el = c.querySelector('[data-on="true"]') as HTMLElement | null;
+    if (el) { const cb = c.getBoundingClientRect(), bb = el.getBoundingClientRect(); setPill({ left: bb.left - cb.left, width: bb.width }); }
+  }, [tab, changes.length]);
 
   function answer(id: string, allow: boolean) {
     fetch("/api/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, allow }) });
@@ -685,12 +865,18 @@ export default function App() {
     ...ACCENTS.map((ac) => ({ id: "acc-" + ac.id, group: "Theme", label: "Accent · " + ac.id, run: () => setAccentTheme(ac.id) })),
   ];
 
+  const lastActText = (() => { for (let i = items.length - 1; i >= 0; i--) { const it = items[i]; if (it.t === "tool" || it.t === "result") return it.text; } return ""; })();
+
   return (
     <>
       <div className="aurora" />
+      <div className="aurora-pulse" />
+      <TracerField bind={(fn) => { tracerRef.current = fn; }} />
       <div className="grain" />
       {booting && <Boot />}
       {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
+      {showKeys && <KeysOverlay onClose={() => setShowKeys(false)} />}
+      {leader && <div className="fade-up glass elev fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--mut)]">go to <span className="kbd">p</span><span className="kbd">f</span><span className="kbd">c</span><span className="kbd">t</span><span className="kbd">n</span></div>}
       <div className="relative flex h-full">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
         <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} onNew={newChat} onPick={pickSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} />
@@ -765,7 +951,8 @@ export default function App() {
       {/* workspace */}
       <aside className="flex w-[42%] min-w-[360px] flex-col border-l border-[var(--line)]">
         <div className="flex h-[52px] items-center gap-2 border-b border-[var(--line)] px-3">
-          <div className="seg">
+          <div ref={tabBarRef} className="seg seg-morph">
+            <span className="seg-pill" style={{ transform: `translateX(${pill.left}px)`, width: pill.width }} />
             {tabs.map((t) => (
               <button key={t.id} data-on={tab === t.id} onClick={() => setTab(t.id)} className="seg-item"><t.icon size={13} /> {t.label}</button>
             ))}
@@ -782,12 +969,21 @@ export default function App() {
 
         {tab === "preview" && (
           <div className="min-h-0 flex-1 p-3">
-            <div className="surface elev flex h-full flex-col overflow-hidden rounded-2xl">
+            <div className="surface elev relative flex h-full flex-col overflow-hidden rounded-2xl">
               <div className="flex h-9 items-center gap-2 border-b border-[var(--line)] px-3.5">
                 <span className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]" /></span>
                 <span className="mx-2 flex-1 truncate rounded-md bg-black/30 px-2.5 py-1 text-center text-[11px] text-[var(--dim)]">localhost preview</span>
               </div>
               <iframe key={previewKey} src={`/preview/?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />
+              {ritual && (
+                <div className="fade-in pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(8,8,11,.6)", backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)" }}>
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 w-[88px]"><Sigil size={88} running trust="intact" load={1} /></div>
+                    <div className="caret text-sm font-medium text-[var(--ink)]">forging</div>
+                    {lastActText && <div className="mx-auto mt-2 max-w-[300px] truncate px-4 font-mono text-[12px] text-[var(--mut)]">{lastActText}</div>}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
