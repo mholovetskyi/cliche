@@ -8,7 +8,7 @@ import {
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
   FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
-  GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock, Mic,
+  GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock, Mic, Sun, Moon,
 } from "lucide-react";
 
 type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
@@ -605,8 +605,8 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobileShow, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
-  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean;
+function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobileShow, theme, onTheme, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean; theme?: string; onTheme?: () => void;
   onNew: () => void; onPick: (id: string) => void; onRename: (id: string, title: string) => void; onDelete: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
   onAccent: (id: string) => void; onSearch: () => void; onSettings: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
 }) {
@@ -628,6 +628,7 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobile
           {quip && <div className="pop-in glass elev absolute left-0 top-9 z-30 w-52 rounded-xl border px-3 py-2 text-[12px] leading-snug text-[var(--mut)]" style={{ borderColor: trust === "tamper" ? "var(--danger)" : "var(--line2)" }}>{quip}</div>}
         </span>
         <span className="flex-1 text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
+        {onTheme && <button onClick={onTheme} className="icon-btn h-7 w-7" title={theme === "light" ? "Switch to dark" : "Switch to light"}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button>}
         <button onClick={onSettings} className="icon-btn h-7 w-7" title="Settings — provider & model"><SlidersHorizontal size={15} /></button>
         <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
       </div>
@@ -1163,6 +1164,8 @@ export default function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem("cliche-workspace") !== "off"; } catch { return true; } });
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<MobileView>("chat");
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem("cliche-theme") || "dark"; } catch { return "dark"; } });
+  useEffect(() => { try { document.documentElement.dataset.theme = theme; localStorage.setItem("cliche-theme", theme); } catch { /* */ } }, [theme]);
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "git" | "schedule" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -1455,7 +1458,7 @@ export default function App() {
       <div className="relative flex h-full flex-col">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
         <div className="flex min-h-0 flex-1">
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} theme={theme} onTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
 
       {/* conversation */}
       <section className={`cl-chat flex min-w-0 flex-1 flex-col ${isMobile && mobileView !== "chat" ? "hidden" : ""}`}>
