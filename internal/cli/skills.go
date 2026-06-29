@@ -84,6 +84,13 @@ func skillsSystemNote(root string) string {
 	return b.String()
 }
 
+// learnSkillNote is the always-on learning-loop nudge: it encourages capturing
+// genuinely reusable workflows as skills (guard-railed so it doesn't spam the
+// library), independent of whether any skills exist yet.
+func learnSkillNote() string {
+	return "\n\nWhen you finish a NON-TRIVIAL, REUSABLE workflow — one you'd repeat on similar tasks — call save_skill{name,description,content} to capture it for future sessions (the user approves it; it's saved to .cliche/skills/). Skip one-offs, trivial steps, and plain facts (use remember for facts)."
+}
+
 // skillMap keys loaded skills by name for /skill lookup.
 func skillMap(root string) map[string]skill {
 	m := map[string]skill{}

@@ -286,6 +286,7 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 		sys += "\n\nProject map (directories, files, and key Go symbols):\n" + m
 	}
 	sys += skillsSystemNote(f.dir)               // make .cliche/skills discoverable to the agent
+	sys += learnSkillNote()                      // the learning loop: capture reusable workflows as skills
 	sys += memory.SystemNote(memory.Load(f.dir)) // durable facts from earlier sessions
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{

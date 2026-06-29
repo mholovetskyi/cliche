@@ -587,6 +587,19 @@ func DefaultToolSpecs() []provider.ToolSpec {
 				"required":   []string{"fact"},
 			},
 		},
+		{
+			Name:        "save_skill",
+			Description: "After you complete a NON-TRIVIAL, REUSABLE procedure (a multi-step workflow you'd repeat — e.g. how to scaffold this kind of project, run this repo's release, or debug a recurring issue), distill it into a reusable skill for future sessions. Provide a short kebab-case name, a one-line description of WHEN to use it, and step-by-step instructions as the content. Saved to .cliche/skills/<name>/SKILL.md and loaded automatically next time. The user must approve it (it's a write), so it's auditable. Do NOT use for one-off tasks, trivial actions, or facts (use remember for facts).",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":        strProp("short kebab-case skill name, e.g. scaffold-vite-app"),
+					"description": strProp("one line: when this skill should be used"),
+					"content":     strProp("the reusable instructions, as clear step-by-step Markdown"),
+				},
+				"required": []string{"name", "description", "content"},
+			},
+		},
 	}
 }
 

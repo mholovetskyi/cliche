@@ -231,7 +231,7 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 	}
 	// Plan mode is a hard read-only boundary: mutations and commands are blocked
 	// outright (even under --yolo), so the agent proposes instead of acting.
-	if e.Policy.ReadOnly && (edit || name == "run_command") {
+	if e.Policy.ReadOnly && (edit || name == "run_command" || name == "save_skill") {
 		return Result{Output: "blocked: plan mode is read-only — describe the change, don't apply it", IsEdit: edit, Success: false}
 	}
 	switch name {
@@ -358,6 +358,37 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 			return Result{Output: "remember error: " + err.Error(), Success: false}
 		}
 		return Result{Output: "remembered: " + fact, Success: true}
+
+	case "save_skill":
+		// Autonomous skill creation: the agent distilled a reusable procedure into
+		// a skill. Gated like a write (suggest mode asks, plan mode blocks via the
+		// guard above) and confined to <root>/.cliche/skills/<name>/SKILL.md — so
+		// every learned skill is an approved, auditable, deletable file, never a
+		// hidden self-modification. It's recorded in the ledger like any tool call.
+		skillName := sanitizeSkillName(args["name"])
+		desc := strings.TrimSpace(args["description"])
+		content := strings.TrimSpace(args["content"])
+		if skillName == "" {
+			return Result{Output: "save_skill: invalid or empty name", Success: false}
+		}
+		if desc == "" || content == "" {
+			return Result{Output: "save_skill: need a description and content", Success: false}
+		}
+		rel := filepath.Join(".cliche", "skills", skillName, "SKILL.md")
+		if e.ruleDecision("write", rel) == ruleDeny {
+			return Result{Output: "blocked by deny rule: write " + rel, Success: false}
+		}
+		preview := content
+		if len(preview) > 200 {
+			preview = preview[:200] + "…"
+		}
+		if !e.permit("write", rel, "write", "save a learned skill \""+skillName+"\" — "+desc+"\n  "+preview) {
+			return Result{Output: "save_skill: not approved", Success: false}
+		}
+		if err := writeSkill(e.Root, skillName, desc, content); err != nil {
+			return Result{Output: "save_skill error: " + err.Error(), Success: false}
+		}
+		return Result{Output: "learned a reusable skill: " + skillName + " — " + desc, Success: true}
 
 	case "run_command":
 		if strings.TrimSpace(args["command"]) == "" {
