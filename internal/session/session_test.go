@@ -53,6 +53,30 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// Per-session Trust-Kernel caps survive a save/load round-trip (so a budget dialed
+// for one chat is restored when it's reopened); absence stays nil (config defaults).
+func TestLimitsRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	rec := Record{ID: NewID(time.Now()), Title: "dialed", Created: time.Now(), Updated: time.Now(),
+		Limits: &Limits{MaxUSD: 25, MaxTokens: 0, MaxTurns: 99}}
+	if err := Save(root, rec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(root, rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Limits == nil || got.Limits.MaxUSD != 25 || got.Limits.MaxTurns != 99 {
+		t.Fatalf("limits not persisted: %+v", got.Limits)
+	}
+	// A record with no limits stays nil (→ the serve uses config defaults).
+	bare := Record{ID: NewID(time.Now().Add(time.Second)), Created: time.Now(), Updated: time.Now()}
+	_ = Save(root, bare)
+	if g, _ := Load(root, bare.ID); g.Limits != nil {
+		t.Fatalf("absent limits should load as nil, got %+v", g.Limits)
+	}
+}
+
 func TestListAndLatest(t *testing.T) {
 	root := t.TempDir()
 	if l := Latest(root); l != "" {

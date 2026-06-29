@@ -140,10 +140,29 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		if title == "" {
 			title = deriveTitle(a.Transcript())
 		}
+		bl := a.Limits()
 		_ = sess.Save(f.dir, sess.Record{
 			ID: curID, Title: title, Provider: acfg.Provider, Model: a.Model(),
 			Created: curCreated, Updated: time.Now(), Usage: a.Usage(), Messages: a.Transcript(), Tasks: curTasks,
+			Limits: &sess.Limits{MaxUSD: bl.MaxUSD, MaxTokens: bl.MaxTokens, MaxTurns: a.GovernorLimits().MaxTurns},
 		})
+	}
+
+	// applyLimits restores a session's saved Trust-Kernel caps onto the live agent,
+	// falling back to the config defaults when a session has none (so switching to a
+	// chat you never dialed doesn't inherit the previous chat's limits). Caller holds amu.
+	applyLimits := func(cur *agent.Agent, rl *sess.Limits) {
+		if cur == nil {
+			return
+		}
+		l := sess.Limits{MaxUSD: acfg.Budget.MaxUSD, MaxTokens: acfg.Budget.MaxTokens, MaxTurns: acfg.Governor.MaxTurns}
+		if rl != nil {
+			l = *rl
+		}
+		cur.SetLimits(budget.Limits{MaxUSD: l.MaxUSD, MaxTokens: l.MaxTokens})
+		g := cur.GovernorLimits()
+		g.MaxTurns = l.MaxTurns
+		cur.SetGovernorLimits(g)
 	}
 
 	curState := func() web.State {
@@ -233,6 +252,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 				na.Restore(rec.Messages, rec.Usage)
 				curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
 				curTasks, nextTaskID = rec.Tasks, maxTaskID(rec.Tasks)
+				applyLimits(na, rec.Limits)
 			}
 		}
 		if curID == "" {
@@ -331,6 +351,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			}
 			persist() // save the chat we're leaving
 			a.Reset()
+			applyLimits(a, nil) // a fresh chat starts at the config defaults
 			curID, curTitle, curCreated = sess.NewID(time.Now()), "", time.Now()
 			curTasks, nextTaskID = nil, 0
 			return curID
@@ -352,6 +373,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			a.RestoreTranscript(rec.Messages)
 			curID, curTitle, curCreated = rec.ID, rec.Title, rec.Created
 			curTasks, nextTaskID = rec.Tasks, maxTaskID(rec.Tasks)
+			applyLimits(a, rec.Limits)
 			return toMsgs(rec.Messages)
 		},
 		func() (string, []web.Msg) {
@@ -391,6 +413,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			if id == curID {
 				if a != nil {
 					a.Reset()
+					applyLimits(a, nil) // back to config defaults for the fresh chat
 				}
 				curID, curTitle, curCreated = sess.NewID(time.Now()), "", time.Now()
 				curTasks, nextTaskID = nil, 0
@@ -531,22 +554,22 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			return web.Limits{MaxUSD: bl.MaxUSD, MaxTokens: bl.MaxTokens, MaxTurns: cur.GovernorLimits().MaxTurns}
 		},
 		func(l web.Limits) error {
-			amu.Lock()
-			cur, run := a, running
-			amu.Unlock()
-			if cur == nil {
-				return fmt.Errorf("not connected yet")
-			}
-			if run {
-				return fmt.Errorf("stop the current run before changing limits")
-			}
 			if l.MaxUSD < 0 || l.MaxTokens < 0 || l.MaxTurns < 0 {
 				return fmt.Errorf("limits can't be negative (use 0 for unlimited)")
 			}
-			cur.SetLimits(budget.Limits{MaxUSD: l.MaxUSD, MaxTokens: l.MaxTokens})
-			g := cur.GovernorLimits()
+			amu.Lock()
+			defer amu.Unlock()
+			if a == nil {
+				return fmt.Errorf("not connected yet")
+			}
+			if running {
+				return fmt.Errorf("stop the current run before changing limits")
+			}
+			a.SetLimits(budget.Limits{MaxUSD: l.MaxUSD, MaxTokens: l.MaxTokens})
+			g := a.GovernorLimits()
 			g.MaxTurns = l.MaxTurns
-			cur.SetGovernorLimits(g)
+			a.SetGovernorLimits(g)
+			persist() // save the dialed caps to the current session so reopening it restores them
 			return nil
 		},
 	)

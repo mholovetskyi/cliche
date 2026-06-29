@@ -38,6 +38,15 @@ type Record struct {
 	Usage    budget.Usage       `json:"usage"`
 	Messages []provider.Message `json:"messages"`
 	Tasks    []Task             `json:"tasks,omitempty"`
+	Limits   *Limits            `json:"limits,omitempty"` // per-session Trust-Kernel caps (nil = config defaults)
+}
+
+// Limits is a session's saved Trust-Kernel caps, so a budget/turn/token limit
+// dialed for one chat is restored when that chat is reopened.
+type Limits struct {
+	MaxUSD    float64 `json:"max_usd"`
+	MaxTokens int     `json:"max_tokens"`
+	MaxTurns  int     `json:"max_turns"`
 }
 
 // Meta is a lightweight summary for listing.
