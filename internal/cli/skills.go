@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/style"
@@ -135,6 +138,13 @@ func (s *session) invokeSkill(args []string) (string, bool) {
 
 // cmdSkills is `cliche skills [new <name>]`: list, or scaffold a new skill.
 func cmdSkills(args []string, out, errOut io.Writer) int {
+	if len(args) >= 1 && args[0] == "add" {
+		if len(args) < 2 {
+			fmt.Fprintln(errOut, "usage: cliche skills add <https-url-to-a-SKILL.md>")
+			return 2
+		}
+		return skillsAdd(args[1], out, errOut)
+	}
 	if len(args) >= 1 && args[0] == "new" {
 		if len(args) < 2 {
 			fmt.Fprintln(errOut, "usage: cliche skills new <name>")
@@ -165,6 +175,81 @@ func cmdSkills(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(out, "  %s %s\n", style.White(fmt.Sprintf("%-18s", sk.Name)), style.Gray(sk.Desc))
 	}
 	return 0
+}
+
+// skillsAdd downloads a SKILL.md from a URL and installs it under .cliche/skills —
+// the community/hub path (`cliche skills add <url>`). The skill is a plain file the
+// user can read; it's installed as-is (after validating it parses) with a nudge to
+// review it, since the agent will follow its instructions.
+func skillsAdd(url string, out, errOut io.Writer) int {
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		fmt.Fprintln(errOut, "skills add: expected an http(s) URL to a SKILL.md")
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		fmt.Fprintln(errOut, "skills add: "+err.Error())
+		return 1
+	}
+	resp, err := (&http.Client{Timeout: 25 * time.Second}).Do(req)
+	if err != nil {
+		fmt.Fprintln(errOut, "skills add: "+err.Error())
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(errOut, "skills add: %s returned %s\n", url, resp.Status)
+		return 1
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	if err != nil {
+		fmt.Fprintln(errOut, "skills add: "+err.Error())
+		return 1
+	}
+	meta, body := parseFrontmatter(string(data))
+	name := skillSlug(meta["name"])
+	if name == "" || strings.TrimSpace(body) == "" {
+		fmt.Fprintln(errOut, "skills add: not a valid SKILL.md (needs `name:` frontmatter and a body)")
+		return 1
+	}
+	path := filepath.Join(skillsDir("."), name, "SKILL.md")
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(errOut, "skills add: %q is already installed (%s) — remove it first\n", name, path)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Fprintln(errOut, "skills add: "+err.Error())
+		return 1
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		fmt.Fprintln(errOut, "skills add: "+err.Error())
+		return 1
+	}
+	fmt.Fprintf(out, "  installed skill %s → %s\n", style.BoldWhite(name), path)
+	fmt.Fprintln(out, "  "+style.Gray("review it before relying on it — the agent follows its instructions"))
+	return 0
+}
+
+// skillSlug turns a frontmatter name into a safe directory name (kebab, [a-z0-9-]),
+// so an installed skill can never escape .cliche/skills/.
+func skillSlug(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			dash = false
+		case r == ' ' || r == '-' || r == '_' || r == '/' || r == '.':
+			if !dash && b.Len() > 0 {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func skillTemplate(name string) string {
