@@ -553,6 +553,15 @@ func DefaultToolSpecs() []provider.ToolSpec {
 			},
 		},
 		{
+			Name:        "clone_site",
+			Description: "Clone an existing website. Give it an http(s) URL and it returns BOTH a screenshot of the rendered page AND its text content, so you can recreate the site as a clean, modern, responsive app. Use it whenever the user asks to clone, copy, recreate, redesign, or 'build me something like' a website and names a URL. After you rebuild it, screenshot YOUR result and compare it to the original, iterating until it matches and looks world-class. Network egress — gated by the egress allowlist and approval, just like web_fetch.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"url": strProp("the http(s) URL of the website to clone")},
+				"required":   []string{"url"},
+			},
+		},
+		{
 			Name:        "screenshot",
 			Description: "Render a web UI with a headless browser and return a screenshot image so you can SEE the result and judge it. ALWAYS use this after building or changing any visual UI, then critique what you see (layout, spacing, type, color, polish) and iterate until it looks world-class — do not ship a UI you have not looked at. The target is a project-relative file (default index.html) or a localhost URL. Returns the image directly to you.",
 			Schema: map[string]any{

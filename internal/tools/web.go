@@ -70,6 +70,49 @@ func (e OSExecutor) webFetch(ctx context.Context, args map[string]string) Result
 	return Result{Output: text, Success: true}
 }
 
+// cloneSite is the open-lovable-style "recreate a website" tool: it fetches a URL
+// AND screenshots the rendered page, handing the model BOTH the original's content
+// and a picture of it so it can rebuild the site as a clean, modern app — then
+// drives the agentic loop by telling it to screenshot its OWN result and compare.
+// Network egress, gated exactly like web_fetch (sandbox + allowlist + approval);
+// the screenshot only runs after the same checks pass.
+func (e OSExecutor) cloneSite(ctx context.Context, args map[string]string) Result {
+	target := strings.TrimSpace(args["url"])
+	if target == "" {
+		return Result{Output: "clone_site error: no url specified", Success: false}
+	}
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		return Result{Output: "clone_site error: url must start with http:// or https://", Success: false}
+	}
+	u, err := url.Parse(target)
+	if err != nil {
+		return Result{Output: "clone_site error: invalid url: " + err.Error(), Success: false}
+	}
+	if e.Policy.Sandbox && !e.Egress.Configured() {
+		return Result{Output: "blocked: sandbox mode disables network (configure an egress allowlist to permit the site's host)", Success: false}
+	}
+	if !e.Egress.Allowed(u.Hostname()) {
+		return Result{Output: "blocked by egress allowlist: " + u.Hostname() + " is not allowed", Success: false}
+	}
+	if !e.permitWeb(target) {
+		return Result{Output: "permission denied: clone_site (" + target + ")", Success: false}
+	}
+	text, ferr := fetchURL(ctx, target, e.Egress)
+	if ferr != nil {
+		return Result{Output: "clone_site fetch error: " + ferr.Error(), Success: false}
+	}
+	var images []Image
+	visual := "You also have a SCREENSHOT of the original above — match its layout, type, spacing, and color."
+	if data, cerr := captureToImage(ctx, target, 1440, 1500); cerr == nil && len(data) > 0 {
+		images = []Image{{MediaType: "image/png", Data: data}}
+	} else {
+		visual = "(Couldn't screenshot the original — work from the content below; install a Chromium browser for a visual reference.)"
+	}
+	out := "Cloned " + target + ". Recreate it as a polished, responsive web app that faithfully matches the original's structure, sections, copy, and visual style — then raise the polish. " + visual +
+		"\n\nAfter you build it, run the screenshot tool on YOUR result and compare it to the original; iterate until it matches and looks world-class. Use placeholder assets where you can't fetch the originals.\n\n--- ORIGINAL PAGE CONTENT (" + u.Hostname() + ") ---\n" + text
+	return Result{Output: out, Images: images, Success: true}
+}
+
 // fetchURL GETs url and returns its text. The egress allowlist is re-checked on
 // EVERY redirect hop, not just the initial URL — otherwise a 302 from an
 // allowlisted host could send the agent to an arbitrary or internal host (SSRF),

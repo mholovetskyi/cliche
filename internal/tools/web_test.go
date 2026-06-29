@@ -88,3 +88,31 @@ func TestWebFetchGating(t *testing.T) {
 		t.Fatal("non-http(s) url must be rejected")
 	}
 }
+
+func TestCloneSiteGatingAndContent(t *testing.T) {
+	t.Setenv("CLICHE_BROWSER", "off") // don't launch a real browser in the test
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "text/html")
+		w.Write([]byte("<html><head><title>Acme</title></head><body><h1>Welcome to Acme</h1><p>We sell widgets.</p></body></html>"))
+	}))
+	defer srv.Close()
+
+	// Denied without --allow-web / approval (never hits the network).
+	if r := (OSExecutor{}).Execute(context.Background(), "clone_site", map[string]string{"url": srv.URL}); r.Success {
+		t.Fatal("clone_site must be denied without approval / --allow-web")
+	}
+	// A configured egress allowlist that excludes the host is a hard block.
+	blocked := OSExecutor{Policy: Policy{AllowWeb: true}, Egress: ParseEgress([]string{"example.com"})}
+	if r := blocked.Execute(context.Background(), "clone_site", map[string]string{"url": srv.URL}); r.Success {
+		t.Fatal("clone_site must respect the egress allowlist")
+	}
+	// Allowed → returns the original's content with a rebuild-and-compare instruction.
+	ok := OSExecutor{Policy: Policy{AllowWeb: true}, Egress: ParseEgress([]string{mustHost(t, srv.URL)})}
+	r := ok.Execute(context.Background(), "clone_site", map[string]string{"url": srv.URL})
+	if !r.Success {
+		t.Fatalf("clone_site should succeed when allowed: %s", r.Output)
+	}
+	if !strings.Contains(r.Output, "Welcome to Acme") || !strings.Contains(r.Output, "Cloned") {
+		t.Fatalf("clone_site output missing original content / instruction: %s", r.Output)
+	}
+}

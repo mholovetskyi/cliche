@@ -257,7 +257,7 @@ type Item =
   | { t: "end" }
   | { t: "approval"; id: string; kind: string; target: string; answered?: "allowed" | "declined" };
 
-const TEMPLATE_ICONS: Record<string, any> = { Website: Globe, "Automate a task": Wand2, "Small tool": Hammer, "Explain this project": FileSearch };
+const TEMPLATE_ICONS: Record<string, any> = { Website: Globe, "Web app": Rocket, "Clone a site": Copy, "Automate a task": Wand2, "Small tool": Hammer, "Explain this project": FileSearch };
 
 function relTime(iso: string): string {
   const t = new Date(iso).getTime();

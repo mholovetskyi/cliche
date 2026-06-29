@@ -21,15 +21,31 @@ func (e OSExecutor) screenshot(ctx context.Context, args map[string]string) Resu
 	if err != nil {
 		return Result{Output: "screenshot denied: " + err.Error(), Success: false}
 	}
+	w, h := dim(args["width"], 1366), dim(args["height"], 900)
+	data, err := captureToImage(ctx, url, w, h)
+	if err != nil {
+		return Result{Output: "screenshot " + err.Error() + " (" + target + ")", Success: false}
+	}
+	return Result{
+		Output: fmt.Sprintf("Captured a %d×%d screenshot of %s. Study it critically — layout, spacing, alignment, type scale, color and contrast, hierarchy, and overall polish — and fix anything that isn't world-class. Re-screenshot after changes to confirm.", w, h, target),
+		// The image itself is the point — the model sees it as a vision input.
+		Images:  []Image{{MediaType: "image/png", Data: data}},
+		Success: true,
+	}
+}
+
+// captureToImage renders url — a file://, localhost, or (for clone_site) a remote
+// page — with a headless, already-installed Chromium-family browser and returns
+// the PNG bytes. Zero Go dependencies: it shells out to Edge/Chrome/Chromium.
+// Callers are responsible for any egress/permission gating before reaching here.
+func captureToImage(ctx context.Context, url string, w, h int) ([]byte, error) {
 	browser := findBrowser()
 	if browser == "" {
-		return Result{Output: "screenshot unavailable: no Chrome/Edge/Chromium browser was found. Set the CLICHE_BROWSER env var to a browser executable, or install one. (You can keep building — you just can't visually review the result from here.)", Success: false}
+		return nil, fmt.Errorf("unavailable: no Chrome/Edge/Chromium browser was found — set CLICHE_BROWSER or install one")
 	}
-	w, h := dim(args["width"], 1366), dim(args["height"], 900)
-
 	out, err := os.CreateTemp("", "cliche-shot-*.png")
 	if err != nil {
-		return Result{Output: "screenshot error: " + err.Error(), Success: false}
+		return nil, fmt.Errorf("error: %v", err)
 	}
 	outPath := out.Name()
 	_ = out.Close()
@@ -54,7 +70,7 @@ func (e OSExecutor) screenshot(ctx context.Context, args map[string]string) Resu
 		url,
 	)
 	if err := cmd.Start(); err != nil {
-		return Result{Output: "screenshot failed to launch the browser: " + err.Error(), Success: false}
+		return nil, fmt.Errorf("failed to launch the browser: %v", err)
 	}
 	// Edge/Chrome typically relaunch themselves detached, so the launched process
 	// returns BEFORE the capture is on disk. Poll for the PNG to appear and finish
@@ -76,14 +92,9 @@ func (e OSExecutor) screenshot(ctx context.Context, args map[string]string) Resu
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
 	if len(data) == 0 {
-		return Result{Output: "screenshot produced no image — the page may have failed to load (" + target + "). Make sure the target exists and renders.", Success: false}
+		return nil, fmt.Errorf("produced no image — the page may have failed to load")
 	}
-	return Result{
-		Output: fmt.Sprintf("Captured a %d×%d screenshot of %s. Study it critically — layout, spacing, alignment, type scale, color and contrast, hierarchy, and overall polish — and fix anything that isn't world-class. Re-screenshot after changes to confirm.", w, h, target),
-		// The image itself is the point — the model sees it as a vision input.
-		Images:  []Image{{MediaType: "image/png", Data: data}},
-		Success: true,
-	}
+	return data, nil
 }
 
 // screenshotURL turns a target into a safe, capturable URL: a project-relative
@@ -115,6 +126,10 @@ func (e OSExecutor) screenshotURL(target string) (string, error) {
 // findBrowser locates a Chromium-family browser without any Go dependency:
 // CLICHE_BROWSER first, then OS-standard install paths, then the PATH.
 func findBrowser() string {
+	switch strings.ToLower(os.Getenv("CLICHE_BROWSER")) {
+	case "off", "none", "0":
+		return "" // explicit opt-out: skip the screenshot tools entirely
+	}
 	if b := os.Getenv("CLICHE_BROWSER"); b != "" {
 		if _, err := os.Stat(b); err == nil {
 			return b

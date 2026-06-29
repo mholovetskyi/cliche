@@ -266,6 +266,9 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 	case "web_fetch":
 		return e.webFetch(ctx, args)
 
+	case "clone_site":
+		return e.cloneSite(ctx, args)
+
 	case "screenshot":
 		return e.screenshot(ctx, args)
 
