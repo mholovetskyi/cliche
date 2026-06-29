@@ -290,7 +290,7 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 
 	case "write_file":
 		if strings.TrimSpace(args["file"]) == "" {
-			return Result{Output: "write error: no file specified", IsEdit: edit, Success: false}
+			return Result{Output: "write error: no file path given. If you were writing a large file, the tool call was likely cut off at the output limit — write it in smaller pieces (create the file with the first section, then append the rest with edit_file), or split it into multiple files.", IsEdit: edit, Success: false}
 		}
 		if e.ruleDecision("write", args["file"]) == ruleDeny {
 			return Result{Output: "blocked by deny rule: write " + args["file"], IsEdit: edit, Success: false}

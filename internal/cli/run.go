@@ -103,11 +103,29 @@ func firstProviderWithKey(cfg config.Config) string {
 	return ""
 }
 
-// maxOutputTokens caps a single completion. 8192 (up from a prior 4096) gives a
-// coding agent room to write a sizable file in one tool call without the
-// response — and thus the tool-call JSON — being truncated mid-stream. Supported
-// by all current mainstream models.
-const maxOutputTokens = 8192
+// maxOutputFor caps a single completion. This matters a lot for a coding agent:
+// if the cap is below the size of a file the model is writing, the response — and
+// thus the tool-call JSON — is truncated mid-stream, arriving as empty args (a
+// baffling "no file specified"). A full-page clone with inline CSS/JS easily
+// exceeds 8K tokens. Flagship models support 32K–64K output, so give them real
+// room; keep a safe 8K floor for everything else. (The Budget Kernel still bounds
+// output by the remaining token budget, so this can't outspend the cap.)
+func maxOutputFor(model string) int {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "sonnet-4"), strings.Contains(m, "opus-4"),
+		strings.Contains(m, "fable"), strings.Contains(m, "mythos"),
+		strings.Contains(m, "gpt-5"), strings.Contains(m, "gpt-4.1"),
+		strings.Contains(m, "gemini-2"), strings.Contains(m, "gemini-2.5"),
+		strings.Contains(m, "grok-4"), strings.Contains(m, "deepseek"):
+		return 32768
+	case strings.Contains(m, "gpt-4o"), strings.Contains(m, "sonnet-3-7"),
+		strings.Contains(m, "sonnet-3.7"), strings.Contains(m, "claude-3-7"):
+		return 16384
+	default:
+		return 8192
+	}
+}
 
 // backend is a fully-resolved model target.
 type backend struct {
@@ -181,9 +199,9 @@ func resolveBackend(cfg config.Config, f *runFlags) (backend, error) {
 // provider is OpenAI-compatible at its base URL.
 func buildProvider(b backend, key string) (provider.Provider, error) {
 	if b.native {
-		return provider.NewAnthropic(key, b.model, maxOutputTokens), nil
+		return provider.NewAnthropic(key, b.model, maxOutputFor(b.model)), nil
 	}
-	oc := provider.NewOpenAICompat(key, b.model, b.baseURL, maxOutputTokens)
+	oc := provider.NewOpenAICompat(key, b.model, b.baseURL, maxOutputFor(b.model))
 	oc.SetHeaders(b.headers) // gateway/proxy auth headers, if any
 	return oc, nil
 }
