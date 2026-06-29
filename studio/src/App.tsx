@@ -7,7 +7,7 @@ import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
-  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
+  FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Sparkle, SlidersHorizontal,
   GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock, Mic, Sun, Moon,
   MessageCircle, Package, Send, BookMarked, BrainCircuit,
 } from "lucide-react";
@@ -687,10 +687,10 @@ function Settings({ state, theme, accent, inst, onClose, onApplied, onSetTheme, 
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobileShow, theme, nav, onTheme, onNav, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
-  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean; theme?: string; nav?: string; onTheme?: () => void; onNav?: (n: string) => void;
+function Sidebar({ sessions, state, audit, tasks, inst, isMobile, mobileShow, theme, nav, onTheme, onNav, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onSearch, onSettings }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean; theme?: string; nav?: string; onTheme?: () => void; onNav?: (n: string) => void;
   onNew: () => void; onPick: (id: string) => void; onRename: (id: string, title: string) => void; onDelete: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
-  onAccent: (id: string) => void; onSearch: () => void; onSettings: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
+  onSearch: () => void; onSettings: () => void;
 }) {
   const cap = state.cap_usd || 0;
   const doneCount = tasks.filter((t) => t.done).length;
@@ -786,22 +786,6 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobile
           )}
           <BudgetReactor frac={load} spent={state.spent_usd || 0} cap={cap} running={!!state.running} />
           <div className="mt-1 truncate text-center font-mono text-[11px] text-[var(--mut)]">{state.model || "—"}</div>
-        </div>
-        <div className="mt-2.5 flex items-center gap-2 px-1">
-          <span className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--faint)]">Theme</span>
-          {ACCENTS.map((ac) => (
-            <button key={ac.id} onClick={() => onAccent(ac.id)} title={ac.id}
-              className={`h-3.5 w-3.5 rounded-full transition-transform hover:scale-110 ${accent === ac.id ? "ring-2 ring-white/70 ring-offset-1 ring-offset-[var(--bg)]" : ""}`}
-              style={{ background: ac.a }} />
-          ))}
-        </div>
-        <div className="mt-2 flex items-center gap-1 px-1">
-          <span className="text-[10.5px] uppercase tracking-[0.08em] text-[var(--faint)]">Live</span>
-          <span className="flex-1" />
-          <button onClick={onMemory} title="Memory — fly through past sessions" className="icon-btn h-7 w-7"><Star size={14} /></button>
-          <button onClick={() => onToggleInst("substrate")} title="Living substrate (WebGL)" className={`icon-btn h-7 w-7 ${inst.substrate ? "text-[var(--accent)]" : ""}`}><Sparkle size={14} /></button>
-          <button onClick={() => onToggleInst("sound")} title="Sound — the agent's score" className={`icon-btn h-7 w-7 ${inst.sound ? "text-[var(--accent)]" : ""}`}><Volume2 size={14} /></button>
-          <button onClick={() => onToggleInst("oracle")} title="Oracle — the Sigil speaks" className={`icon-btn h-7 w-7 ${inst.oracle ? "text-[var(--accent)]" : ""}`}><Eye size={14} /></button>
         </div>
       </div>
     </aside>
@@ -1741,7 +1725,7 @@ export default function App() {
       <div className="relative flex h-full flex-col">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
         <div className="flex min-h-0 flex-1">
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} theme={theme} nav={nav} onNav={(n) => { setNav(n as any); if (isMobile) setMobileView("chat"); }} onTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} theme={theme} nav={nav} onNav={(n) => { setNav(n as any); if (isMobile) setMobileView("chat"); }} onTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} />
 
       {/* conversation */}
       <section className={`cl-chat flex min-w-0 flex-1 flex-col ${nav !== "chat" ? "hidden" : ""} ${isMobile && mobileView !== "chat" ? "hidden" : ""}`}>
