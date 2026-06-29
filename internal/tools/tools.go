@@ -236,6 +236,22 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 	if e.Policy.ReadOnly && (edit || name == "run_command" || name == "save_skill") {
 		return Result{Output: "blocked: plan mode is read-only — describe the change, don't apply it", IsEdit: edit, Success: false}
 	}
+	// Normalize argument names across model dialects. Models disagree on what to
+	// call the file path — Claude is trained to send "file_path", others "path" —
+	// and on the content key. Without this, a perfectly good write_file surfaced a
+	// baffling "no file specified" and the build stalled. Accept the common aliases.
+	if name == "read_file" || name == "write_file" || name == "edit_file" {
+		if strings.TrimSpace(args["file"]) == "" {
+			if v := firstNonEmpty(args["file_path"], args["path"], args["filepath"], args["filename"]); v != "" {
+				args["file"] = v
+			}
+		}
+	}
+	if name == "write_file" && args["content"] == "" {
+		if v := firstNonEmpty(args["contents"], args["text"], args["body"]); v != "" {
+			args["content"] = v
+		}
+	}
 	switch name {
 	case "read_file":
 		if strings.TrimSpace(args["file"]) == "" {

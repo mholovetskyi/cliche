@@ -8,6 +8,37 @@ import (
 	"testing"
 )
 
+// Models name the file path differently (Claude → file_path, others → path); the
+// tools must accept the aliases or a real write surfaces "no file specified".
+func TestFileArgAliases(t *testing.T) {
+	root := t.TempDir()
+	ok := &spyApprover{allow: true}
+	ex := OSExecutor{Root: root, Approve: ok.approve}
+
+	// write_file with Claude's "file_path" + content.
+	if r := ex.Execute(context.Background(), "write_file", map[string]string{"file_path": "index.html", "content": "<h1>hi</h1>"}); !r.Success {
+		t.Fatalf("write_file via file_path should succeed, got: %s", r.Output)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, "index.html")); string(b) != "<h1>hi</h1>" {
+		t.Fatalf("file not written through alias: %q", b)
+	}
+	// read_file via "path".
+	if r := ex.Execute(context.Background(), "read_file", map[string]string{"path": "index.html"}); !r.Success || !strings.Contains(r.Output, "hi") {
+		t.Fatalf("read_file via path alias failed: %s", r.Output)
+	}
+	// write_file with a "text" content alias.
+	if r := ex.Execute(context.Background(), "write_file", map[string]string{"file": "a.txt", "text": "yo"}); !r.Success {
+		t.Fatalf("write_file via text alias should succeed: %s", r.Output)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, "a.txt")); string(b) != "yo" {
+		t.Fatalf("content alias not applied: %q", b)
+	}
+	// A genuinely missing file still errors clearly.
+	if r := ex.Execute(context.Background(), "write_file", map[string]string{"content": "x"}); r.Success {
+		t.Fatal("write_file with no path of any name must still fail")
+	}
+}
+
 func TestConfinementBlocksOutsideRoot(t *testing.T) {
 	root := t.TempDir()
 	inside := filepath.Join(root, "in.txt")
