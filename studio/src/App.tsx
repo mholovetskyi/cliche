@@ -8,7 +8,7 @@ import {
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
   FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
-  GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock,
+  GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock, Mic,
 } from "lucide-react";
 
 type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
@@ -1141,6 +1141,9 @@ export default function App() {
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   const [imgCount, setImgCount] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recogRef = useRef<any>(null);
+  const speechOK = typeof window !== "undefined" && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
   // Skip the in-page intro when launched from the desktop shell — its native
   // splash already covered the boot (so the hand-off isn't a double animation).
   const [booting, setBooting] = useState(() => { try { return !new URLSearchParams(location.search).has("desktop"); } catch { return true; } });
@@ -1304,6 +1307,28 @@ export default function App() {
   async function uploadImages(files: File[]) { for (const f of files) { if (f.type.startsWith("image/")) await uploadImage(f); } }
   function onComposerPaste(e: React.ClipboardEvent) { const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/")); if (imgs.length) { e.preventDefault(); uploadImages(imgs); } }
   function onComposerDrop(e: React.DragEvent) { e.preventDefault(); setDragOver(false); const imgs = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/")); if (imgs.length) uploadImages(imgs); }
+  // Voice input: dictate the prompt via the browser Web Speech API (no deps; a
+  // no-op where unsupported). Interim results stream into the composer.
+  function toggleDictation() {
+    if (!speechOK) return;
+    if (listening) { recogRef.current?.stop(); return; }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const r = new SR();
+    r.lang = navigator.language || "en-US";
+    r.interimResults = true;
+    r.continuous = false;
+    const base = prompt ? prompt.replace(/\s*$/, "") + " " : "";
+    r.onresult = (e: any) => {
+      let txt = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      setPrompt(base + txt);
+    };
+    r.onend = () => setListening(false);
+    r.onerror = () => setListening(false);
+    recogRef.current = r;
+    setListening(true);
+    r.start();
+  }
   async function newChat() {
     await api("/api/sessions/new", { method: "POST" });
     setItems([]); refreshSessions(); setMobileView("chat");
@@ -1501,6 +1526,7 @@ export default function App() {
               onDrop={onComposerDrop} onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
               className={`surface field flex items-center gap-2 rounded-2xl p-2 pl-2.5 shadow-[var(--sh-md)] transition-shadow ${dragOver ? "ring-2 ring-[var(--accent)]/70" : ""}`}>
               <button type="button" onClick={() => fileRef.current?.click()} className="icon-btn h-9 w-9 shrink-0" title="Attach an image — or paste / drop one"><ImagePlus size={18} /></button>
+              {speechOK && <button type="button" onClick={toggleDictation} className={`icon-btn h-9 w-9 shrink-0 ${listening ? "text-[var(--accent)]" : ""}`} title={listening ? "Stop dictation" : "Dictate (voice)"}><Mic size={18} className={listening ? "pulse-soft" : ""} /></button>}
               {imgCount > 0 && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--accent)]/15 px-2 py-1 text-xs text-[var(--accent)]">
                   {imgCount} image{imgCount > 1 ? "s" : ""}
