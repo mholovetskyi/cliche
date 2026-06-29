@@ -102,6 +102,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdSwarm(rest, stdout, stderr)
 	case "cron":
 		return cmdCron(rest, stdout, stderr)
+	case "telegram":
+		return cmdTelegram(rest, stdout, stderr)
 	case "audit":
 		return cmdAudit(rest, stdout, stderr)
 	case "projects":
