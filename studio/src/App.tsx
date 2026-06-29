@@ -40,6 +40,43 @@ function CodeBlock(props: any) {
 }
 const MD_COMPONENTS = { pre: CodeBlock };
 
+// useIsMobile tracks a phone-width viewport so the 3-pane layout collapses to a
+// single pane + bottom tabs (and the same applies to a narrow desktop window).
+function useIsMobile() {
+  const q = "(max-width: 768px)";
+  const [m, setM] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const on = () => setM(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return m;
+}
+
+type MobileView = "chat" | "work" | "sessions";
+
+// MobileTabBar is the bottom navigation shown only on phone-width screens: it
+// switches which single pane is visible. Honors the iOS home-indicator safe area.
+function MobileTabBar({ view, onView }: { view: MobileView; onView: (v: MobileView) => void }) {
+  const tabs: { id: MobileView; label: string; icon: any }[] = [
+    { id: "chat", label: "Chat", icon: MessageSquare },
+    { id: "work", label: "Preview", icon: Eye },
+    { id: "sessions", label: "Menu", icon: ListTree },
+  ];
+  return (
+    <nav className="glass flex shrink-0 items-stretch border-t border-[var(--line)]" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      {tabs.map((t) => (
+        <button key={t.id} onClick={() => onView(t.id)} aria-label={t.label}
+          className="flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[10.5px] font-medium transition-colors"
+          style={{ color: view === t.id ? "var(--accent)" : "var(--dim)" }}>
+          <t.icon size={20} strokeWidth={view === t.id ? 2.4 : 2} /> {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 const PROVIDERS = [
   { id: "anthropic", label: "Anthropic (Claude) — direct API", keyUrl: "https://console.anthropic.com", local: false },
   { id: "openai", label: "OpenAI", keyUrl: "https://platform.openai.com/api-keys", local: false },
@@ -567,8 +604,8 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
-  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean };
+function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobileShow, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean;
   onNew: () => void; onPick: (id: string) => void; onRename: (id: string, title: string) => void; onDelete: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
   onAccent: (id: string) => void; onSearch: () => void; onSettings: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
 }) {
@@ -583,7 +620,7 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, onNew, onPick, o
   const commitEdit = () => { if (editId) onRename(editId, draft.trim()); setEditId(null); };
   const mood = trust === "tamper" ? "wary" : state.running ? "focused" : load > 0.85 ? "frugal" : (audit && audit.ok && audit.entries > 0 ? "proud" : "idle");
   return (
-    <aside className="flex w-[244px] shrink-0 flex-col border-r border-[var(--line)]">
+    <aside className={`flex flex-col border-r border-[var(--line)] ${isMobile ? (mobileShow ? "w-full" : "hidden") : "w-[244px] shrink-0"}`}>
       <div className="flex h-[52px] items-center gap-2.5 px-4">
         <span className="relative text-[#dcdce0]" onMouseEnter={() => inst.oracle && setQuip(pickQuip(mood))} onMouseLeave={() => setQuip("")}>
           <LogoMark size={28} />
@@ -1003,6 +1040,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem("cliche-workspace") !== "off"; } catch { return true; } });
+  const isMobile = useIsMobile();
+  const [mobileView, setMobileView] = useState<MobileView>("chat");
   const [previewKey, setPreviewKey] = useState(0);
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "git" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -1133,6 +1172,7 @@ export default function App() {
   }
   async function run(p: string) {
     if (!p.trim() || state.running) return;
+    setMobileView("chat");
     setItems((prev) => [...prev, { t: "you", text: p }]); setPrompt("");
     const r = await fetch("/api/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: p }) });
     if (!r.ok) setItems((prev) => [...prev, { t: "error", text: r.status === 409 ? "a run is already in progress" : `request failed (${r.status})` }]);
@@ -1147,11 +1187,11 @@ export default function App() {
   function onComposerDrop(e: React.DragEvent) { e.preventDefault(); setDragOver(false); const imgs = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/")); if (imgs.length) uploadImages(imgs); }
   async function newChat() {
     await fetch("/api/sessions/new", { method: "POST" });
-    setItems([]); refreshSessions();
+    setItems([]); refreshSessions(); setMobileView("chat");
   }
   async function pickSession(id: string) {
     const r = await fetch("/api/sessions/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-    const d = await r.json(); setItems(msgsToItems(d.messages || [])); refreshSessions();
+    const d = await r.json(); setItems(msgsToItems(d.messages || [])); refreshSessions(); setMobileView("chat");
   }
   async function renameSession(id: string, title: string) {
     await fetch("/api/sessions/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, title }) });
@@ -1266,12 +1306,13 @@ export default function App() {
       {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
       {showKeys && <KeysOverlay onClose={() => setShowKeys(false)} />}
       {leader && <div className="fade-up glass elev fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--mut)]">go to <span className="kbd">p</span><span className="kbd">f</span><span className="kbd">c</span><span className="kbd">t</span><span className="kbd">n</span></div>}
-      <div className="relative flex h-full">
+      <div className="relative flex h-full flex-col">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
+        <div className="flex min-h-0 flex-1">
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
 
       {/* conversation */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section className={`cl-chat flex min-w-0 flex-1 flex-col ${isMobile && mobileView !== "chat" ? "hidden" : ""}`}>
         <header className="glass flex h-[52px] items-center gap-2 border-b border-[var(--line)] px-5">
           <span className="min-w-0 truncate text-sm font-medium">{activeTitle || "New chat"}</span>
           {state.running && <span className="flex items-center gap-2 text-xs text-[var(--accent)]"><span className="orb" /> working</span>}
@@ -1281,22 +1322,22 @@ export default function App() {
               <Square size={11} strokeWidth={3} /> Stop
             </button>
           )}
-          <div className="seg">
+          <div className="seg max-md:hidden">
             {MODES.map((m) => (
               <button key={m.id} data-on={(state.mode || "suggest") === m.id} onClick={() => setMode(m.id)} className="seg-item" title={`Permission mode: ${m.label}`}>{m.label}</button>
             ))}
           </div>
           {ctxPct > 0 && (
-            <span className="chip tabular-nums" title="Context window used" style={{ color: ctxPct < 60 ? "var(--ok)" : ctxPct < 85 ? "var(--warn)" : "var(--accent)" }}>
+            <span className="chip tabular-nums max-md:hidden" title="Context window used" style={{ color: ctxPct < 60 ? "var(--ok)" : ctxPct < 85 ? "var(--warn)" : "var(--accent)" }}>
               {ctxPct}% ctx
             </span>
           )}
           <select value={state.model || ""} onChange={(e) => setModel(e.target.value)} title="Model"
-            className="field max-w-[170px] px-2.5 py-1.5 font-mono text-xs text-[var(--mut)] outline-none">
+            className="field max-w-[170px] px-2.5 py-1.5 font-mono text-xs text-[var(--mut)] outline-none max-md:max-w-[120px]">
             {state.model && !models.some((m) => m.model === state.model) && <option value={state.model}>{state.model}</option>}
             {models.map((m) => <option key={m.model} value={m.model}>{m.model}</option>)}
           </select>
-          <button onClick={toggleWs} className={`icon-btn h-8 w-8 ${workspaceOpen ? "text-[var(--accent)]" : ""}`} title={workspaceOpen ? "Hide the panel — chat only (⌘\\)" : "Show the panel (⌘\\)"}>
+          <button onClick={toggleWs} className={`icon-btn h-8 w-8 max-md:hidden ${workspaceOpen ? "text-[var(--accent)]" : ""}`} title={workspaceOpen ? "Hide the panel — chat only (⌘\\)" : "Show the panel (⌘\\)"}>
             <PanelRight size={16} />
           </button>
         </header>
@@ -1359,8 +1400,8 @@ export default function App() {
       </section>
 
       {/* workspace */}
-      {workspaceOpen && (
-      <aside className="flex w-[42%] min-w-[360px] flex-col border-l border-[var(--line)]">
+      {(workspaceOpen || isMobile) && (
+      <aside className={`cl-workspace flex flex-col border-l border-[var(--line)] ${isMobile ? (mobileView === "work" ? "w-full" : "hidden") : "w-[42%] min-w-[360px]"}`}>
         <div className="flex h-[52px] items-center gap-2 border-b border-[var(--line)] px-3">
           <div ref={tabBarRef} className="seg seg-morph">
             <span className="seg-pill" style={{ transform: `translateX(${pill.left}px)`, width: pill.width }} />
@@ -1422,6 +1463,8 @@ export default function App() {
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
       )}
+        </div>
+        {isMobile && <MobileTabBar view={mobileView} onView={setMobileView} />}
       </div>
     </>
   );
