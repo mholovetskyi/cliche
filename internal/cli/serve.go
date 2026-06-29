@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -33,6 +35,9 @@ import (
 // to leave open with no interactive-approval plumbing yet.
 func cmdServe(args []string, out, errOut io.Writer) int {
 	f, fs := parseRunFlags("serve", args)
+	var listenAddr, authToken string
+	fs.StringVar(&listenAddr, "listen", "", "bind address for remote/cloud access, e.g. :7878 or 0.0.0.0:7878 (default: loopback only)")
+	fs.StringVar(&authToken, "token", os.Getenv("CLICHE_SERVE_TOKEN"), "require this bearer token (mandatory for a non-loopback --listen)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -561,14 +566,42 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		return out
 	})
 
-	ln, err := listenLocal()
+	// Remote/cloud mode: binding beyond loopback exposes an agent that runs shell
+	// commands, so a token is mandatory. If the operator didn't supply one, mint a
+	// strong one rather than ever exposing it unauthenticated.
+	networked := listenAddr != "" && !isLoopback(listenAddr)
+	if networked && authToken == "" {
+		authToken = genToken()
+		fmt.Fprintln(out, "  ⚠ Exposing Cliché to the network — minted a required access token.")
+	}
+	if authToken != "" {
+		srv.SetAuth(authToken)
+	}
+
+	var ln net.Listener
+	var err error
+	if listenAddr == "" {
+		ln, err = listenLocal() // local-first default: loopback, stable port → :0 fallback
+	} else {
+		ln, err = net.Listen("tcp", listenAddr)
+	}
 	if err != nil {
 		fmt.Fprintln(errOut, "serve: "+err.Error())
 		return 1
 	}
+
 	url := "http://" + ln.Addr().String()
-	fmt.Fprintf(out, "  Cliche Studio is running → %s  (Ctrl-C to stop)\n", url)
-	if os.Getenv("CLICHE_NO_BROWSER") == "" { // the desktop shell opens its own window instead
+	switch {
+	case authToken != "":
+		fmt.Fprintf(out, "  Cliché Studio is running → %s/?token=%s\n", url, authToken)
+		if networked {
+			fmt.Fprintln(out, "  Network access is ON — anyone with this token and a route to this host can drive the agent.")
+		}
+	default:
+		fmt.Fprintf(out, "  Cliche Studio is running → %s  (Ctrl-C to stop)\n", url)
+	}
+	// Only auto-open a browser for the local default; networked/cloud runs are headless.
+	if os.Getenv("CLICHE_NO_BROWSER") == "" && listenAddr == "" {
 		openBrowser(url)
 	}
 
@@ -586,13 +619,39 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// listenLocal binds the loopback interface — Studio is a local-first app, never
+// listenLocal binds the loopback interface — Studio's local-first default, never
 // exposed to the network. It prefers a stable port, falling back to any free one.
 func listenLocal() (net.Listener, error) {
 	if ln, err := net.Listen("tcp", "127.0.0.1:7878"); err == nil {
 		return ln, nil
 	}
 	return net.Listen("tcp", "127.0.0.1:0")
+}
+
+// isLoopback reports whether a bind address stays on the local machine. A bare
+// ":7878" (all interfaces) and "0.0.0.0" are NOT loopback — they need a token.
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "" {
+		return false // ":7878" → every interface
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// genToken mints a URL-safe random bearer token (~192 bits).
+func genToken() string {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "cliche-" + base64.RawURLEncoding.EncodeToString([]byte(time.Now().String()))
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // auditView reads the project's signed, hash-chained ledger into the trust

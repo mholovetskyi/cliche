@@ -39,7 +39,8 @@ type Server struct {
 	hub    *Hub
 	run    Runner
 	state  func() State
-	static fs.FS // embedded SPA assets (may be nil during early bring-up)
+	static fs.FS   // embedded SPA assets (may be nil during early bring-up)
+	token  string // when set, every request must present this bearer token (remote/cloud mode)
 
 	mu      sync.Mutex
 	running bool
@@ -517,6 +518,9 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.static != nil {
 		mux.Handle("/", http.FileServer(http.FS(s.static)))
+	}
+	if s.token != "" {
+		return s.withAuth(mux) // remote/cloud mode: gate everything behind the token
 	}
 	return mux
 }
