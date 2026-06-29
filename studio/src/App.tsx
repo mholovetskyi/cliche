@@ -179,7 +179,7 @@ function Boot() {
     <div className="boot fixed inset-0 z-[200] grid place-items-center bg-[var(--bg)]">
       <div className="text-center">
         <div className="boot-mark mx-auto mb-4 w-16 text-[#e8e8ea]"><LogoMark size={64} /></div>
-        <div className="fade-up text-xl font-semibold tracking-tight" style={{ animationDelay: ".15s" }}>Cliché <span className="text-[var(--dim)]">Studio</span></div>
+        <div className="fade-up tracking-tight" style={{ animationDelay: ".15s", fontFamily: "var(--serif)", fontSize: "32px", fontWeight: 500 }}>Clich<span className="text-[var(--accent)]">é</span> <span className="text-[var(--dim)]">Studio</span></div>
         <div className="fade-up text-xs text-[var(--mut)]" style={{ animationDelay: ".25s" }}>the trustworthy build-anything app</div>
       </div>
     </div>
@@ -627,7 +627,7 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobile
           <LogoMark size={28} />
           {quip && <div className="pop-in glass elev absolute left-0 top-9 z-30 w-52 rounded-xl border px-3 py-2 text-[12px] leading-snug text-[var(--mut)]" style={{ borderColor: trust === "tamper" ? "var(--danger)" : "var(--line2)" }}>{quip}</div>}
         </span>
-        <span className="flex-1 text-[15px] font-semibold tracking-tight">Cliché <span className="text-[var(--dim)]">Studio</span></span>
+        <span className="flex-1 tracking-tight" style={{ fontFamily: "var(--serif)", fontSize: "17px", fontWeight: 500 }}>Clich<span className="text-[var(--accent)]">é</span> <span className="text-[var(--dim)]">Studio</span></span>
         {onTheme && <button onClick={onTheme} className="icon-btn h-7 w-7" title={theme === "light" ? "Switch to dark" : "Switch to light"}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button>}
         <button onClick={onSettings} className="icon-btn h-7 w-7" title="Settings — provider & model"><SlidersHorizontal size={15} /></button>
         <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
@@ -773,19 +773,19 @@ function Row({ it, onAnswer }: { it: Item; onAnswer: (id: string, allow: boolean
 
 function Welcome({ templates, onPick }: { templates: Template[]; onPick: (p: string) => void }) {
   return (
-    <div className="mx-auto mt-16 max-w-2xl px-4 text-center">
-      <div className="fade-up mb-4 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white/[0.03] px-3 py-1 text-xs text-[var(--mut)]">
-        <Sparkles size={13} className="text-[var(--accent)]" /> trust-first · local · your key
-      </div>
-      <h1 className="fade-up mb-2 text-[34px] font-semibold leading-tight tracking-tight">What do you want to <span className="bg-gradient-to-r from-[var(--accent2)] to-[var(--accent)] bg-clip-text text-transparent">build</span>?</h1>
-      <p className="fade-up mb-10 text-[15px] text-[var(--mut)]">Describe it, or start from one of these. Cliche makes it — you watch, and approve each step.</p>
-      <div className="grid grid-cols-2 gap-3 text-left">
+    <div className="mx-auto flex h-full min-h-[58vh] max-w-3xl flex-col items-center justify-center px-4 text-center">
+      <h1 className="fade-up font-medium leading-none tracking-tight text-[var(--ink)]" style={{ fontFamily: "var(--serif)", fontSize: "clamp(46px, 9vw, 92px)" }}>
+        Clich<span className="text-[var(--accent)]">é</span>
+      </h1>
+      <p className="fade-up mt-5 max-w-md text-[15px] leading-relaxed text-[var(--mut)]" style={{ animationDelay: ".12s" }}>
+        Describe what you want to build — I'll write it, run it, and show you the result. You watch, and approve each step.
+      </p>
+      <div className="fade-up mt-9 flex flex-wrap items-center justify-center gap-2" style={{ animationDelay: ".22s" }}>
         {templates.map((t) => {
           const Icon = TEMPLATE_ICONS[t.name] || Sparkles;
           return (
-            <button key={t.name} onClick={() => onPick(t.prompt)} className="surface card-hover group flex items-start gap-3 rounded-2xl p-4">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] bg-white/[0.03] text-[var(--accent)] transition-colors group-hover:bg-[var(--accent)]/12"><Icon size={18} /></span>
-              <span><span className="block font-medium">{t.name}</span><span className="mt-0.5 block text-[13px] text-[var(--mut)]">{t.desc}</span></span>
+            <button key={t.name} onClick={() => onPick(t.prompt)} title={t.desc} className="chip card-hover gap-2 px-3.5 py-2 text-[13px] text-[var(--mut)] hover:text-[var(--ink)]">
+              <Icon size={14} className="text-[var(--accent)]" /> {t.name}
             </button>
           );
         })}
@@ -1124,6 +1124,27 @@ function ScheduledPanel({ onRun }: { onRun: (prompt: string) => void }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// StatusBar — the slim Hermes-style bottom strip, surfacing the Trust Kernel state.
+function StatusBar({ state }: { state: State }) {
+  const mode = state.mode || "suggest";
+  const spent = state.spent_usd || 0, cap = state.cap_usd || 0;
+  const ctx = state.ctx_frac ? Math.round(state.ctx_frac * 100) : 0;
+  const dot = state.running ? "var(--accent)" : "var(--ok)";
+  return (
+    <div className="flex h-[26px] shrink-0 items-center gap-2.5 border-t border-[var(--line)] px-4 font-mono text-[10.5px] text-[var(--dim)]">
+      <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: dot, boxShadow: `0 0 6px ${dot}` }} /> {state.running ? "working" : "ready"}</span>
+      <span className="text-[var(--faint)]">·</span>
+      <span className="text-[var(--mut)]">Trust Kernel</span>
+      <span className="text-[var(--faint)]">·</span>
+      <span>{mode}</span>
+      <span className="flex-1" />
+      {state.model && <span className="max-w-[180px] truncate">{state.model}</span>}
+      {cap > 0 && <><span className="text-[var(--faint)]">·</span><span className="tabular-nums">${spent.toFixed(3)} / ${cap.toFixed(2)}</span></>}
+      {ctx > 0 && <><span className="text-[var(--faint)]">·</span><span className="tabular-nums">{ctx}% ctx</span></>}
     </div>
   );
 }
@@ -1615,6 +1636,7 @@ export default function App() {
       </aside>
       )}
         </div>
+        {!isMobile && <StatusBar state={state} />}
         {isMobile && <MobileTabBar view={mobileView} onView={setMobileView} />}
       </div>
     </>
