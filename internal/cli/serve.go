@@ -32,6 +32,7 @@ import (
 	sess "github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/tools"
 	"github.com/mholovetskyi/cliche/internal/web"
+	"github.com/mholovetskyi/cliche/internal/workspace"
 )
 
 // cmdServe launches Cliche Studio: a local web server (the same agent + Trust
@@ -75,10 +76,21 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	// The server exists first so the agent's approver IS the server's Approve —
 	// every write/command becomes a browser "allow this?" card.
 	srv := web.NewServer(nil, nil, web.StaticFS())
+	// Normalize the root to an absolute, cleaned path so project switching (which
+	// compares paths to confine them to the workspace) is consistent everywhere.
+	if f.dir != "" {
+		if abs, err := filepath.Abs(f.dir); err == nil {
+			f.dir = abs
+		}
+	}
 	previewDir := f.dir
 	if previewDir == "" {
 		previewDir = "."
 	}
+	// wsRoot is the workspace (the parent of every Project); f.dir is the ACTIVE
+	// project (or the workspace itself). Captured before any project switch so the
+	// Projects list always enumerates from the workspace.
+	wsRoot := previewDir
 	srv.SetPreviewDir(previewDir) // serve the project files for the live preview iframe
 
 	// dev runs the built app's dev server (npm run dev) for a live, hot-reloading
@@ -91,15 +103,28 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			st := dev.Status(previewDir)
 			return web.DevStatus{State: st.State, URL: st.URL, Dir: st.Dir, Detected: st.Detected, Script: st.Script, Logs: st.Logs}
 		},
-		func(action string) error {
+		func(action, dir string) error {
+			// dir (optional) targets a specific app under the active project; it is
+			// confined to the project tree, so a request can't run code elsewhere.
+			root := previewDir
+			if d := strings.TrimSpace(dir); d != "" {
+				abs := d
+				if !filepath.IsAbs(abs) {
+					abs = filepath.Join(previewDir, d)
+				}
+				if rel, rerr := filepath.Rel(previewDir, abs); rerr != nil || strings.HasPrefix(rel, "..") {
+					return fmt.Errorf("app must be inside the current project")
+				}
+				root = abs
+			}
 			switch action {
 			case "start":
-				return dev.Start(previewDir)
+				return dev.Start(root)
 			case "stop":
 				dev.Stop()
 				return nil
 			case "restart":
-				return dev.Restart(previewDir)
+				return dev.Restart(root)
 			default:
 				return fmt.Errorf("unknown dev action %q", action)
 			}
@@ -330,6 +355,95 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		installRunner(na)
 		return nil
 	}
+
+	// switchProject re-roots the WHOLE serve at a folder under the workspace: the
+	// agent's file/preview/dev scope, the chat history (each project keeps its own
+	// .cliche/sessions), and the files/apps views all move there. Refused mid-run;
+	// rebuilds the agent like a provider switch (via wire), then loads that
+	// project's own chats. dir must be the workspace itself or a folder inside it.
+	switchProject := func(dir string) error {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return err
+		}
+		if abs != wsRoot {
+			rel, rerr := filepath.Rel(wsRoot, abs)
+			if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("a project must be inside the workspace")
+			}
+		}
+		if fi, serr := os.Stat(abs); serr != nil || !fi.IsDir() {
+			return fmt.Errorf("no such project folder")
+		}
+		amu.Lock()
+		if running {
+			amu.Unlock()
+			return fmt.Errorf("stop the current run before switching projects")
+		}
+		if abs == f.dir {
+			amu.Unlock()
+			return nil // already active
+		}
+		persist() // save the chat we're leaving
+		oldCleanup := acleanup
+		f.dir, previewDir = abs, abs
+		curID, curTitle, curCreated, curTasks, nextTaskID = "", "", time.Time{}, nil, 0
+		amu.Unlock()
+
+		dev.Stop() // the new project gets its own dev server
+		if oldCleanup != nil {
+			oldCleanup()
+		}
+		srv.SetPreviewDir(abs)
+		return wire() // rebuild the agent at the new root + load this project's chats
+	}
+
+	// createProject makes a new folder under the workspace and returns its path.
+	createProject := func(name string) (string, error) {
+		clean := sanitizeProjectName(name)
+		if clean == "" {
+			return "", fmt.Errorf("invalid project name")
+		}
+		dir := filepath.Join(wsRoot, clean)
+		if _, err := os.Stat(dir); err == nil {
+			return dir, nil // already exists → just open it
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+		return dir, nil
+	}
+
+	srv.SetProjects(
+		func() web.ProjectsView {
+			amu.Lock()
+			active := f.dir
+			amu.Unlock()
+			pv := web.ProjectsView{Workspace: wsRoot, Active: active, Projects: []web.ProjectInfo{}}
+			for _, p := range workspace.Projects(wsRoot) {
+				pv.Projects = append(pv.Projects, web.ProjectInfo{Name: p.Name, Path: p.Path, Apps: p.Apps, Chats: p.Chats, Active: p.Path == active})
+			}
+			return pv
+		},
+		switchProject, // open an existing project folder
+		func(name string) error { // create a new one, then open it
+			dir, err := createProject(name)
+			if err != nil {
+				return err
+			}
+			return switchProject(dir)
+		},
+	)
+	srv.SetApps(func() []web.AppInfo {
+		amu.Lock()
+		root := f.dir
+		amu.Unlock()
+		out := []web.AppInfo{}
+		for _, a := range workspace.Apps(root) {
+			out = append(out, web.AppInfo{Name: a.Name, Rel: a.Rel, Kind: a.Kind, Script: a.Script})
+		}
+		return out
+	})
 
 	cfg0, _ := config.Load(f.dir)
 	if f.provider != "" || firstProviderWithKey(cfg0) != "" {
@@ -897,6 +1011,26 @@ func studioWorkspace() (string, error) {
 	}
 	ws := filepath.Join(home, "Cliche Projects")
 	return ws, os.MkdirAll(ws, 0o755)
+}
+
+// sanitizeProjectName makes a safe folder name from user input: letters, digits,
+// spaces, dot, dash, underscore only; trimmed and collapsed; never empty or "..",
+// so a created project can't escape the workspace.
+func sanitizeProjectName(s string) string {
+	s = strings.TrimSpace(s)
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == ' ', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		}
+	}
+	out := strings.TrimSpace(b.String())
+	out = strings.Trim(out, ".")
+	if len(out) > 60 {
+		out = out[:60]
+	}
+	return strings.TrimSpace(out)
 }
 
 // findPreviewEntry locates an app to show in the live preview: the project root's

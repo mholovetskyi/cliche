@@ -190,6 +190,9 @@ function Boot() {
 type Ev = { kind: string; text?: string; data?: any };
 type State = { model?: string; provider?: string; mode?: string; spent_usd?: number; cap_usd?: number; ctx_frac?: number; running?: boolean; needs_setup?: boolean; has_preview?: boolean; preview_path?: string };
 type DevStatus = { state: string; url: string; dir?: string; detected: boolean; script: string; logs: string[] };
+type ProjectRow = { name: string; path: string; apps: number; chats: number; active: boolean };
+type ProjectsView = { workspace: string; active: string; projects: ProjectRow[] };
+type AppRow = { name: string; rel: string; kind: string; script: string };
 type Template = { name: string; desc: string; prompt: string };
 type Audit = { ok: boolean; entries: number; verified: number; usd: number; turns: number; input_tokens?: number; output_tokens?: number; reason?: string; verdicts?: Record<string, number> };
 type SessionMeta = { id: string; title: string; model: string; updated: string; messages: number; active: boolean };
@@ -715,10 +718,10 @@ function Settings({ state, theme, accent, inst, onClose, onApplied, onSetTheme, 
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, inst, isMobile, mobileShow, theme, nav, onTheme, onNav, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onSearch, onSettings }: {
-  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean; theme?: string; nav?: string; onTheme?: () => void; onNav?: (n: string) => void;
+function Sidebar({ sessions, state, audit, tasks, inst, isMobile, mobileShow, theme, nav, projects, onTheme, onNav, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onSearch, onSettings, onOpenProject, onCreateProject }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean; theme?: string; nav?: string; projects?: ProjectsView; onTheme?: () => void; onNav?: (n: string) => void;
   onNew: () => void; onPick: (id: string) => void; onRename: (id: string, title: string) => void; onDelete: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
-  onSearch: () => void; onSettings: () => void;
+  onSearch: () => void; onSettings: () => void; onOpenProject?: (path: string) => void; onCreateProject?: (name: string) => void;
 }) {
   const cap = state.cap_usd || 0;
   const doneCount = tasks.filter((t) => t.done).length;
@@ -741,7 +744,8 @@ function Sidebar({ sessions, state, audit, tasks, inst, isMobile, mobileShow, th
         <button onClick={onSettings} className="icon-btn h-7 w-7" title="Settings — provider & model"><SlidersHorizontal size={15} /></button>
         <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
       </div>
-      <div className="px-3 pb-1">
+      {projects && onOpenProject && onCreateProject && <ProjectSwitcher projects={projects} onOpen={onOpenProject} onCreate={onCreateProject} />}
+      <div className="px-3 pb-1 pt-1.5">
         <button onClick={onNew} className="btn-soft flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium">
           <Plus size={16} className="text-[var(--accent)]" /> New session
           <span className="flex-1" /><span className="kbd">⌘N</span>
@@ -749,7 +753,7 @@ function Sidebar({ sessions, state, audit, tasks, inst, isMobile, mobileShow, th
       </div>
       {onNav && (
         <div className="px-3 pt-1.5">
-          {[{ id: "skills", label: "Skills & Tools", icon: Wrench }, { id: "messaging", label: "Messaging", icon: MessageCircle }, { id: "artifacts", label: "Artifacts", icon: Package }].map((n) => {
+          {[{ id: "apps", label: "Apps", icon: Rocket }, { id: "skills", label: "Skills & Tools", icon: Wrench }, { id: "messaging", label: "Messaging", icon: MessageCircle }, { id: "artifacts", label: "Artifacts", icon: Package }].map((n) => {
             const on = nav === n.id;
             return (
               <button key={n.id} onClick={() => onNav(n.id)} className={`relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors ${on ? "bg-white/[0.06] text-[var(--ink)]" : "text-[var(--mut)] hover:bg-white/[0.035] hover:text-[var(--ink)]"}`}>
@@ -1401,6 +1405,82 @@ function ArtifactsPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+// AppsPanel — the apps in the active project: static pages to open, dev apps to
+// run live. The Lovable "apps" surface.
+function AppsPanel({ apps, projectName, onClose, onRun, onRefresh }: {
+  apps: AppRow[]; projectName: string; onClose: () => void; onRun: (rel: string) => void; onRefresh: () => void;
+}) {
+  return (
+    <PanelShell icon={Rocket} title="Apps" sub={`Buildable apps in ${projectName || "the workspace"} — preview them or run them live`} onClose={onClose}>
+      <div className="mb-3 flex items-center justify-between px-1">
+        <span className="text-[11px] text-[var(--faint)]">{apps.length} app{apps.length === 1 ? "" : "s"}</span>
+        <button onClick={onRefresh} className="btn-soft rounded-lg px-2.5 py-1 text-xs">Refresh</button>
+      </div>
+      {apps.length === 0 ? (
+        <div className="surface rounded-xl p-4 text-sm text-[var(--dim)]">No apps yet. Ask Cliché to build one — a static page or a Vite/React app — and it'll show up here, runnable.</div>
+      ) : (
+        <div className="space-y-2">
+          {apps.map((a) => (
+            <div key={a.rel} className="surface flex items-center gap-3 rounded-xl p-3.5">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[var(--line)] bg-white/[0.03] text-[var(--accent)]">{a.kind === "dev" ? <Rocket size={16} /> : <Globe size={16} />}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2"><span className="font-medium">{a.name}</span><span className="chip text-[10px] uppercase tracking-wide">{a.kind === "dev" ? "live" : "static"}</span></div>
+                <div className="truncate text-[12px] text-[var(--mut)]">{a.rel === "." ? "project root" : a.rel}{a.script ? " · " + a.script : ""}</div>
+              </div>
+              {a.kind === "dev" ? (
+                <button onClick={() => onRun(a.rel === "." ? "" : a.rel)} className="btn-accent shrink-0 rounded-lg px-3 py-1.5 text-xs"><ArrowUp size={12} className="rotate-90" /> Run</button>
+              ) : (
+                <a href={`/preview/${a.rel === "." ? "" : a.rel + "/"}`} target="_blank" rel="noreferrer" className="btn-soft shrink-0 rounded-lg px-3 py-1.5 text-xs">Open</a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 px-1 text-[11px] leading-relaxed text-[var(--faint)]"><b>live</b> apps run their real dev server (npm run dev) with hot reload — Run opens it in the Preview tab. <b>static</b> apps open their built page.</div>
+    </PanelShell>
+  );
+}
+
+// ProjectSwitcher — open a project folder (its own chats + apps) or make a new
+// one. Switching re-roots the whole studio at that folder.
+function ProjectSwitcher({ projects, onOpen, onCreate }: {
+  projects: ProjectsView; onOpen: (path: string) => void; onCreate: (name: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const active = projects.projects.find((p) => p.active);
+  const submit = () => { if (name.trim()) { onCreate(name.trim()); setCreating(false); setName(""); setOpen(false); } };
+  return (
+    <div className="relative px-3 pt-2.5">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--mut)] transition-colors hover:bg-white/[0.04] hover:text-[var(--ink)]">
+        <Folder size={14} className="shrink-0 text-[var(--accent)]" />
+        <span className="min-w-0 flex-1 truncate text-left font-medium">{active ? active.name : "Workspace"}</span>
+        <ChevronRight size={14} className={`shrink-0 text-[var(--dim)] transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <div className="glass elev pop-in absolute left-3 right-3 top-full z-40 mt-1 max-h-[60vh] overflow-auto rounded-xl border border-[var(--line2)] p-1.5">
+          <button onClick={() => { onOpen(projects.workspace); setOpen(false); }} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] ${!active ? "bg-[var(--accent)]/[0.12] text-[var(--ink)]" : "text-[var(--mut)] hover:bg-white/[0.04]"}`}><Folder size={13} className="text-[var(--dim)]" /> Workspace <span className="flex-1" /></button>
+          {projects.projects.map((p) => (
+            <button key={p.path} onClick={() => { onOpen(p.path); setOpen(false); }} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] ${p.active ? "bg-[var(--accent)]/[0.12] text-[var(--ink)]" : "text-[var(--mut)] hover:bg-white/[0.04]"}`}>
+              <FolderOpen size={13} className="shrink-0 text-[var(--dim)]" /><span className="min-w-0 flex-1 truncate">{p.name}</span><span className="shrink-0 text-[10px] text-[var(--faint)]">{p.apps}a · {p.chats}c</span>
+            </button>
+          ))}
+          <div className="my-1 border-t border-[var(--line)]" />
+          {creating ? (
+            <div className="flex items-center gap-1.5 px-1 py-0.5">
+              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") setCreating(false); }} placeholder="project name…" className="field min-w-0 flex-1 bg-transparent px-2 py-1 text-[13px] outline-none" />
+              <button onClick={submit} className="btn-accent rounded-md px-2.5 py-1 text-xs">Add</button>
+            </div>
+          ) : (
+            <button onClick={() => setCreating(true)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--mut)] hover:bg-white/[0.04]"><Plus size={13} className="text-[var(--accent)]" /> New project</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // PreviewPane — the live preview. Runs the app's real dev server (npm run dev →
 // Vite/Next/CRA) for a hot-reloading preview (the Lovable experience); falls back
 // to the static built page, a run-the-app prompt, or an empty state.
@@ -1511,7 +1591,7 @@ export default function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem("cliche-workspace") !== "off"; } catch { return true; } });
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<MobileView>("chat");
-  const [nav, setNav] = useState<"chat" | "skills" | "messaging" | "artifacts">("chat");
+  const [nav, setNav] = useState<"chat" | "apps" | "skills" | "messaging" | "artifacts">("chat");
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem("cliche-theme") || "dark"; } catch { return "dark"; } });
   useEffect(() => { try { document.documentElement.dataset.theme = theme; localStorage.setItem("cliche-theme", theme); } catch { /* */ } }, [theme]);
   const [previewKey, setPreviewKey] = useState(0);
@@ -1698,8 +1778,29 @@ export default function App() {
   }
   const refreshState = () => api("/api/state").then((r) => r.json()).then(setState).catch(() => {});
   const refreshDev = () => api("/api/dev").then((r) => r.json()).then(setDev).catch(() => {});
-  const devCtl = (action: string) => api("/api/dev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }).then(() => refreshDev());
+  const devCtl = (action: string, dir?: string) => api("/api/dev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, dir: dir || "" }) }).then(() => refreshDev());
   useEffect(() => { refreshDev(); const t = setInterval(refreshDev, 1500); return () => clearInterval(t); }, []);
+  const [projects, setProjects] = useState<ProjectsView>({ workspace: "", active: "", projects: [] });
+  const [apps, setApps] = useState<AppRow[]>([]);
+  const refreshProjects = () => api("/api/projects").then((r) => r.json()).then(setProjects).catch(() => {});
+  const refreshApps = () => api("/api/apps").then((r) => r.json()).then((d) => setApps(d.apps || [])).catch(() => {});
+  useEffect(() => { refreshProjects(); refreshApps(); }, []);
+  // Opening/creating a project re-roots the whole serve — reload everything scoped
+  // to it (its chats, files, apps, preview).
+  async function reloadAfterProjectSwitch() {
+    setItems([]); setNav("chat"); setMobileView("chat");
+    await Promise.all([refreshProjects(), refreshSessions(), refreshState(), refreshFiles(), refreshChanges(), refreshDev(), refreshApps()]);
+  }
+  async function openProject(path: string) {
+    const r = await api("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "open", path }) });
+    if (r.ok) await reloadAfterProjectSwitch();
+    return r.ok;
+  }
+  async function createProject(name: string) {
+    const r = await api("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", name }) });
+    if (r.ok) await reloadAfterProjectSwitch();
+    return r.ok;
+  }
   async function setMode(mode: string) {
     await api("/api/mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
     refreshState(); refreshRules();
@@ -1809,7 +1910,7 @@ export default function App() {
       <div className="relative flex h-full flex-col">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
         <div className="flex min-h-0 flex-1">
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} theme={theme} nav={nav} onNav={(n) => { setNav(n as any); if (isMobile) setMobileView("chat"); }} onTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} />
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} theme={theme} nav={nav} projects={projects} onNav={(n) => { setNav(n as any); if (n === "apps") refreshApps(); if (isMobile) setMobileView("chat"); }} onTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onOpenProject={openProject} onCreateProject={createProject} />
 
       {/* conversation */}
       <section className={`cl-chat flex min-w-0 flex-1 flex-col ${nav !== "chat" ? "hidden" : ""} ${isMobile && mobileView !== "chat" ? "hidden" : ""}`}>
@@ -1955,6 +2056,7 @@ export default function App() {
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
       )}
+      {nav === "apps" && <AppsPanel apps={apps} projectName={projects.projects.find((p) => p.active)?.name || ""} onClose={() => setNav("chat")} onRefresh={refreshApps} onRun={(rel) => { devCtl("start", rel); setNav("chat"); setMobileView("chat"); setTab("preview"); }} />}
       {nav === "skills" && <SkillsToolsPanel onRun={(p) => { setNav("chat"); setMobileView("chat"); run(p); }} onClose={() => setNav("chat")} />}
       {nav === "messaging" && <MessagingPanel onClose={() => setNav("chat")} />}
       {nav === "artifacts" && <ArtifactsPanel onClose={() => setNav("chat")} />}

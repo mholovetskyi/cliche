@@ -107,8 +107,45 @@ type Server struct {
 	limitsGet    func() Limits
 	limitsSet    func(Limits) error
 	devStatus    func() DevStatus
-	devControl   func(action string) error
+	devControl   func(action, dir string) error
+	projectsGet  func() ProjectsView
+	projectOpen  func(path string) error
+	projectNew   func(name string) error
+	appsGet      func() []AppInfo
 }
+
+// ProjectInfo is a folder under the workspace that holds its own chats + apps.
+type ProjectInfo struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Apps   int    `json:"apps"`
+	Chats  int    `json:"chats"`
+	Active bool   `json:"active"`
+}
+
+// ProjectsView is the project switcher's data: the workspace, the active folder,
+// and the projects in it.
+type ProjectsView struct {
+	Workspace string        `json:"workspace"`
+	Active    string        `json:"active"`
+	Projects  []ProjectInfo `json:"projects"`
+}
+
+// AppInfo is a buildable folder (static index.html or a dev-server app).
+type AppInfo struct {
+	Name   string `json:"name"`
+	Rel    string `json:"rel"`
+	Kind   string `json:"kind"`
+	Script string `json:"script"`
+}
+
+// SetProjects wires the project switcher: list, open (re-root the serve), create.
+func (s *Server) SetProjects(get func() ProjectsView, open func(path string) error, create func(name string) error) {
+	s.projectsGet, s.projectOpen, s.projectNew = get, open, create
+}
+
+// SetApps wires the apps list (buildable folders under the active project).
+func (s *Server) SetApps(get func() []AppInfo) { s.appsGet = get }
 
 // DevStatus mirrors the live dev server behind the preview (the Lovable-style
 // "run the real app" experience): its state, URL, and tail of logs.
@@ -122,8 +159,8 @@ type DevStatus struct {
 }
 
 // SetDevServer wires the dev-server controls: a status reader + a start/stop/
-// restart control.
-func (s *Server) SetDevServer(status func() DevStatus, control func(action string) error) {
+// restart control (with an optional app dir to target).
+func (s *Server) SetDevServer(status func() DevStatus, control func(action, dir string) error) {
 	s.devStatus, s.devControl = status, control
 }
 
@@ -512,9 +549,10 @@ func (s *Server) handleDev(w http.ResponseWriter, r *http.Request) {
 		}
 		var body struct {
 			Action string `json:"action"`
+			Dir    string `json:"dir"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if err := s.devControl(strings.TrimSpace(body.Action)); err != nil {
+		if err := s.devControl(strings.TrimSpace(body.Action), strings.TrimSpace(body.Dir)); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
@@ -531,6 +569,60 @@ func (s *Server) handleDev(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(st)
 }
+
+// handleProjects GET → the project switcher view; POST {action:open,path} |
+// {action:create,name} re-roots the serve at that project (its own chats + apps).
+func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var body struct {
+			Action string `json:"action"`
+			Path   string `json:"path"`
+			Name   string `json:"name"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		var err error
+		switch body.Action {
+		case "open":
+			if s.projectOpen != nil {
+				err = s.projectOpen(strings.TrimSpace(body.Path))
+			}
+		case "create":
+			if s.projectNew != nil {
+				err = s.projectNew(strings.TrimSpace(body.Name))
+			}
+		default:
+			err = errBadAction
+		}
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		return
+	}
+	var v ProjectsView
+	if s.projectsGet != nil {
+		v = s.projectsGet()
+	}
+	if v.Projects == nil {
+		v.Projects = []ProjectInfo{}
+	}
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// handleApps GET → the buildable apps under the active project.
+func (s *Server) handleApps(w http.ResponseWriter, _ *http.Request) {
+	apps := []AppInfo{}
+	if s.appsGet != nil {
+		if got := s.appsGet(); got != nil {
+			apps = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"apps": apps})
+}
+
+var errBadAction = fmt.Errorf("unknown action")
 
 // handleMessaging GET → the remote-drive channel status (Telegram).
 func (s *Server) handleMessaging(w http.ResponseWriter, _ *http.Request) {
@@ -859,6 +951,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/persona", s.handlePersona)
 	mux.HandleFunc("/api/limits", s.handleLimits)
 	mux.HandleFunc("/api/dev", s.handleDev)
+	mux.HandleFunc("/api/projects", s.handleProjects)
+	mux.HandleFunc("/api/apps", s.handleApps)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)
