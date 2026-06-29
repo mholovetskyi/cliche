@@ -350,11 +350,20 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 
 	case "remember":
 		// Cross-session memory: an append-only note to <root>/.cliche/memory.md.
-		// Not a code mutation (allowed in any mode, no write gate) and confined to
-		// the project's own metadata directory.
+		// Approval-gated like a write (the Trust-Kernel difference from Hermes: the
+		// agent proposes a durable memory, but in the careful modes the USER approves
+		// it — plan blocks, suggest asks, full auto-approves — so Cliche can never
+		// silently rewrite its own memory). Confined to the project metadata dir.
 		fact := strings.TrimSpace(args["fact"])
 		if fact == "" {
 			return Result{Output: "remember: nothing to remember (empty fact)", Success: false}
+		}
+		rel := filepath.Join(".cliche", "memory.md")
+		if e.ruleDecision("write", rel) == ruleDeny {
+			return Result{Output: "blocked by deny rule: write " + rel, Success: false}
+		}
+		if !e.permit("write", rel, "write", "remember (save to project memory): "+fact) {
+			return Result{Output: "remember: not approved — the user declined to save this to memory", Success: false}
 		}
 		if err := memory.Append(e.Root, fact); err != nil {
 			return Result{Output: "remember error: " + err.Error(), Success: false}
@@ -395,10 +404,15 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 	case "remember_user":
 		// Cross-PROJECT user profile: a durable preference about the USER, saved to
 		// the global USER.md (next to credentials) and loaded into every session.
-		// Like remember, it's low-risk metadata (not a code mutation, no write gate).
+		// Approval-gated like remember, so the agent can't silently persist a claim
+		// about the user — the user approves it (mode-aware: plan blocks, suggest
+		// asks, full auto-approves).
 		uf := strings.TrimSpace(args["fact"])
 		if uf == "" {
 			return Result{Output: "remember_user: nothing to note (empty fact)", Success: false}
+		}
+		if !e.permit("write", "USER.md", "write", "remember about you (save to your global profile): "+uf) {
+			return Result{Output: "remember_user: not approved — the user declined to save this", Success: false}
 		}
 		if err := profile.Append(uf); err != nil {
 			return Result{Output: "remember_user error: " + err.Error(), Success: false}

@@ -580,7 +580,7 @@ func DefaultToolSpecs() []provider.ToolSpec {
 		},
 		{
 			Name:        "remember",
-			Description: "Save a durable fact about THIS project to cross-session memory (a convention, decision, gotcha, build/test command, or user preference) so future sessions start knowing it. Use sparingly for things genuinely worth persisting — not transient details. Stored in a human-readable .cliche/memory.md the user can edit.",
+			Description: "Propose a durable fact about THIS project for cross-session memory (a convention, decision, gotcha, or build/test command) so future sessions start knowing it. The user approves the save (it's gated like a write), so phrase it as a clean, self-contained fact and don't be surprised if a proposal is declined. Use sparingly for things genuinely worth persisting. Stored in a human-readable .cliche/memory.md the user can edit.",
 			Schema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{"fact": strProp("the durable fact to remember, as one concise sentence")},
@@ -589,7 +589,7 @@ func DefaultToolSpecs() []provider.ToolSpec {
 		},
 		{
 			Name:        "remember_user",
-			Description: "Save a durable fact about the USER — a lasting preference or how they like to work (their stack, conventions they always want, communication style) — to a cross-PROJECT profile loaded in EVERY future session, in any repo. Use for lasting things about the person. Project-specific facts go to remember instead; don't use for transient one-off requests.",
+			Description: "Propose a durable fact about the USER — a lasting preference or how they like to work (their stack, conventions they always want, communication style) — for a cross-PROJECT profile loaded in EVERY future session, in any repo. The user approves the save (gated like a write). Use for lasting things about the person. Project-specific facts go to remember instead; don't use for transient one-off requests.",
 			Schema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{"fact": strProp("the durable user preference, as one concise sentence")},

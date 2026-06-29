@@ -13,13 +13,35 @@ import (
 
 func TestRememberUserTool(t *testing.T) {
 	t.Setenv("CLICHE_CONFIG_HOME", t.TempDir())
-	ex := OSExecutor{Root: t.TempDir()}
+	// Memory writes are approval-gated — an approving user lets it through.
+	ok := &spyApprover{allow: true}
+	ex := OSExecutor{Root: t.TempDir(), Approve: ok.approve}
 	res := ex.Execute(context.Background(), "remember_user", map[string]string{"fact": "prefers TypeScript"})
 	if !res.Success {
 		t.Fatalf("remember_user failed: %s", res.Output)
 	}
+	if ok.calls == 0 || ok.lastAction != "write" {
+		t.Fatalf("remember_user should ask the approver as a write; calls=%d action=%q", ok.calls, ok.lastAction)
+	}
 	if !strings.Contains(profile.Load(), "prefers TypeScript") {
 		t.Fatal("fact not written to the global profile")
+	}
+}
+
+// The Trust-Kernel win: a declining user blocks the memory write (no silent persist).
+func TestRememberApprovalGate(t *testing.T) {
+	t.Setenv("CLICHE_CONFIG_HOME", t.TempDir())
+	root := t.TempDir()
+	deny := &spyApprover{allow: false}
+	ex := OSExecutor{Root: root, Approve: deny.approve}
+	if res := ex.Execute(context.Background(), "remember", map[string]string{"fact": "x"}); res.Success {
+		t.Fatal("remember should be blocked when the user declines")
+	}
+	if res := ex.Execute(context.Background(), "remember_user", map[string]string{"fact": "y"}); res.Success {
+		t.Fatal("remember_user should be blocked when the user declines")
+	}
+	if strings.Contains(profile.Load(), "y") {
+		t.Fatal("a declined fact must not be written to the profile")
 	}
 }
 
