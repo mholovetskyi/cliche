@@ -1075,7 +1075,7 @@ type CronJob = { id: string; spec: string; prompt: string; enabled: boolean; nex
 // ScheduledPanel manages cron jobs from the web (the "Scheduled" tab). Jobs are
 // fired by `cliche cron run`; each fire is Trust-Kernel-bounded — the GUI face of
 // "leave it running."
-function ScheduledPanel() {
+function ScheduledPanel({ onRun }: { onRun: (prompt: string) => void }) {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [spec, setSpec] = useState("@daily");
   const [prompt, setPrompt] = useState("");
@@ -1114,6 +1114,7 @@ function ScheduledPanel() {
                 <span className="text-[11px] text-[var(--dim)]">next {j.next}</span>
                 {j.last_status && <span className="chip text-[10px]">{j.last_status}</span>}
                 <span className="flex-1" />
+                <button onClick={() => onRun(j.prompt)} className="icon-btn h-6 w-6 hover:text-[var(--accent)]" title="Run now (in chat)"><ArrowUp size={13} className="rotate-90" /></button>
                 <button onClick={() => post({ action: "toggle", id: j.id, enabled: !j.enabled }).then(refresh)} className="icon-btn h-6 w-6" title={j.enabled ? "Disable" : "Enable"} style={{ color: j.enabled ? "var(--ok)" : "var(--dim)" }}>{j.enabled ? <Check size={13} strokeWidth={3} /> : <Square size={12} />}</button>
                 <button onClick={() => post({ action: "remove", id: j.id }).then(refresh)} className="icon-btn h-6 w-6 hover:text-[var(--danger)]" title="Remove"><Trash2 size={13} /></button>
               </div>
@@ -1580,7 +1581,7 @@ export default function App() {
 
         {tab === "changes" && <ChangesPanel changes={changes} onUndo={undo} onRevertAll={rewind} />}
         {tab === "git" && <GitPanel onAsk={run} onChanged={() => { refreshChanges(); refreshFiles(); }} />}
-        {tab === "schedule" && <ScheduledPanel />}
+        {tab === "schedule" && <ScheduledPanel onRun={(p) => { setMobileView("chat"); run(p); }} />}
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
       )}
