@@ -39,6 +39,7 @@ var slashCommands = []slashCmd{
 	{"/connect", "[name]", "connect an OAuth MCP connector (e.g. github)", "control"},
 	{"/image", "<path>", "render an image in the terminal (half-block)", "control"},
 	{"/memory", "", "show what the agent remembers about this project", "control"},
+	{"/cron", "", "list scheduled jobs (manage with `cliche cron`)", "control"},
 	{"/bug", "[note]", "write a bug report", "control"},
 	{"/diff", "", "changes made this session", "review"},
 	{"/changes", "", "browse + revert file changes (full-screen)", "review"},

@@ -100,6 +100,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdExec(rest, stdout, stderr)
 	case "swarm":
 		return cmdSwarm(rest, stdout, stderr)
+	case "cron":
+		return cmdCron(rest, stdout, stderr)
 	case "audit":
 		return cmdAudit(rest, stdout, stderr)
 	case "projects":

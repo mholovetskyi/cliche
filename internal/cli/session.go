@@ -685,6 +685,8 @@ func (s *session) slash(line string) bool {
 		s.showRules()
 	case "/mcp":
 		s.showMCP()
+	case "/cron":
+		cronList([]string{"--dir", s.dir}, s.out, s.out)
 	case "/connect":
 		s.connect(strings.Fields(line)[1:])
 	case "/image":
