@@ -8,7 +8,7 @@ import {
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
   FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
-  GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket,
+  GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock,
 } from "lucide-react";
 
 type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
@@ -1070,6 +1070,62 @@ function notifyDone() {
   } catch { /* ignore */ }
 }
 
+type CronJob = { id: string; spec: string; prompt: string; enabled: boolean; next: string; last_status: string };
+
+// ScheduledPanel manages cron jobs from the web (the "Scheduled" tab). Jobs are
+// fired by `cliche cron run`; each fire is Trust-Kernel-bounded — the GUI face of
+// "leave it running."
+function ScheduledPanel() {
+  const [jobs, setJobs] = useState<CronJob[]>([]);
+  const [spec, setSpec] = useState("@daily");
+  const [prompt, setPrompt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const refresh = () => api("/api/cron").then((r) => r.json()).then(setJobs).catch(() => {});
+  useEffect(() => { refresh(); }, []);
+  const post = (b: any) => api("/api/cron", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+  async function add() {
+    if (!spec.trim() || !prompt.trim()) return;
+    setBusy(true); setErr("");
+    const r = await post({ action: "add", spec, prompt });
+    setBusy(false);
+    if (r.ok) { setPrompt(""); refresh(); } else setErr((await r.text()).trim());
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
+      <div className="mb-1 flex items-center gap-2 text-sm"><Clock size={15} className="text-[var(--accent)]" /> <b>Scheduled jobs</b></div>
+      <div className="mb-4 text-[11px] leading-relaxed text-[var(--faint)]">Each fire runs through the Trust Kernel (budget cap + governor) — it can't run away. Start the scheduler with <code className="rounded bg-white/10 px-1">cliche cron run</code>.</div>
+      <label className="mb-1 block text-xs font-medium text-[var(--mut)]">Schedule</label>
+      <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="@daily · @hourly · @every 30m · 0 9 * * 1-5" className="field mb-2 w-full bg-transparent px-3 py-2 font-mono text-xs outline-none" />
+      <label className="mb-1 block text-xs font-medium text-[var(--mut)]">Prompt</label>
+      <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2} placeholder="what to do on each run…" className="field mb-2 w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" />
+      <div className="mb-5 flex items-center gap-2">
+        <button onClick={add} disabled={!spec.trim() || !prompt.trim() || busy} className="btn-accent rounded-lg px-3.5 py-1.5 text-sm">{busy ? "adding…" : "Schedule"}</button>
+        {err && <span className="flex items-center gap-1 text-xs text-[var(--accent)]"><CircleAlert size={12} /> {err}</span>}
+      </div>
+      {jobs.length === 0 ? (
+        <div className="text-sm text-[var(--dim)]">No scheduled jobs yet — add one above.</div>
+      ) : (
+        <div className="space-y-2">
+          {jobs.map((j) => (
+            <div key={j.id} className={`surface rounded-xl p-3 ${j.enabled ? "" : "opacity-55"}`}>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs text-[var(--accent)]">{j.spec}</span>
+                <span className="text-[11px] text-[var(--dim)]">next {j.next}</span>
+                {j.last_status && <span className="chip text-[10px]">{j.last_status}</span>}
+                <span className="flex-1" />
+                <button onClick={() => post({ action: "toggle", id: j.id, enabled: !j.enabled }).then(refresh)} className="icon-btn h-6 w-6" title={j.enabled ? "Disable" : "Enable"} style={{ color: j.enabled ? "var(--ok)" : "var(--dim)" }}>{j.enabled ? <Check size={13} strokeWidth={3} /> : <Square size={12} />}</button>
+                <button onClick={() => post({ action: "remove", id: j.id }).then(refresh)} className="icon-btn h-6 w-6 hover:text-[var(--danger)]" title="Remove"><Trash2 size={13} /></button>
+              </div>
+              <div className="mt-1.5 line-clamp-2 text-[13px] text-[var(--mut)]">{j.prompt}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [state, setState] = useState<State>({});
@@ -1104,7 +1160,7 @@ export default function App() {
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<MobileView>("chat");
   const [previewKey, setPreviewKey] = useState(0);
-  const [tab, setTab] = useState<"preview" | "files" | "changes" | "git" | "trust">("preview");
+  const [tab, setTab] = useState<"preview" | "files" | "changes" | "git" | "schedule" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openFile, setOpenFile] = useState<{ path: string; html: string } | null>(null);
@@ -1331,6 +1387,7 @@ export default function App() {
     { id: "files", label: "Files", icon: ListTree },
     { id: "changes", label: changes.length ? `Changes · ${changes.length}` : "Changes", icon: FileDiff },
     { id: "git", label: "Git", icon: GitBranch },
+    { id: "schedule", label: "Scheduled", icon: Clock },
     { id: "trust", label: "Trust", icon: ShieldCheck },
   ];
   const palette = allCommands.filter((c) => ("/" + c.cmd).startsWith(prompt.split(/\s+/)[0])).slice(0, 8);
@@ -1523,6 +1580,7 @@ export default function App() {
 
         {tab === "changes" && <ChangesPanel changes={changes} onUndo={undo} onRevertAll={rewind} />}
         {tab === "git" && <GitPanel onAsk={run} onChanged={() => { refreshChanges(); refreshFiles(); }} />}
+        {tab === "schedule" && <ScheduledPanel />}
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
       )}

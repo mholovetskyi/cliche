@@ -18,6 +18,7 @@ import (
 
 	"github.com/mholovetskyi/cliche/internal/agent"
 	"github.com/mholovetskyi/cliche/internal/config"
+	"github.com/mholovetskyi/cliche/internal/cron"
 	"github.com/mholovetskyi/cliche/internal/git"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/pricing"
@@ -416,6 +417,26 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		func(title, body string) (string, error) { return openPR(f.dir, title, body) },
 	)
 	srv.SetDeploy(func() (string, error) { return deployPages(previewDir) })
+
+	// Scheduled jobs surface (the "Scheduled" panel) — manage .cliche/cron.json from
+	// the web; `cliche cron run` fires them, each bounded by the Trust Kernel.
+	srv.SetCron(
+		func() []web.CronJob {
+			jobs, _ := cron.Load(f.dir)
+			out := make([]web.CronJob, 0, len(jobs))
+			for _, j := range jobs {
+				next := ""
+				if sc, perr := cron.Parse(j.Spec); perr == nil {
+					next = sc.Next(time.Now()).Format("Mon 15:04")
+				}
+				out = append(out, web.CronJob{ID: j.ID, Spec: j.Spec, Prompt: j.Prompt, Enabled: j.Enabled, Next: next, LastStatus: j.LastStatus})
+			}
+			return out
+		},
+		func(spec, prompt string) error { _, err := cron.Add(f.dir, spec, prompt, "full", 0); return err },
+		func(id string) (bool, error) { return cron.Remove(f.dir, id) },
+		func(id string, on bool) (bool, error) { return cron.SetEnabled(f.dir, id, on) },
+	)
 
 	// CLI-parity controls: switch permission mode, list models with pricing, and
 	// switch the active model — the web equivalents of /mode and /model.

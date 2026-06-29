@@ -70,6 +70,11 @@ type Server struct {
 	gitPR     func(title, body string) (string, error)
 	deploy    func() (string, error)
 
+	cronList   func() []CronJob
+	cronAdd    func(spec, prompt string) error
+	cronRemove func(id string) (bool, error)
+	cronToggle func(id string, on bool) (bool, error)
+
 	cancel     context.CancelFunc // cancels the in-flight run (Stop)
 	setModeFn  func(mode string) bool
 	modelsFn   func() []ModelInfo
@@ -215,6 +220,73 @@ func (s *Server) SetGit(status func() GitStatus, commit func(string) (string, er
 
 // SetDeploy wires the "publish to a live URL" button (GitHub Pages via gh).
 func (s *Server) SetDeploy(deploy func() (string, error)) { s.deploy = deploy }
+
+// CronJob is a scheduled prompt as shown in the Studio "Scheduled" panel.
+type CronJob struct {
+	ID         string `json:"id"`
+	Spec       string `json:"spec"`
+	Prompt     string `json:"prompt"`
+	Enabled    bool   `json:"enabled"`
+	Next       string `json:"next"`        // human next-fire time
+	LastStatus string `json:"last_status"` // "" if never run
+}
+
+// SetCron wires the scheduled-jobs surface (list + add/remove/enable-disable).
+func (s *Server) SetCron(list func() []CronJob, add func(spec, prompt string) error, remove func(id string) (bool, error), toggle func(id string, on bool) (bool, error)) {
+	s.cronList, s.cronAdd, s.cronRemove, s.cronToggle = list, add, remove, toggle
+}
+
+func (s *Server) handleCron(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet {
+		jobs := []CronJob{}
+		if s.cronList != nil {
+			if got := s.cronList(); got != nil {
+				jobs = got
+			}
+		}
+		_ = json.NewEncoder(w).Encode(jobs)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Action  string `json:"action"` // add | remove | toggle
+		Spec    string `json:"spec"`
+		Prompt  string `json:"prompt"`
+		ID      string `json:"id"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var err error
+	switch body.Action {
+	case "add":
+		if s.cronAdd != nil {
+			err = s.cronAdd(body.Spec, body.Prompt)
+		}
+	case "remove":
+		if s.cronRemove != nil {
+			_, err = s.cronRemove(body.ID)
+		}
+	case "toggle":
+		if s.cronToggle != nil {
+			_, err = s.cronToggle(body.ID, body.Enabled)
+		}
+	default:
+		http.Error(w, "unknown action", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
 
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -496,6 +568,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/git/branch", s.handleGitBranch)
 	mux.HandleFunc("/api/git/pr", s.handleGitPR)
 	mux.HandleFunc("/api/deploy", s.handleDeploy)
+	mux.HandleFunc("/api/cron", s.handleCron)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)
