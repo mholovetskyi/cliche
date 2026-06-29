@@ -627,7 +627,7 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobile
           <LogoMark size={28} />
           {quip && <div className="pop-in glass elev absolute left-0 top-9 z-30 w-52 rounded-xl border px-3 py-2 text-[12px] leading-snug text-[var(--mut)]" style={{ borderColor: trust === "tamper" ? "var(--danger)" : "var(--line2)" }}>{quip}</div>}
         </span>
-        <span className="flex-1 truncate whitespace-nowrap tracking-tight" style={{ fontFamily: "var(--serif)", fontSize: "15px", fontWeight: 500 }}>Clich<span className="text-[var(--accent)]">é</span> <span className="text-[var(--dim)]">Studio</span></span>
+        <span className="flex-1 whitespace-nowrap tracking-tight" style={{ fontFamily: "var(--serif)", fontSize: "17px", fontWeight: 500 }}>Clich<span className="text-[var(--accent)]">é</span></span>
         {onTheme && <button onClick={onTheme} className="icon-btn h-7 w-7" title={theme === "light" ? "Switch to dark" : "Switch to light"}>{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}</button>}
         <button onClick={onSettings} className="icon-btn h-7 w-7" title="Settings — provider & model"><SlidersHorizontal size={15} /></button>
         <button onClick={onSearch} className="icon-btn h-7 w-7" title="Command palette (⌘K)"><Search size={15} /></button>
