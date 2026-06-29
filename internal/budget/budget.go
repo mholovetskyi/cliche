@@ -80,8 +80,22 @@ func (k *Kernel) Preload(u Usage) {
 	k.usage = u
 }
 
-// Limits returns the configured limits (immutable).
-func (k *Kernel) Limits() Limits { return k.limits }
+// Limits returns the configured caps.
+func (k *Kernel) Limits() Limits {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.limits
+}
+
+// SetLimits replaces the caps live — e.g. the user raising the session budget from
+// the UI. The running tally is untouched, so a raised cap immediately gives more
+// headroom and a lowered one can trip on the very next turn. Callers must not have
+// a turn recording concurrently (the server only changes limits between runs).
+func (k *Kernel) SetLimits(l Limits) {
+	k.mu.Lock()
+	k.limits = l
+	k.mu.Unlock()
+}
 
 // Preflight checks, BEFORE a turn fires, whether an estimated number of
 // input/output tokens for model would breach a cap. It does not mutate usage.
@@ -134,11 +148,14 @@ func (k *Kernel) RecordCached(model string, inputTokens, outputTokens, cacheRead
 }
 
 func (k *Kernel) check(tokens int, usd float64, stage string) error {
-	if k.limits.MaxTokens > 0 && tokens >= k.limits.MaxTokens {
-		return fmt.Errorf("%w (%s): %d/%d tokens", ErrTokenCap, stage, tokens, k.limits.MaxTokens)
+	k.mu.Lock()
+	lim := k.limits
+	k.mu.Unlock()
+	if lim.MaxTokens > 0 && tokens >= lim.MaxTokens {
+		return fmt.Errorf("%w (%s): %d/%d tokens", ErrTokenCap, stage, tokens, lim.MaxTokens)
 	}
-	if k.limits.MaxUSD > 0 && usd >= k.limits.MaxUSD {
-		return fmt.Errorf("%w (%s): ~$%.4f/$%.2f", ErrUSDCap, stage, usd, k.limits.MaxUSD)
+	if lim.MaxUSD > 0 && usd >= lim.MaxUSD {
+		return fmt.Errorf("%w (%s): ~$%.4f/$%.2f", ErrUSDCap, stage, usd, lim.MaxUSD)
 	}
 	return nil
 }
@@ -151,9 +168,10 @@ func (k *Kernel) Remaining() (tokens int, usd float64) {
 	for cur := k; cur != nil; cur = cur.parent {
 		cur.mu.Lock()
 		u := cur.usage
+		lim := cur.limits
 		cur.mu.Unlock()
-		if cur.limits.MaxTokens > 0 {
-			r := cur.limits.MaxTokens - u.TotalTokens()
+		if lim.MaxTokens > 0 {
+			r := lim.MaxTokens - u.TotalTokens()
 			if r < 0 {
 				r = 0
 			}
@@ -161,8 +179,8 @@ func (k *Kernel) Remaining() (tokens int, usd float64) {
 				tok = r
 			}
 		}
-		if cur.limits.MaxUSD > 0 {
-			r := cur.limits.MaxUSD - u.USD
+		if lim.MaxUSD > 0 {
+			r := lim.MaxUSD - u.USD
 			if r < 0 {
 				r = 0
 			}

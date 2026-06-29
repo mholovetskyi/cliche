@@ -600,6 +600,18 @@ function Settings({ state, theme, accent, inst, onClose, onApplied, onSetTheme, 
     await api("/api/persona", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
   }
   function pickMode(m: string) { setMode(m); onMode(m); }
+  const [limits, setLimits] = useState<{ max_usd: number; max_tokens: number; max_turns: number }>({ max_usd: 0, max_tokens: 0, max_turns: 0 });
+  const [limErr, setLimErr] = useState("");
+  const [limSaved, setLimSaved] = useState(false);
+  useEffect(() => { api("/api/limits").then((r) => r.json()).then(setLimits).catch(() => {}); }, []);
+  async function applyLimits() {
+    setLimErr(""); setLimSaved(false);
+    const r = await api("/api/limits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(limits) });
+    if (r.ok) { setLimSaved(true); setTimeout(() => setLimSaved(false), 2200); }
+    else { try { setLimErr((await r.json()).error || "could not update"); } catch { setLimErr("could not update"); } }
+  }
+  const numField = (k: "max_usd" | "max_tokens" | "max_turns", step: number) =>
+    <input type="number" min={0} step={step} value={limits[k]} onChange={(e) => setLimits((l) => ({ ...l, [k]: parseFloat(e.target.value) || 0 }))} className="field w-full bg-transparent px-3 py-2 text-sm tabular-nums outline-none" />;
   const p = PROVIDERS.find((x) => x.id === provider) || PROVIDERS[0];
   async function apply() {
     setBusy(true); setErr("");
@@ -659,6 +671,21 @@ function Settings({ state, theme, accent, inst, onClose, onApplied, onSetTheme, 
               ))}
             </div>
             <div className="mt-2 text-[11px] text-[var(--faint)]">Whatever the mode, the Trust Kernel's budget cap, governor, and deny rules always hold.</div>
+          </SettingsSection>
+
+          <SettingsSection title="Trust Kernel" hint="Hard limits for this session — the agent halts the instant any is hit, and nothing (not even --yolo) bypasses them.">
+            <div className="grid grid-cols-3 gap-3">
+              <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--mut)]">Budget ($)</span>{numField("max_usd", 0.5)}</label>
+              <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--mut)]">Max turns</span>{numField("max_turns", 10)}</label>
+              <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--mut)]">Token cap</span>{numField("max_tokens", 100000)}</label>
+            </div>
+            <div className="mt-2 flex items-center gap-3">
+              <button onClick={applyLimits} className="btn-soft rounded-lg px-3.5 py-1.5 text-sm">Apply limits</button>
+              {limSaved && <span className="flex items-center gap-1 text-xs text-[var(--ok)]"><Check size={12} /> updated</span>}
+              {limErr && <span className="flex items-center gap-1.5 text-xs text-[var(--accent)]"><CircleAlert size={12} /> {limErr}</span>}
+              <span className="flex-1" />
+              <span className="text-[11px] text-[var(--faint)]">0 = unlimited</span>
+            </div>
           </SettingsSection>
 
           <SettingsSection title="Appearance">

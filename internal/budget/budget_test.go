@@ -16,6 +16,26 @@ func TestTokenCapIsHard(t *testing.T) {
 	}
 }
 
+// SetLimits lets the user raise/lower the cap live; the running tally is kept, so
+// a raise grants headroom and a lower can trip on the very next turn.
+func TestSetLimitsLive(t *testing.T) {
+	k := New(Limits{MaxTokens: 100})
+	if err := k.Record("mock", 60, 0); err != nil {
+		t.Fatalf("60/100 should pass: %v", err)
+	}
+	k.SetLimits(Limits{MaxTokens: 1000}) // raise the cap
+	if k.Limits().MaxTokens != 1000 {
+		t.Fatalf("Limits() should reflect the raise, got %d", k.Limits().MaxTokens)
+	}
+	if err := k.Record("mock", 50, 0); err != nil { // 110/1000
+		t.Fatalf("under the raised cap should pass: %v", err)
+	}
+	k.SetLimits(Limits{MaxTokens: 100}) // lower below current spend (110)
+	if err := k.Record("mock", 1, 0); !errors.Is(err, ErrTokenCap) {
+		t.Fatalf("over the lowered cap should trip ErrTokenCap, got %v", err)
+	}
+}
+
 func TestRecordCachedCountsTokensButDiscountsDollars(t *testing.T) {
 	// mock pricing is $1/1M in and $1/1M out.
 	k := New(Limits{MaxTokens: 2_000_000, MaxUSD: 100})

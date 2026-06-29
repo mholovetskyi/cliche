@@ -104,6 +104,16 @@ type Server struct {
 	messagingFn  func() MessagingView
 	personaGet   func() PersonaView
 	personaSet   func(name string) error
+	limitsGet    func() Limits
+	limitsSet    func(Limits) error
+}
+
+// Limits is the live, user-adjustable slice of the Trust Kernel: the session
+// budget cap, the hard token cap, and the governor's turn limit.
+type Limits struct {
+	MaxUSD    float64 `json:"max_usd"`
+	MaxTokens int     `json:"max_tokens"`
+	MaxTurns  int     `json:"max_turns"`
 }
 
 // PersonaInfo is one selectable personality (built-in preset or custom).
@@ -181,6 +191,11 @@ func (s *Server) SetMessaging(get func() MessagingView) { s.messagingFn = get }
 // SetPersona wires the personality picker: read the options + active, set active.
 func (s *Server) SetPersona(get func() PersonaView, set func(name string) error) {
 	s.personaGet, s.personaSet = get, set
+}
+
+// SetLimitsCtl wires the live Trust-Kernel limit controls (budget/token/turn caps).
+func (s *Server) SetLimitsCtl(get func() Limits, set func(Limits) error) {
+	s.limitsGet, s.limitsSet = get, set
 }
 
 // Task is one item on the session plan (/plan /tasks /done).
@@ -439,6 +454,34 @@ func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"hits": hits})
+}
+
+// handleLimits GET → current Trust-Kernel caps; POST {max_usd,max_tokens,max_turns}
+// → adjust them for the session (the wire refuses changes during a live run).
+func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if s.limitsSet == nil {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var l Limits
+		if err := json.NewDecoder(r.Body).Decode(&l); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if err := s.limitsSet(l); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		return
+	}
+	var l Limits
+	if s.limitsGet != nil {
+		l = s.limitsGet()
+	}
+	_ = json.NewEncoder(w).Encode(l)
 }
 
 // handleMessaging GET → the remote-drive channel status (Telegram).
@@ -766,6 +809,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/recall", s.handleRecall)
 	mux.HandleFunc("/api/messaging", s.handleMessaging)
 	mux.HandleFunc("/api/persona", s.handlePersona)
+	mux.HandleFunc("/api/limits", s.handleLimits)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)

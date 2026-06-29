@@ -148,6 +148,18 @@ func (a *Agent) RestoreTranscript(msgs []provider.Message) {
 // Limits returns the budget limits.
 func (a *Agent) Limits() budget.Limits { return a.bud.Limits() }
 
+// SetLimits updates the budget caps live (the server changes these only between
+// runs). The running spend tally is preserved, so a raised cap grants headroom
+// immediately and a lowered one applies on the next turn.
+func (a *Agent) SetLimits(l budget.Limits) { a.bud.SetLimits(l) }
+
+// GovernorLimits returns the per-run governor caps (turns, wall-clock, etc.).
+func (a *Agent) GovernorLimits() governor.Limits { return a.govLimits }
+
+// SetGovernorLimits updates the governor caps; a fresh governor is built per Run,
+// so the change takes effect on the next turn.
+func (a *Agent) SetGovernorLimits(g governor.Limits) { a.govLimits = g }
+
 // Reset clears the conversation transcript and any recoverable compaction
 // snapshot (the budget is preserved).
 func (a *Agent) Reset() {

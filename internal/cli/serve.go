@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
+	"github.com/mholovetskyi/cliche/internal/budget"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/cron"
 	"github.com/mholovetskyi/cliche/internal/git"
@@ -512,6 +513,42 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			return web.PersonaView{Active: active, Options: opts}
 		},
 		func(name string) error { return persona.SetActive(name) },
+	)
+
+	// Live Trust-Kernel limits — the user can raise/lower the session budget cap,
+	// the hard token cap, and the governor's turn limit from Settings. Applied to
+	// the live agent (so it persists across session switches in this serve); refused
+	// mid-run so a turn can't race the caps it's being measured against.
+	srv.SetLimitsCtl(
+		func() web.Limits {
+			amu.Lock()
+			cur := a
+			amu.Unlock()
+			if cur == nil {
+				return web.Limits{}
+			}
+			bl := cur.Limits()
+			return web.Limits{MaxUSD: bl.MaxUSD, MaxTokens: bl.MaxTokens, MaxTurns: cur.GovernorLimits().MaxTurns}
+		},
+		func(l web.Limits) error {
+			amu.Lock()
+			cur, run := a, running
+			amu.Unlock()
+			if cur == nil {
+				return fmt.Errorf("not connected yet")
+			}
+			if run {
+				return fmt.Errorf("stop the current run before changing limits")
+			}
+			if l.MaxUSD < 0 || l.MaxTokens < 0 || l.MaxTurns < 0 {
+				return fmt.Errorf("limits can't be negative (use 0 for unlimited)")
+			}
+			cur.SetLimits(budget.Limits{MaxUSD: l.MaxUSD, MaxTokens: l.MaxTokens})
+			g := cur.GovernorLimits()
+			g.MaxTurns = l.MaxTurns
+			cur.SetGovernorLimits(g)
+			return nil
+		},
 	)
 
 	// CLI-parity controls: switch permission mode, list models with pricing, and
