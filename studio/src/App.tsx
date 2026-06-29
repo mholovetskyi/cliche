@@ -570,6 +570,12 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [pers, setPers] = useState<{ active: string; options: { name: string; title: string; desc: string }[] }>({ active: "default", options: [] });
+  useEffect(() => { api("/api/persona").then((r) => r.json()).then((d) => setPers({ active: d.active || "default", options: d.options || [] })).catch(() => {}); }, []);
+  async function pickPersona(name: string) {
+    setPers((x) => ({ ...x, active: name }));
+    await api("/api/persona", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+  }
   const p = PROVIDERS.find((x) => x.id === provider) || PROVIDERS[0];
   async function apply() {
     setBusy(true); setErr("");
@@ -598,6 +604,17 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
         )}
         <label className="mb-1.5 mt-3 block text-xs font-medium text-[var(--mut)]">Model (optional)</label>
         <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={p.local ? "e.g. llama3.2" : "blank = the provider's strong default"} className="field w-full bg-transparent px-3 py-2 font-mono text-sm outline-none" />
+        {pers.options.length > 0 && (
+          <>
+            <label className="mb-1.5 mt-4 block text-xs font-medium text-[var(--mut)]">Personality</label>
+            <div className="flex flex-wrap gap-1.5">
+              {pers.options.map((o) => (
+                <button key={o.name} onClick={() => pickPersona(o.name)} title={o.desc} className={`rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${pers.active === o.name ? "border-[var(--accent)]/50 bg-[var(--accent)]/[0.12] text-[var(--ink)]" : "border-[var(--line)] text-[var(--mut)] hover:text-[var(--ink)]"}`}>{o.title}</button>
+              ))}
+            </div>
+            <div className="mt-1.5 text-[11px] text-[var(--dim)]">Shapes the agent's tone — takes effect on your next message. The Trust Kernel is unaffected.</div>
+          </>
+        )}
         {err && <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--accent)]"><CircleAlert size={13} /> {err}</div>}
         <button onClick={apply} disabled={busy} className="btn-accent mt-5 w-full rounded-xl py-3 text-sm">{busy ? "switching…" : "Connect & switch"}</button>
         <div className="mt-2 text-center text-[11px] text-[var(--dim)]">Keeps your current conversation. Your key stays on this computer.</div>

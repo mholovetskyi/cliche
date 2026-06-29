@@ -102,6 +102,21 @@ type Server struct {
 	artifactsFn  func() ArtifactsView
 	recallFn     func(q string) []RecallHit
 	messagingFn  func() MessagingView
+	personaGet   func() PersonaView
+	personaSet   func(name string) error
+}
+
+// PersonaInfo is one selectable personality (built-in preset or custom).
+type PersonaInfo struct {
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	Desc  string `json:"desc"`
+}
+
+// PersonaView is the personality picker state: the options + the active one.
+type PersonaView struct {
+	Active  string        `json:"active"`
+	Options []PersonaInfo `json:"options"`
 }
 
 // SkillInfo is one loaded skill, surfaced to the Skills & Tools panel.
@@ -162,6 +177,11 @@ func (s *Server) SetArtifacts(get func() ArtifactsView, recall func(q string) []
 
 // SetMessaging wires the Messaging panel's channel-status view.
 func (s *Server) SetMessaging(get func() MessagingView) { s.messagingFn = get }
+
+// SetPersona wires the personality picker: read the options + active, set active.
+func (s *Server) SetPersona(get func() PersonaView, set func(name string) error) {
+	s.personaGet, s.personaSet = get, set
+}
 
 // Task is one item on the session plan (/plan /tasks /done).
 type Task struct {
@@ -426,6 +446,35 @@ func (s *Server) handleMessaging(w http.ResponseWriter, _ *http.Request) {
 	var v MessagingView
 	if s.messagingFn != nil {
 		v = s.messagingFn()
+	}
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// handlePersona GET → the personality options + active; POST {name} → set active.
+func (s *Server) handlePersona(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var body struct {
+			Name string `json:"name"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if s.personaSet == nil {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if err := s.personaSet(strings.TrimSpace(body.Name)); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		return
+	}
+	var v PersonaView
+	if s.personaGet != nil {
+		v = s.personaGet()
+	}
+	if v.Options == nil {
+		v.Options = []PersonaInfo{}
 	}
 	_ = json.NewEncoder(w).Encode(v)
 }
@@ -716,6 +765,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/artifacts", s.handleArtifacts)
 	mux.HandleFunc("/api/recall", s.handleRecall)
 	mux.HandleFunc("/api/messaging", s.handleMessaging)
+	mux.HandleFunc("/api/persona", s.handlePersona)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)

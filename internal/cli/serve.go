@@ -22,6 +22,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/git"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/memory"
+	"github.com/mholovetskyi/cliche/internal/persona"
 	"github.com/mholovetskyi/cliche/internal/pricing"
 	"github.com/mholovetskyi/cliche/internal/profile"
 	"github.com/mholovetskyi/cliche/internal/provider"
@@ -495,6 +496,23 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			MaxDailyUSD: 10,
 		}}
 	})
+	srv.SetPersona(
+		func() web.PersonaView {
+			opts := []web.PersonaInfo{}
+			for _, p := range persona.Presets() {
+				opts = append(opts, web.PersonaInfo{Name: p.Name, Title: p.Title, Desc: p.Desc})
+			}
+			if persona.HasCustom() {
+				opts = append(opts, web.PersonaInfo{Name: "custom", Title: "Custom", Desc: "your PERSONA.md"})
+			}
+			active := persona.Active()
+			if active == "" {
+				active = "default"
+			}
+			return web.PersonaView{Active: active, Options: opts}
+		},
+		func(name string) error { return persona.SetActive(name) },
+	)
 
 	// CLI-parity controls: switch permission mode, list models with pricing, and
 	// switch the active model — the web equivalents of /mode and /model.

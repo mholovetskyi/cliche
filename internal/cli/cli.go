@@ -78,6 +78,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdCommands(rest, stdout, stderr)
 	case "skills":
 		return cmdSkills(rest, stdout, stderr)
+	case "persona", "personality":
+		return cmdPersona(rest, stdout, stderr)
 	case "plugins":
 		return cmdPlugins(rest, stdout, stderr)
 	case "themes":
@@ -184,6 +186,9 @@ COMMANDS:
                      'commands new <name>' → .cliche/commands/<name>.md (run /<name>).
   skills             Skills the agent uses automatically: list, 'skills new <name>'
                      → .cliche/skills/, or 'skills add <url>' to install one.
+  persona            Personality presets that shape the agent's tone/style (not its
+                     permissions): list, 'persona <name>' to set, 'persona edit' for
+                     your own PERSONA.md. Applies to every run (chat, cron, Studio).
   plugins            Installable bundles (skills + commands + hooks + MCP): list,
                      or 'plugins new <name>' → .cliche/plugins/<name>/.
   themes             List UI palettes (set via CLICHE_THEME or "theme" in config).
