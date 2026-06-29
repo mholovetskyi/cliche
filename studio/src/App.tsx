@@ -9,6 +9,7 @@ import {
   MessageSquare, Folder, FolderOpen, FileText, Eye, ListTree, ChevronRight, Square,
   FileDiff, ImagePlus, X, CornerDownLeft, Trash2, Search, Keyboard, Volume2, Sparkle, Star, SlidersHorizontal,
   GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock, Mic, Sun, Moon,
+  MessageCircle, Package, Send, BookMarked, BrainCircuit,
 } from "lucide-react";
 
 type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
@@ -605,8 +606,8 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
   );
 }
 
-function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobileShow, theme, onTheme, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
-  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean; theme?: string; onTheme?: () => void;
+function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobileShow, theme, nav, onTheme, onNav, onNew, onPick, onRename, onDelete, onToggleTask, onClearTasks, onAccent, onSearch, onSettings, onToggleInst, onMemory }: {
+  sessions: SessionMeta[]; state: State; audit: Audit | null; tasks: Task[]; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean }; isMobile?: boolean; mobileShow?: boolean; theme?: string; nav?: string; onTheme?: () => void; onNav?: (n: string) => void;
   onNew: () => void; onPick: (id: string) => void; onRename: (id: string, title: string) => void; onDelete: (id: string) => void; onToggleTask: (id: number) => void; onClearTasks: () => void;
   onAccent: (id: string) => void; onSearch: () => void; onSettings: () => void; onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMemory: () => void;
 }) {
@@ -633,10 +634,23 @@ function Sidebar({ sessions, state, audit, tasks, accent, inst, isMobile, mobile
       </div>
       <div className="px-3 pb-1">
         <button onClick={onNew} className="btn-soft flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium">
-          <Plus size={16} className="text-[var(--accent)]" /> New chat
+          <Plus size={16} className="text-[var(--accent)]" /> New session
           <span className="flex-1" /><span className="kbd">⌘N</span>
         </button>
       </div>
+      {onNav && (
+        <div className="px-3 pt-1.5">
+          {[{ id: "skills", label: "Skills & Tools", icon: Wrench }, { id: "messaging", label: "Messaging", icon: MessageCircle }, { id: "artifacts", label: "Artifacts", icon: Package }].map((n) => {
+            const on = nav === n.id;
+            return (
+              <button key={n.id} onClick={() => onNav(n.id)} className={`relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-colors ${on ? "bg-white/[0.06] text-[var(--ink)]" : "text-[var(--mut)] hover:bg-white/[0.035] hover:text-[var(--ink)]"}`}>
+                {on && <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--accent)]" />}
+                <n.icon size={15} className={on ? "text-[var(--accent)]" : "text-[var(--dim)]"} /> {n.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="mt-2 flex-1 overflow-auto px-2">
         <div className="px-2 pb-1 pt-1 text-[10.5px] font-medium uppercase tracking-[0.08em] text-[var(--dim)]">Chats</div>
         {sessions.length === 0 && <div className="px-2 py-2 text-xs text-[var(--dim)]">No chats yet</div>}
@@ -1127,6 +1141,173 @@ function ScheduledPanel({ onRun }: { onRun: (prompt: string) => void }) {
   );
 }
 
+// ── Hermes-style nav panels ──────────────────────────────────────────────────
+type SkillRow = { name: string; desc: string; rel: string; source: string; body?: string };
+type ToolRow = { name: string; desc: string };
+
+// PanelShell — the common full-page chrome for a nav panel (header + scroll body).
+function PanelShell({ icon: Icon, title, sub, onClose, children }: { icon: any; title: string; sub: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <section className="cl-panel flex min-w-0 flex-1 flex-col overflow-hidden">
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--line)] px-5">
+        <span className="grid h-9 w-9 place-items-center rounded-xl border border-[var(--line)] bg-white/[0.03] text-[var(--accent)]"><Icon size={17} /></span>
+        <div className="min-w-0"><div className="text-sm font-semibold leading-tight">{title}</div><div className="truncate text-[11px] text-[var(--dim)]">{sub}</div></div>
+        <span className="flex-1" />
+        <button onClick={onClose} className="icon-btn h-8 w-8" title="Back to chat"><X size={16} /></button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-auto px-5 py-5"><div className="mx-auto max-w-3xl fade-up">{children}</div></div>
+    </section>
+  );
+}
+
+function SkillsToolsPanel({ onRun, onClose }: { onRun: (p: string) => void; onClose: () => void }) {
+  const [skills, setSkills] = useState<SkillRow[]>([]);
+  const [tools, setTools] = useState<ToolRow[]>([]);
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const refresh = () => api("/api/skills").then((r) => r.json()).then((d) => { setSkills(d.skills || []); setTools(d.tools || []); }).catch(() => {});
+  useEffect(() => { refresh(); }, []);
+  async function install() {
+    if (!url.trim()) return;
+    setBusy(true); setErr(""); setMsg("");
+    const r = await api("/api/skills/install", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url.trim() }) });
+    setBusy(false);
+    if (r.ok) { setUrl(""); setMsg("Installed — review it before relying on it."); refresh(); }
+    else { try { setErr((await r.json()).error || "install failed"); } catch { setErr("install failed"); } }
+  }
+  return (
+    <PanelShell icon={Wrench} title="Skills & Tools" sub="Browse and install skills · the agent runs them automatically when relevant" onClose={onClose}>
+      <div className="surface mb-6 rounded-2xl p-4">
+        <div className="mb-1 text-[13px] font-medium">Install a skill</div>
+        <div className="mb-2.5 text-[11px] leading-relaxed text-[var(--faint)]">Paste an https link to a <code className="rounded bg-white/10 px-1">SKILL.md</code> (e.g. from agentskills.io). The name is sanitized so it can't escape <code className="rounded bg-white/10 px-1">.cliche/skills/</code>.</div>
+        <div className="flex items-center gap-2">
+          <input value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && install()} placeholder="https://…/SKILL.md" className="field min-w-0 flex-1 bg-transparent px-3 py-2 font-mono text-xs outline-none" />
+          <button onClick={install} disabled={!url.trim() || busy} className="btn-accent shrink-0 rounded-lg px-3.5 py-2 text-sm">{busy ? "installing…" : "Install"}</button>
+        </div>
+        {err && <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--accent)]"><CircleAlert size={12} /> {err}</div>}
+        {msg && <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--ok)]"><Check size={12} /> {msg}</div>}
+      </div>
+
+      <div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--dim)]"><Sparkles size={12} /> Skills <span className="text-[var(--faint)]">· {skills.length}</span></div>
+      {skills.length === 0 ? (
+        <div className="surface mb-6 rounded-xl p-4 text-sm text-[var(--dim)]">No skills yet. Install one above, or Cliché will save one itself after a complex task (<code className="rounded bg-white/10 px-1">save_skill</code>).</div>
+      ) : (
+        <div className="mb-6 space-y-2">
+          {skills.map((s) => (
+            <div key={s.rel} className="surface card-hover group flex items-start gap-3 rounded-xl p-3.5">
+              <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-[var(--line)] bg-white/[0.03] text-[var(--accent)]"><Sparkle size={15} /></span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2"><span className="font-medium">{s.name}</span><span className="chip text-[10px] uppercase tracking-wide">{s.source}</span></div>
+                <div className="mt-0.5 line-clamp-2 text-[13px] text-[var(--mut)]">{s.desc}</div>
+              </div>
+              <button onClick={() => onRun("Follow this skill:\n\n" + (s.body || s.name))} className="btn-soft shrink-0 self-center rounded-lg px-2.5 py-1.5 text-xs opacity-0 transition-opacity group-hover:opacity-100" title="Run this skill in a new turn"><ArrowUp size={12} className="rotate-90" /> Run</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--dim)]"><Wrench size={12} /> Tools <span className="text-[var(--faint)]">· {tools.length}</span></div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {tools.map((t) => (
+          <div key={t.name} className="surface rounded-xl p-3">
+            <div className="font-mono text-[12px] text-[var(--accent)]">{t.name}</div>
+            <div className="mt-1 line-clamp-3 text-[12px] leading-relaxed text-[var(--mut)]">{t.desc}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 px-1 text-[11px] text-[var(--faint)]">Every tool call is bounded by the Trust Kernel — budget cap, governor, and your deny rules apply no matter which skill or tool runs.</div>
+    </PanelShell>
+  );
+}
+
+function MessagingPanel({ onClose }: { onClose: () => void }) {
+  const [tg, setTg] = useState<any>(null);
+  useEffect(() => { api("/api/messaging").then((r) => r.json()).then((d) => setTg(d.telegram)).catch(() => {}); }, []);
+  const configured = tg?.configured, authorized = tg?.authorized;
+  return (
+    <PanelShell icon={MessageCircle} title="Messaging" sub="Drive Cliché from a chat app — owner-locked and budget-bounded" onClose={onClose}>
+      <div className="surface mb-5 rounded-2xl p-4">
+        <div className="flex items-center gap-2.5">
+          <Send size={16} className="text-[var(--accent)]" />
+          <span className="font-medium">Telegram</span>
+          <span className="flex-1" />
+          <span className="flex items-center gap-1.5 text-xs" style={{ color: authorized ? "var(--ok)" : configured ? "var(--warn)" : "var(--dim)" }}>
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: "currentColor" }} />
+            {authorized ? "authorized" : configured ? "token set · awaiting owner chat" : "not configured"}
+          </span>
+        </div>
+        {authorized && (
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-white/[0.03] p-2.5"><div className="text-[10px] uppercase tracking-wide text-[var(--dim)]">Owner chat</div><div className="mt-0.5 font-mono text-[13px]">{tg.owner_chat || "—"}</div></div>
+            <div className="rounded-lg bg-white/[0.03] p-2.5"><div className="text-[10px] uppercase tracking-wide text-[var(--dim)]">Spent 24h</div><div className="mt-0.5 font-mono text-[13px] tabular-nums">${(tg.spent_24h_usd || 0).toFixed(3)}</div></div>
+            <div className="rounded-lg bg-white/[0.03] p-2.5"><div className="text-[10px] uppercase tracking-wide text-[var(--dim)]">Daily cap</div><div className="mt-0.5 font-mono text-[13px] tabular-nums">${(tg.max_daily_usd || 0).toFixed(2)}</div></div>
+          </div>
+        )}
+      </div>
+      <div className="surface rounded-2xl p-4 text-[13px] leading-relaxed text-[var(--mut)]">
+        <div className="mb-2 font-medium text-[var(--ink)]">Set it up</div>
+        <ol className="list-decimal space-y-1.5 pl-4">
+          <li>Create a bot with <b>@BotFather</b> and copy the token.</li>
+          <li>Set <code className="rounded bg-white/10 px-1">CLICHE_TELEGRAM_TOKEN</code>, then run <code className="rounded bg-white/10 px-1">cliche telegram</code> and message the bot once — it replies your chat id.</li>
+          <li>Set <code className="rounded bg-white/10 px-1">CLICHE_TELEGRAM_CHAT</code> to that id and restart. Only that chat can drive the agent.</li>
+        </ol>
+        <div className="mt-3 text-[11px] text-[var(--faint)]">Tokens live in your environment — never written by Studio or committed. Every chat-driven run goes through the Trust Kernel and shares a rolling daily spend ceiling. <span className="text-[var(--dim)]">Discord & more channels are on the roadmap.</span></div>
+      </div>
+    </PanelShell>
+  );
+}
+
+function ArtifactsPanel({ onClose }: { onClose: () => void }) {
+  const [art, setArt] = useState<{ memory: string; profile: string; skills: SkillRow[] } | null>(null);
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<any[]>([]);
+  const [searched, setSearched] = useState(false);
+  useEffect(() => { api("/api/artifacts").then((r) => r.json()).then(setArt).catch(() => {}); }, []);
+  async function search() {
+    if (!q.trim()) { setHits([]); setSearched(false); return; }
+    const r = await api("/api/recall?q=" + encodeURIComponent(q.trim()));
+    const d = await r.json(); setHits(d.hits || []); setSearched(true);
+  }
+  const Doc = ({ icon: Icon, title, body, empty }: { icon: any; title: string; body: string; empty: string }) => (
+    <div className="surface mb-4 rounded-2xl p-4">
+      <div className="mb-2 flex items-center gap-2 text-[13px] font-medium"><Icon size={14} className="text-[var(--accent)]" /> {title}</div>
+      {body.trim() ? <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-[var(--mut)]">{body}</pre> : <div className="text-[13px] text-[var(--dim)]">{empty}</div>}
+    </div>
+  );
+  return (
+    <PanelShell icon={Package} title="Artifacts" sub="Everything Cliché remembers and has made — memory, your profile, skills, and past work" onClose={onClose}>
+      <div className="surface mb-5 rounded-2xl p-4">
+        <div className="mb-2 flex items-center gap-2 text-[13px] font-medium"><Search size={14} className="text-[var(--accent)]" /> Recall past work</div>
+        <div className="flex items-center gap-2">
+          <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search()} placeholder="search every past session…" className="field min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none" />
+          <button onClick={search} className="btn-soft shrink-0 rounded-lg px-3.5 py-2 text-sm">Search</button>
+        </div>
+        {searched && hits.length === 0 && <div className="mt-2 text-[13px] text-[var(--dim)]">No matches.</div>}
+        {hits.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {hits.map((h, i) => (
+              <div key={i} className="rounded-lg bg-white/[0.03] p-2.5">
+                <div className="flex items-center gap-2 text-[12px]"><b className="truncate">{h.title || "(untitled)"}</b><span className="flex-1" /><span className="shrink-0 text-[var(--dim)]">{h.when}</span></div>
+                <div className="mt-1 line-clamp-2 text-[12px] text-[var(--mut)]">{h.snippet}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <Doc icon={BrainCircuit} title="Project memory · .cliche/memory.md" body={art?.memory || ""} empty="Empty — Cliché writes durable project facts here as it works (remember)." />
+      <Doc icon={BookMarked} title="Your profile · USER.md" body={art?.profile || ""} empty="Empty — lasting preferences about you land here (remember_user)." />
+      <div className="surface rounded-2xl p-4">
+        <div className="mb-2 flex items-center gap-2 text-[13px] font-medium"><Sparkles size={14} className="text-[var(--accent)]" /> Saved skills <span className="text-[var(--faint)]">· {art?.skills?.length || 0}</span></div>
+        {art && art.skills.length > 0 ? (
+          <div className="space-y-1.5">{art.skills.map((s) => <div key={s.rel} className="flex items-center gap-2 text-[13px]"><Sparkle size={12} className="shrink-0 text-[var(--accent)]" /><b>{s.name}</b><span className="truncate text-[var(--mut)]">— {s.desc}</span></div>)}</div>
+        ) : <div className="text-[13px] text-[var(--dim)]">No saved skills yet.</div>}
+      </div>
+    </PanelShell>
+  );
+}
+
 // StatusBar — the slim Hermes-style bottom strip, surfacing the Trust Kernel state.
 function StatusBar({ state }: { state: State }) {
   const mode = state.mode || "suggest";
@@ -1184,6 +1365,7 @@ export default function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem("cliche-workspace") !== "off"; } catch { return true; } });
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<MobileView>("chat");
+  const [nav, setNav] = useState<"chat" | "skills" | "messaging" | "artifacts">("chat");
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem("cliche-theme") || "dark"; } catch { return "dark"; } });
   useEffect(() => { try { document.documentElement.dataset.theme = theme; localStorage.setItem("cliche-theme", theme); } catch { /* */ } }, [theme]);
   const [previewKey, setPreviewKey] = useState(0);
@@ -1354,11 +1536,11 @@ export default function App() {
   }
   async function newChat() {
     await api("/api/sessions/new", { method: "POST" });
-    setItems([]); refreshSessions(); setMobileView("chat");
+    setItems([]); refreshSessions(); setMobileView("chat"); setNav("chat");
   }
   async function pickSession(id: string) {
     const r = await api("/api/sessions/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-    const d = await r.json(); setItems(msgsToItems(d.messages || [])); refreshSessions(); setMobileView("chat");
+    const d = await r.json(); setItems(msgsToItems(d.messages || [])); refreshSessions(); setMobileView("chat"); setNav("chat");
   }
   async function renameSession(id: string, title: string) {
     await api("/api/sessions/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, title }) });
@@ -1478,10 +1660,10 @@ export default function App() {
       <div className="relative flex h-full flex-col">
         {state.running && <div className="loadbar absolute inset-x-0 top-0 z-50" />}
         <div className="flex min-h-0 flex-1">
-        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} theme={theme} onTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
+        <Sidebar sessions={sessions} state={state} audit={audit} tasks={tasks} accent={accent} inst={inst} isMobile={isMobile} mobileShow={mobileView === "sessions"} theme={theme} nav={nav} onNav={(n) => { setNav(n as any); if (isMobile) setMobileView("chat"); }} onTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))} onNew={newChat} onPick={pickSession} onRename={renameSession} onDelete={deleteSession} onToggleTask={toggleTask} onClearTasks={clearTasks} onAccent={setAccentTheme} onSearch={() => setPaletteOpen(true)} onSettings={() => setShowSettings(true)} onToggleInst={toggleInst} onMemory={() => setShowMemory(true)} />
 
       {/* conversation */}
-      <section className={`cl-chat flex min-w-0 flex-1 flex-col ${isMobile && mobileView !== "chat" ? "hidden" : ""}`}>
+      <section className={`cl-chat flex min-w-0 flex-1 flex-col ${nav !== "chat" ? "hidden" : ""} ${isMobile && mobileView !== "chat" ? "hidden" : ""}`}>
         <header className="glass flex h-[52px] items-center gap-2 border-b border-[var(--line)] px-5">
           <span className="min-w-0 truncate text-sm font-medium">{activeTitle || "New chat"}</span>
           {state.running && <span className="flex items-center gap-2 text-xs text-[var(--accent)]"><span className="orb" /> working</span>}
@@ -1570,7 +1752,7 @@ export default function App() {
       </section>
 
       {/* workspace */}
-      {(workspaceOpen || isMobile) && (
+      {nav === "chat" && (workspaceOpen || isMobile) && (
       <aside className={`cl-workspace flex flex-col border-l border-[var(--line)] ${isMobile ? (mobileView === "work" ? "w-full" : "hidden") : "w-[42%] min-w-[360px]"}`}>
         <div className="flex h-[52px] items-center gap-2 border-b border-[var(--line)] px-3">
           <div ref={tabBarRef} className="seg seg-morph">
@@ -1643,6 +1825,9 @@ export default function App() {
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
       )}
+      {nav === "skills" && <SkillsToolsPanel onRun={(p) => { setNav("chat"); setMobileView("chat"); run(p); }} onClose={() => setNav("chat")} />}
+      {nav === "messaging" && <MessagingPanel onClose={() => setNav("chat")} />}
+      {nav === "artifacts" && <ArtifactsPanel onClose={() => setNav("chat")} />}
         </div>
         {!isMobile && <StatusBar state={state} />}
         {isMobile && <MobileTabBar view={mobileView} onView={setMobileView} />}

@@ -182,54 +182,58 @@ func cmdSkills(args []string, out, errOut io.Writer) int {
 // user can read; it's installed as-is (after validating it parses) with a nudge to
 // review it, since the agent will follow its instructions.
 func skillsAdd(url string, out, errOut io.Writer) int {
-	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
-		fmt.Fprintln(errOut, "skills add: expected an http(s) URL to a SKILL.md")
-		return 2
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	name, path, err := installSkillFromURL(url, ".")
 	if err != nil {
-		fmt.Fprintln(errOut, "skills add: "+err.Error())
-		return 1
-	}
-	resp, err := (&http.Client{Timeout: 25 * time.Second}).Do(req)
-	if err != nil {
-		fmt.Fprintln(errOut, "skills add: "+err.Error())
-		return 1
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(errOut, "skills add: %s returned %s\n", url, resp.Status)
-		return 1
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
-	if err != nil {
-		fmt.Fprintln(errOut, "skills add: "+err.Error())
-		return 1
-	}
-	meta, body := parseFrontmatter(string(data))
-	name := skillSlug(meta["name"])
-	if name == "" || strings.TrimSpace(body) == "" {
-		fmt.Fprintln(errOut, "skills add: not a valid SKILL.md (needs `name:` frontmatter and a body)")
-		return 1
-	}
-	path := filepath.Join(skillsDir("."), name, "SKILL.md")
-	if _, err := os.Stat(path); err == nil {
-		fmt.Fprintf(errOut, "skills add: %q is already installed (%s) — remove it first\n", name, path)
-		return 1
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		fmt.Fprintln(errOut, "skills add: "+err.Error())
-		return 1
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
 		fmt.Fprintln(errOut, "skills add: "+err.Error())
 		return 1
 	}
 	fmt.Fprintf(out, "  installed skill %s → %s\n", style.BoldWhite(name), path)
 	fmt.Fprintln(out, "  "+style.Gray("review it before relying on it — the agent follows its instructions"))
 	return 0
+}
+
+// installSkillFromURL downloads + validates a SKILL.md and installs it under
+// <root>/.cliche/skills/<slug>/. Shared by `cliche skills add` (CLI) and Studio's
+// Skills & Tools panel. The slug sanitizer guarantees the install can never escape
+// the skills dir; size (256KB) and time (25s) are bounded.
+func installSkillFromURL(url, root string) (name, path string, err error) {
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return "", "", fmt.Errorf("expected an http(s) URL to a SKILL.md")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", "", err
+	}
+	resp, err := (&http.Client{Timeout: 25 * time.Second}).Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("%s returned %s", url, resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	if err != nil {
+		return "", "", err
+	}
+	meta, body := parseFrontmatter(string(data))
+	name = skillSlug(meta["name"])
+	if name == "" || strings.TrimSpace(body) == "" {
+		return "", "", fmt.Errorf("not a valid SKILL.md (needs `name:` frontmatter and a body)")
+	}
+	path = filepath.Join(skillsDir(root), name, "SKILL.md")
+	if _, statErr := os.Stat(path); statErr == nil {
+		return "", "", fmt.Errorf("%q is already installed (%s) — remove it first", name, path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", "", err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", "", err
+	}
+	return name, path, nil
 }
 
 // skillSlug turns a frontmatter name into a safe directory name (kebab, [a-z0-9-]),

@@ -17,16 +17,16 @@ import (
 
 // State is the trust snapshot the UI shows in its header (spend, caps, model).
 type State struct {
-	Model      string  `json:"model"`
-	Provider   string  `json:"provider"`
-	Mode       string  `json:"mode"`
-	SpentUSD   float64 `json:"spent_usd"`
-	CapUSD     float64 `json:"cap_usd"`
-	CtxFrac    float64 `json:"ctx_frac"`
-	Running    bool    `json:"running"`
-	NeedsSetup bool    `json:"needs_setup"`  // no provider connected yet → show the welcome/setup screen
-	HasPreview bool    `json:"has_preview"`  // an index.html exists to preview (else show an empty state, not a dir listing)
-	PreviewPath string `json:"preview_path"` // subdir holding that index.html ("" = project root)
+	Model       string  `json:"model"`
+	Provider    string  `json:"provider"`
+	Mode        string  `json:"mode"`
+	SpentUSD    float64 `json:"spent_usd"`
+	CapUSD      float64 `json:"cap_usd"`
+	CtxFrac     float64 `json:"ctx_frac"`
+	Running     bool    `json:"running"`
+	NeedsSetup  bool    `json:"needs_setup"`  // no provider connected yet → show the welcome/setup screen
+	HasPreview  bool    `json:"has_preview"`  // an index.html exists to preview (else show an empty state, not a dir listing)
+	PreviewPath string  `json:"preview_path"` // subdir holding that index.html ("" = project root)
 }
 
 // Runner executes one prompt, emitting events as the agent works. It is injected
@@ -41,7 +41,7 @@ type Server struct {
 	hub    *Hub
 	run    Runner
 	state  func() State
-	static fs.FS   // embedded SPA assets (may be nil during early bring-up)
+	static fs.FS  // embedded SPA assets (may be nil during early bring-up)
 	token  string // when set, every request must present this bearer token (remote/cloud mode)
 
 	mu      sync.Mutex
@@ -64,7 +64,7 @@ type Server struct {
 	sessionRename func(id, title string) error
 	sessionDelete func(id string) error
 	files         func() []FileNode
-	fileRead    func(rel string) (string, bool)
+	fileRead      func(rel string) (string, bool)
 
 	gitStatus func() GitStatus
 	gitCommit func(msg string) (string, error)
@@ -94,7 +94,74 @@ type Server struct {
 	imageAdd   func(data []byte, mediaType string) int
 	imageClear func()
 	commandsFn func() []CommandInfo
+
+	// Hermes-style nav panels: Skills & Tools, Artifacts, Messaging.
+	skillsFn     func() []SkillInfo
+	toolsFn      func() []ToolInfo
+	skillInstall func(url string) error
+	artifactsFn  func() ArtifactsView
+	recallFn     func(q string) []RecallHit
+	messagingFn  func() MessagingView
 }
+
+// SkillInfo is one loaded skill, surfaced to the Skills & Tools panel.
+type SkillInfo struct {
+	Name   string `json:"name"`
+	Desc   string `json:"desc"`
+	Rel    string `json:"rel"`
+	Source string `json:"source"` // "project" | "plugin"
+	Body   string `json:"body,omitempty"`
+}
+
+// ToolInfo is one built-in agent tool in the read-only roster.
+type ToolInfo struct {
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+}
+
+// ArtifactsView is the durable state the agent accrues: project memory, the user
+// profile, and the saved skills — the Artifacts panel renders these.
+type ArtifactsView struct {
+	Memory  string      `json:"memory"`
+	Profile string      `json:"profile"`
+	Skills  []SkillInfo `json:"skills"`
+}
+
+// RecallHit is one past-session match for the Artifacts recall search.
+type RecallHit struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	When    string `json:"when"`
+	Snippet string `json:"snippet"`
+}
+
+// MessagingView reports the remote-drive channels (the Messaging panel).
+type MessagingView struct {
+	Telegram TelegramStatus `json:"telegram"`
+}
+
+// TelegramStatus mirrors the owner-locked, budget-bounded Telegram bridge.
+type TelegramStatus struct {
+	Configured  bool    `json:"configured"`
+	OwnerChat   string  `json:"owner_chat"`
+	Authorized  bool    `json:"authorized"`
+	Spent24hUSD float64 `json:"spent_24h_usd"`
+	MaxDailyUSD float64 `json:"max_daily_usd"`
+}
+
+// SetSkillsPanel wires the Skills & Tools panel: the skill list, the tool roster,
+// and install-from-URL (which reuses the slug-sanitized installer).
+func (s *Server) SetSkillsPanel(list func() []SkillInfo, tools func() []ToolInfo, install func(url string) error) {
+	s.skillsFn, s.toolsFn, s.skillInstall = list, tools, install
+}
+
+// SetArtifacts wires the Artifacts panel: the durable-state view + recall search.
+func (s *Server) SetArtifacts(get func() ArtifactsView, recall func(q string) []RecallHit) {
+	s.artifactsFn, s.recallFn = get, recall
+}
+
+// SetMessaging wires the Messaging panel's channel-status view.
+func (s *Server) SetMessaging(get func() MessagingView) { s.messagingFn = get }
 
 // Task is one item on the session plan (/plan /tasks /done).
 type Task struct {
@@ -288,6 +355,79 @@ func (s *Server) handleCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+// handleSkills GET → {skills, tools} for the Skills & Tools panel.
+func (s *Server) handleSkills(w http.ResponseWriter, _ *http.Request) {
+	skills := []SkillInfo{}
+	tools := []ToolInfo{}
+	if s.skillsFn != nil {
+		if got := s.skillsFn(); got != nil {
+			skills = got
+		}
+	}
+	if s.toolsFn != nil {
+		if got := s.toolsFn(); got != nil {
+			tools = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"skills": skills, "tools": tools})
+}
+
+// handleSkillInstall POST {url} → download + validate + install a SKILL.md. The
+// installer slug-sanitizes the name so a remote URL can't escape .cliche/skills/.
+func (s *Server) handleSkillInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if s.skillInstall == nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.skillInstall(strings.TrimSpace(body.URL)); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+// handleArtifacts GET → the durable agent state (memory, profile, skills).
+func (s *Server) handleArtifacts(w http.ResponseWriter, _ *http.Request) {
+	var v ArtifactsView
+	if s.artifactsFn != nil {
+		v = s.artifactsFn()
+	}
+	if v.Skills == nil {
+		v.Skills = []SkillInfo{}
+	}
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// handleRecall GET ?q= → past-session matches (pure-Go cross-session search).
+func (s *Server) handleRecall(w http.ResponseWriter, r *http.Request) {
+	hits := []RecallHit{}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if s.recallFn != nil && q != "" {
+		if got := s.recallFn(q); got != nil {
+			hits = got
+		}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"hits": hits})
+}
+
+// handleMessaging GET → the remote-drive channel status (Telegram).
+func (s *Server) handleMessaging(w http.ResponseWriter, _ *http.Request) {
+	var v MessagingView
+	if s.messagingFn != nil {
+		v = s.messagingFn()
+	}
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
@@ -571,6 +711,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/git/pr", s.handleGitPR)
 	mux.HandleFunc("/api/deploy", s.handleDeploy)
 	mux.HandleFunc("/api/cron", s.handleCron)
+	mux.HandleFunc("/api/skills", s.handleSkills)
+	mux.HandleFunc("/api/skills/install", s.handleSkillInstall)
+	mux.HandleFunc("/api/artifacts", s.handleArtifacts)
+	mux.HandleFunc("/api/recall", s.handleRecall)
+	mux.HandleFunc("/api/messaging", s.handleMessaging)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)

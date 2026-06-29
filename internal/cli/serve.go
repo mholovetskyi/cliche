@@ -21,7 +21,9 @@ import (
 	"github.com/mholovetskyi/cliche/internal/cron"
 	"github.com/mholovetskyi/cliche/internal/git"
 	"github.com/mholovetskyi/cliche/internal/ledger"
+	"github.com/mholovetskyi/cliche/internal/memory"
 	"github.com/mholovetskyi/cliche/internal/pricing"
+	"github.com/mholovetskyi/cliche/internal/profile"
 	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/secrets"
 	sess "github.com/mholovetskyi/cliche/internal/session"
@@ -440,6 +442,59 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		func(id string) (bool, error) { return cron.Remove(f.dir, id) },
 		func(id string, on bool) (bool, error) { return cron.SetEnabled(f.dir, id, on) },
 	)
+
+	// Hermes-style nav panels — Skills & Tools, Artifacts, Messaging — all backed
+	// by existing zero-dep machinery (loadSkills, the tool roster, memory/profile,
+	// pure-Go session search, the Telegram env + cron spend tracker).
+	skillInfos := func(withBody bool) []web.SkillInfo {
+		out := []web.SkillInfo{}
+		for _, sk := range loadSkills(f.dir) {
+			src := "project"
+			if strings.Contains(filepath.ToSlash(sk.Rel), "/plugins/") {
+				src = "plugin"
+			}
+			si := web.SkillInfo{Name: sk.Name, Desc: sk.Desc, Rel: sk.Rel, Source: src}
+			if withBody {
+				si.Body = sk.Body
+			}
+			out = append(out, si)
+		}
+		return out
+	}
+	srv.SetSkillsPanel(
+		func() []web.SkillInfo { return skillInfos(true) },
+		func() []web.ToolInfo {
+			out := []web.ToolInfo{}
+			for _, ts := range agent.DefaultToolSpecs() {
+				out = append(out, web.ToolInfo{Name: ts.Name, Desc: ts.Description})
+			}
+			return out
+		},
+		func(url string) error { _, _, err := installSkillFromURL(url, f.dir); return err },
+	)
+	srv.SetArtifacts(
+		func() web.ArtifactsView {
+			return web.ArtifactsView{Memory: memory.Load(f.dir), Profile: profile.Load(), Skills: skillInfos(false)}
+		},
+		func(q string) []web.RecallHit {
+			out := []web.RecallHit{}
+			for _, h := range sess.Search(f.dir, q, 8) {
+				out = append(out, web.RecallHit{ID: h.ID, Title: h.Title, When: h.Updated.Format("Jan 2"), Snippet: h.Snippet})
+			}
+			return out
+		},
+	)
+	srv.SetMessaging(func() web.MessagingView {
+		token := strings.TrimSpace(os.Getenv("CLICHE_TELEGRAM_TOKEN"))
+		chat := strings.TrimSpace(os.Getenv("CLICHE_TELEGRAM_CHAT"))
+		return web.MessagingView{Telegram: web.TelegramStatus{
+			Configured:  token != "",
+			OwnerChat:   chat,
+			Authorized:  token != "" && chat != "",
+			Spent24hUSD: cron.SpentLast24h(f.dir),
+			MaxDailyUSD: 10,
+		}}
+	})
 
 	// CLI-parity controls: switch permission mode, list models with pricing, and
 	// switch the active model — the web equivalents of /mode and /model.
