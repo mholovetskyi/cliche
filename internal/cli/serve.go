@@ -146,10 +146,13 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		amu.Lock()
 		cur, c, m := a, acfg, curMode
 		amu.Unlock()
+		entry, hasPreview := findPreviewEntry(previewDir)
 		if cur == nil {
-			return web.State{Mode: m, NeedsSetup: true}
+			return web.State{Mode: m, NeedsSetup: true, HasPreview: hasPreview, PreviewPath: entry}
 		}
-		return webState(cur, c, m)
+		st := webState(cur, c, m)
+		st.HasPreview, st.PreviewPath = hasPreview, entry
+		return st
 	}
 	srv.SetState(curState)
 
@@ -734,4 +737,42 @@ func studioWorkspace() (string, error) {
 	}
 	ws := filepath.Join(home, "Cliche Projects")
 	return ws, os.MkdirAll(ws, 0o755)
+}
+
+// findPreviewEntry locates an app to show in the live preview: the project root's
+// index.html if present, else the most-recently-built index.html one level down
+// (so a project built into a subfolder still previews). Returns the relative dir
+// holding it ("" = root) and whether one was found — when none, the UI shows a
+// clean empty state instead of a raw directory listing.
+func findPreviewEntry(dir string) (string, bool) {
+	if dir == "" {
+		dir = "."
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "index.html")); err == nil && !fi.IsDir() {
+		return "", true
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	best := ""
+	var bestMod time.Time
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if name := e.Name(); strings.HasPrefix(name, ".") || name == "node_modules" {
+			continue
+		}
+		p := filepath.Join(dir, e.Name(), "index.html")
+		if fi, statErr := os.Stat(p); statErr == nil && !fi.IsDir() {
+			if best == "" || fi.ModTime().After(bestMod) {
+				best, bestMod = e.Name(), fi.ModTime()
+			}
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	return best, true
 }

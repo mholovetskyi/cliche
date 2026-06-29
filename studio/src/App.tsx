@@ -187,7 +187,7 @@ function Boot() {
 }
 
 type Ev = { kind: string; text?: string; data?: any };
-type State = { model?: string; provider?: string; mode?: string; spent_usd?: number; cap_usd?: number; ctx_frac?: number; running?: boolean; needs_setup?: boolean };
+type State = { model?: string; provider?: string; mode?: string; spent_usd?: number; cap_usd?: number; ctx_frac?: number; running?: boolean; needs_setup?: boolean; has_preview?: boolean; preview_path?: string };
 type Template = { name: string; desc: string; prompt: string };
 type Audit = { ok: boolean; entries: number; verified: number; usd: number; turns: number; input_tokens?: number; output_tokens?: number; reason?: string; verdicts?: Record<string, number> };
 type SessionMeta = { id: string; title: string; model: string; updated: string; messages: number; active: boolean };
@@ -1584,20 +1584,29 @@ export default function App() {
           {tab === "preview" && (
             <>
               <a href={sseUrl("/api/export")} className="icon-btn h-8 w-8" title="Download (.zip)"><Download size={15} /></a>
-              <button onClick={() => setPreviewKey((k) => k + 1)} className="icon-btn h-8 w-8" title="Refresh"><RefreshCw size={15} /></button>
-              <a href="/preview/" target="_blank" className="icon-btn h-8 w-8" title="Open in a tab"><ExternalLink size={15} /></a>
+              {state.has_preview && <button onClick={() => setPreviewKey((k) => k + 1)} className="icon-btn h-8 w-8" title="Refresh"><RefreshCw size={15} /></button>}
+              {state.has_preview && <a href={`/preview/${state.preview_path ? state.preview_path + "/" : ""}`} target="_blank" className="icon-btn h-8 w-8" title="Open in a tab"><ExternalLink size={15} /></a>}
             </>
           )}
         </div>
 
-        {tab === "preview" && (
+        {tab === "preview" && !state.has_preview && (
+          <div className="min-h-0 flex-1 p-3">
+            <div className="surface flex h-full flex-col items-center justify-center rounded-2xl p-8 text-center">
+              <Eye size={26} className="mb-3 text-[var(--dim)]" />
+              <div className="text-sm font-medium">Nothing to preview yet</div>
+              <div className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-[var(--mut)]">When Cliché builds a web app (an <code className="rounded bg-white/10 px-1 text-[12px]">index.html</code>), it appears here live — auto-refreshing as it edits. Until then, browse the <b>Files</b> tab.</div>
+            </div>
+          </div>
+        )}
+        {tab === "preview" && state.has_preview && (
           <div className="min-h-0 flex-1 p-3">
             <div className="surface elev relative flex h-full flex-col overflow-hidden rounded-2xl">
               <div className="flex h-9 items-center gap-2 border-b border-[var(--line)] px-3.5">
                 <span className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]" /></span>
-                <span className="mx-2 flex-1 truncate rounded-md bg-black/30 px-2.5 py-1 text-center text-[11px] text-[var(--dim)]">localhost preview</span>
+                <span className="mx-2 flex-1 truncate rounded-md bg-black/30 px-2.5 py-1 text-center text-[11px] text-[var(--dim)]">{state.preview_path ? state.preview_path + "/" : "localhost preview"}</span>
               </div>
-              <iframe key={previewKey} src={`/preview/?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />
+              <iframe key={previewKey} src={`/preview/${state.preview_path ? state.preview_path + "/" : ""}?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />
               {ritual && (
                 <div className="fade-in pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(8,8,11,.6)", backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)" }}>
                   <Kiln />

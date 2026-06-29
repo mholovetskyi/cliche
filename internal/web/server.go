@@ -24,7 +24,9 @@ type State struct {
 	CapUSD     float64 `json:"cap_usd"`
 	CtxFrac    float64 `json:"ctx_frac"`
 	Running    bool    `json:"running"`
-	NeedsSetup bool    `json:"needs_setup"` // no provider connected yet → show the welcome/setup screen
+	NeedsSetup bool    `json:"needs_setup"`  // no provider connected yet → show the welcome/setup screen
+	HasPreview bool    `json:"has_preview"`  // an index.html exists to preview (else show an empty state, not a dir listing)
+	PreviewPath string `json:"preview_path"` // subdir holding that index.html ("" = project root)
 }
 
 // Runner executes one prompt, emitting events as the agent works. It is injected
