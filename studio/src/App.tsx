@@ -189,6 +189,7 @@ function Boot() {
 
 type Ev = { kind: string; text?: string; data?: any };
 type State = { model?: string; provider?: string; mode?: string; spent_usd?: number; cap_usd?: number; ctx_frac?: number; running?: boolean; needs_setup?: boolean; has_preview?: boolean; preview_path?: string };
+type DevStatus = { state: string; url: string; dir?: string; detected: boolean; script: string; logs: string[] };
 type Template = { name: string; desc: string; prompt: string };
 type Audit = { ok: boolean; entries: number; verified: number; usd: number; turns: number; input_tokens?: number; output_tokens?: number; reason?: string; verdicts?: Record<string, number> };
 type SessionMeta = { id: string; title: string; model: string; updated: string; messages: number; active: boolean };
@@ -1400,6 +1401,58 @@ function ArtifactsPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+// PreviewPane — the live preview. Runs the app's real dev server (npm run dev →
+// Vite/Next/CRA) for a hot-reloading preview (the Lovable experience); falls back
+// to the static built page, a run-the-app prompt, or an empty state.
+function PreviewPane({ state, dev, previewKey, ritual, lastActText, onDev }: {
+  state: State; dev: DevStatus; previewKey: number; ritual: boolean; lastActText: string; onDev: (a: string) => void;
+}) {
+  const running = dev.state === "running" && !!dev.url;
+  const busy = dev.state === "installing" || dev.state === "starting";
+  const Logs = () => dev.logs && dev.logs.length > 0 ? (
+    <pre className="mt-3 max-h-44 w-full max-w-lg overflow-auto rounded-lg bg-black/30 p-3 text-left font-mono text-[11px] leading-relaxed text-[var(--mut)]">{dev.logs.slice(-40).join("\n")}</pre>
+  ) : null;
+
+  let body: React.ReactNode;
+  if (running) {
+    body = <iframe key={previewKey} src={dev.url} title="app" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals" />;
+  } else if (busy) {
+    body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><span className="orb mb-3" /><div className="text-sm font-medium">{dev.state === "installing" ? "Installing dependencies…" : "Starting the dev server…"}</div><div className="mt-1 font-mono text-[12px] text-[var(--dim)]">{dev.script}</div><Logs /><button onClick={() => onDev("stop")} className="btn-soft mt-4 rounded-lg px-3 py-1.5 text-xs">Cancel</button></div>;
+  } else if (dev.state === "error") {
+    body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><CircleAlert size={26} className="mb-3 text-[var(--accent)]" /><div className="text-sm font-medium">The dev server stopped with an error</div><Logs /><button onClick={() => onDev("restart")} className="btn-accent mt-4 rounded-lg px-3.5 py-1.5 text-sm">Try again</button></div>;
+  } else if (dev.detected) {
+    body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><Rocket size={26} className="mb-3 text-[var(--accent)]" /><div className="text-sm font-medium">App ready to run</div><div className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-[var(--mut)]">Start the dev server for a live, hot-reloading preview (<code className="rounded bg-white/10 px-1">{dev.script}</code>).</div><button onClick={() => onDev("start")} className="btn-accent mt-4 rounded-xl px-4 py-2 text-sm">▶ Run the app</button>{state.has_preview && <a href={`/preview/${state.preview_path ? state.preview_path + "/" : ""}`} target="_blank" rel="noreferrer" className="mt-2 text-[12px] text-[var(--dim)] hover:text-[var(--accent)]">or open the static build →</a>}</div>;
+  } else if (state.has_preview) {
+    body = <iframe key={previewKey} src={`/preview/${state.preview_path ? state.preview_path + "/" : ""}?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />;
+  } else {
+    body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><Eye size={26} className="mb-3 text-[var(--dim)]" /><div className="text-sm font-medium">Nothing to preview yet</div><div className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-[var(--mut)]">Ask Cliché to build an app — a static page previews here, and a real React/Vite app runs <b>live with hot reload</b>.</div></div>;
+  }
+
+  const label = running ? dev.url : busy ? dev.state + "…" : (state.has_preview ? (state.preview_path ? state.preview_path + "/" : "localhost preview") : "preview");
+  return (
+    <div className="min-h-0 flex-1 p-3">
+      <div className="surface elev relative flex h-full flex-col overflow-hidden rounded-2xl">
+        <div className="flex h-9 items-center gap-2 border-b border-[var(--line)] px-3.5">
+          <span className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]" /></span>
+          <span className="mx-2 flex-1 truncate rounded-md bg-black/30 px-2.5 py-1 text-center text-[11px] text-[var(--dim)]">{label}</span>
+          {running && <span className="flex items-center gap-1 text-[10px] text-[var(--ok)]"><span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--ok)]" style={{ boxShadow: "0 0 6px var(--ok)" }} /> live</span>}
+        </div>
+        {body}
+        {ritual && (
+          <div className="fade-in pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(8,8,11,.6)", backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)" }}>
+            <Kiln />
+            <div className="relative z-10 text-center">
+              <div className="mx-auto mb-4 w-[88px]"><Sigil size={88} running trust="intact" load={1} /></div>
+              <div className="caret text-sm font-medium text-[var(--ink)]">forging</div>
+              {lastActText && <div className="mx-auto mt-2 max-w-[300px] truncate px-4 font-mono text-[12px] text-[var(--mut)]">{lastActText}</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // StatusBar — the slim Hermes-style bottom strip, surfacing the Trust Kernel state.
 function StatusBar({ state }: { state: State }) {
   const mode = state.mode || "suggest";
@@ -1424,6 +1477,7 @@ function StatusBar({ state }: { state: State }) {
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [state, setState] = useState<State>({});
+  const [dev, setDev] = useState<DevStatus>({ state: "stopped", url: "", detected: false, script: "", logs: [] });
   const [prompt, setPrompt] = useState("");
   const [templates, setTemplates] = useState<Template[]>([]);
   const [audit, setAudit] = useState<Audit | null>(null);
@@ -1643,6 +1697,9 @@ export default function App() {
     if (r.ok) { const wasActive = sessions.find((s) => s.id === id)?.active; if (wasActive) setItems([]); refreshSessions(); }
   }
   const refreshState = () => api("/api/state").then((r) => r.json()).then(setState).catch(() => {});
+  const refreshDev = () => api("/api/dev").then((r) => r.json()).then(setDev).catch(() => {});
+  const devCtl = (action: string) => api("/api/dev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }).then(() => refreshDev());
+  useEffect(() => { refreshDev(); const t = setInterval(refreshDev, 1500); return () => clearInterval(t); }, []);
   async function setMode(mode: string) {
     await api("/api/mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
     refreshState(); refreshRules();
@@ -1857,42 +1914,23 @@ export default function App() {
           {tab === "preview" && (
             <>
               <a href={sseUrl("/api/export")} className="icon-btn h-8 w-8" title="Download (.zip)"><Download size={15} /></a>
-              {state.has_preview && <button onClick={() => setPreviewKey((k) => k + 1)} className="icon-btn h-8 w-8" title="Refresh"><RefreshCw size={15} /></button>}
-              {state.has_preview && <a href={`/preview/${state.preview_path ? state.preview_path + "/" : ""}`} target="_blank" className="icon-btn h-8 w-8" title="Open in a tab"><ExternalLink size={15} /></a>}
+              {dev.state === "running" ? (
+                <>
+                  <button onClick={() => devCtl("restart")} className="icon-btn h-8 w-8" title="Restart dev server"><RefreshCw size={15} /></button>
+                  <button onClick={() => devCtl("stop")} className="icon-btn h-8 w-8 hover:text-[var(--danger)]" title="Stop dev server"><Square size={13} /></button>
+                  <a href={dev.url} target="_blank" rel="noreferrer" className="icon-btn h-8 w-8" title="Open the app in a tab"><ExternalLink size={15} /></a>
+                </>
+              ) : (
+                <>
+                  {state.has_preview && <button onClick={() => setPreviewKey((k) => k + 1)} className="icon-btn h-8 w-8" title="Refresh"><RefreshCw size={15} /></button>}
+                  {state.has_preview && <a href={`/preview/${state.preview_path ? state.preview_path + "/" : ""}`} target="_blank" rel="noreferrer" className="icon-btn h-8 w-8" title="Open in a tab"><ExternalLink size={15} /></a>}
+                </>
+              )}
             </>
           )}
         </div>
 
-        {tab === "preview" && !state.has_preview && (
-          <div className="min-h-0 flex-1 p-3">
-            <div className="surface flex h-full flex-col items-center justify-center rounded-2xl p-8 text-center">
-              <Eye size={26} className="mb-3 text-[var(--dim)]" />
-              <div className="text-sm font-medium">Nothing to preview yet</div>
-              <div className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-[var(--mut)]">When Cliché builds a web app (an <code className="rounded bg-white/10 px-1 text-[12px]">index.html</code>), it appears here live — auto-refreshing as it edits. Until then, browse the <b>Files</b> tab.</div>
-            </div>
-          </div>
-        )}
-        {tab === "preview" && state.has_preview && (
-          <div className="min-h-0 flex-1 p-3">
-            <div className="surface elev relative flex h-full flex-col overflow-hidden rounded-2xl">
-              <div className="flex h-9 items-center gap-2 border-b border-[var(--line)] px-3.5">
-                <span className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]" /></span>
-                <span className="mx-2 flex-1 truncate rounded-md bg-black/30 px-2.5 py-1 text-center text-[11px] text-[var(--dim)]">{state.preview_path ? state.preview_path + "/" : "localhost preview"}</span>
-              </div>
-              <iframe key={previewKey} src={`/preview/${state.preview_path ? state.preview_path + "/" : ""}?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />
-              {ritual && (
-                <div className="fade-in pointer-events-none absolute inset-0 z-20 grid place-items-center" style={{ background: "rgba(8,8,11,.6)", backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)" }}>
-                  <Kiln />
-                  <div className="relative z-10 text-center">
-                    <div className="mx-auto mb-4 w-[88px]"><Sigil size={88} running trust="intact" load={1} /></div>
-                    <div className="caret text-sm font-medium text-[var(--ink)]">forging</div>
-                    {lastActText && <div className="mx-auto mt-2 max-w-[300px] truncate px-4 font-mono text-[12px] text-[var(--mut)]">{lastActText}</div>}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {tab === "preview" && <PreviewPane state={state} dev={dev} previewKey={previewKey} ritual={ritual} lastActText={lastActText} onDev={devCtl} />}
 
         {tab === "files" && (
           <div className="flex min-h-0 flex-1">

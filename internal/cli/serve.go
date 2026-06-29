@@ -20,6 +20,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/budget"
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/cron"
+	"github.com/mholovetskyi/cliche/internal/devserver"
 	"github.com/mholovetskyi/cliche/internal/git"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/memory"
@@ -79,6 +80,31 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		previewDir = "."
 	}
 	srv.SetPreviewDir(previewDir) // serve the project files for the live preview iframe
+
+	// dev runs the built app's dev server (npm run dev) for a live, hot-reloading
+	// preview — the Lovable experience. User-initiated (like Deploy); its whole
+	// process tree is killed when the server shuts down.
+	dev := devserver.New()
+	defer dev.Stop()
+	srv.SetDevServer(
+		func() web.DevStatus {
+			st := dev.Status(previewDir)
+			return web.DevStatus{State: st.State, URL: st.URL, Dir: st.Dir, Detected: st.Detected, Script: st.Script, Logs: st.Logs}
+		},
+		func(action string) error {
+			switch action {
+			case "start":
+				return dev.Start(previewDir)
+			case "stop":
+				dev.Stop()
+				return nil
+			case "restart":
+				return dev.Restart(previewDir)
+			default:
+				return fmt.Errorf("unknown dev action %q", action)
+			}
+		},
+	)
 	srv.SetTemplates(studioTemplates())
 	srv.SetAudit(func() web.AuditView { return auditView(f.dir) })
 
@@ -833,7 +859,7 @@ func auditView(dir string) web.AuditView {
 func studioTemplates() []web.Template {
 	return []web.Template{
 		{Name: "Website", Desc: "A polished marketing / landing site", Prompt: "Build a polished, modern marketing website — hero, features, social proof, and a contact/CTA section. Treat it like a real product launch: a coherent design system (type scale, spacing, color tokens), responsive from mobile to desktop, accessible, with tasteful motion and thoughtful copy (no lorem ipsum). It must be viewable by opening index.html at the project root — if you use a build step, output the built site to the project root."},
-		{Name: "Web app", Desc: "A real, interactive product", Prompt: "Build a genuinely useful, interactive web app. First propose 2–3 concrete ideas and a stack, then build the one I pick to a production bar: a real component structure, typed where the stack supports it, a cohesive design system, real empty/loading/error states, input validation, and keyboard-accessible, responsive UI. It must be runnable by opening index.html at the project root (output a build there if you use one)."},
+		{Name: "Web app", Desc: "A real, interactive product", Prompt: "Build a genuinely useful, interactive web app with a REAL modern stack — scaffold Vite + React + TypeScript + Tailwind (add shadcn/ui if it fits). First propose 2–3 concrete ideas, then build the one I pick to a production bar: a real component structure, a cohesive design system with tokens, real empty/loading/error states, input validation, and keyboard-accessible, responsive UI. Studio runs your dev server (npm run dev) for a live, hot-reloading preview — build it as a proper app, don't cram everything into one index.html. Run npm install and the dev server yourself to confirm it boots."},
 		{Name: "Clone a site", Desc: "Recreate any website from its URL", Prompt: "Clone this website and make it even better — here's the URL: https://\n\nUse the clone_site tool to fetch and screenshot the original, then recreate its layout, sections, copy, and visual style as a clean, responsive app at the project root (index.html). After building, screenshot your result, compare it to the original, and iterate until it matches and looks world-class."},
 		{Name: "Automate a task", Desc: "A robust little tool/script", Prompt: "Build a small but robust tool that automates a routine task on my files (ask which one if it's unclear). Make it well-structured and well-named, validate inputs, handle errors and edge cases, include a short README and a couple of tests, and run it to confirm it works."},
 		{Name: "Explain this project", Desc: "Understand the code here", Prompt: "Give me a clear, friendly tour of what's in this project — what it does, how it's organized, and where the important pieces are. No changes, just explain."},

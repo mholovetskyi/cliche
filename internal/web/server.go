@@ -106,6 +106,25 @@ type Server struct {
 	personaSet   func(name string) error
 	limitsGet    func() Limits
 	limitsSet    func(Limits) error
+	devStatus    func() DevStatus
+	devControl   func(action string) error
+}
+
+// DevStatus mirrors the live dev server behind the preview (the Lovable-style
+// "run the real app" experience): its state, URL, and tail of logs.
+type DevStatus struct {
+	State    string   `json:"state"`
+	URL      string   `json:"url"`
+	Dir      string   `json:"dir"`
+	Detected bool     `json:"detected"`
+	Script   string   `json:"script"`
+	Logs     []string `json:"logs"`
+}
+
+// SetDevServer wires the dev-server controls: a status reader + a start/stop/
+// restart control.
+func (s *Server) SetDevServer(status func() DevStatus, control func(action string) error) {
+	s.devStatus, s.devControl = status, control
 }
 
 // Limits is the live, user-adjustable slice of the Trust Kernel: the session
@@ -484,6 +503,35 @@ func (s *Server) handleLimits(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(l)
 }
 
+// handleDev GET → dev-server status; POST {action:start|stop|restart} → control it.
+func (s *Server) handleDev(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if s.devControl == nil {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var body struct {
+			Action string `json:"action"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := s.devControl(strings.TrimSpace(body.Action)); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		return
+	}
+	var st DevStatus
+	if s.devStatus != nil {
+		st = s.devStatus()
+	}
+	if st.Logs == nil {
+		st.Logs = []string{}
+	}
+	_ = json.NewEncoder(w).Encode(st)
+}
+
 // handleMessaging GET → the remote-drive channel status (Telegram).
 func (s *Server) handleMessaging(w http.ResponseWriter, _ *http.Request) {
 	var v MessagingView
@@ -810,6 +858,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/messaging", s.handleMessaging)
 	mux.HandleFunc("/api/persona", s.handlePersona)
 	mux.HandleFunc("/api/limits", s.handleLimits)
+	mux.HandleFunc("/api/dev", s.handleDev)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/mode", s.handleMode)
 	mux.HandleFunc("/api/models", s.handleModels)
