@@ -588,6 +588,24 @@ func DefaultToolSpecs() []provider.ToolSpec {
 			},
 		},
 		{
+			Name:        "remember_user",
+			Description: "Save a durable fact about the USER — a lasting preference or how they like to work (their stack, conventions they always want, communication style) — to a cross-PROJECT profile loaded in EVERY future session, in any repo. Use for lasting things about the person. Project-specific facts go to remember instead; don't use for transient one-off requests.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"fact": strProp("the durable user preference, as one concise sentence")},
+				"required":   []string{"fact"},
+			},
+		},
+		{
+			Name:        "recall",
+			Description: "Search THIS project's PAST sessions for relevant context — earlier decisions, discussions, or work. Use when the user refers to earlier work ('like we did before', 'what did we decide about X') or you need history beyond the current conversation. Returns matching snippets with dates.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"query": strProp("what to look for across past sessions")},
+				"required":   []string{"query"},
+			},
+		},
+		{
 			Name:        "save_skill",
 			Description: "After you complete a NON-TRIVIAL, REUSABLE procedure (a multi-step workflow you'd repeat — e.g. how to scaffold this kind of project, run this repo's release, or debug a recurring issue), distill it into a reusable skill for future sessions. Provide a short kebab-case name, a one-line description of WHEN to use it, and step-by-step instructions as the content. Saved to .cliche/skills/<name>/SKILL.md and loaded automatically next time. The user must approve it (it's a write), so it's auditable. Do NOT use for one-off tasks, trivial actions, or facts (use remember for facts).",
 			Schema: map[string]any{

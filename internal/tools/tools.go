@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"github.com/mholovetskyi/cliche/internal/memory"
+	"github.com/mholovetskyi/cliche/internal/profile"
+	"github.com/mholovetskyi/cliche/internal/session"
 	"github.com/mholovetskyi/cliche/internal/shell"
 )
 
@@ -389,6 +391,40 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 			return Result{Output: "save_skill error: " + err.Error(), Success: false}
 		}
 		return Result{Output: "learned a reusable skill: " + skillName + " — " + desc, Success: true}
+
+	case "remember_user":
+		// Cross-PROJECT user profile: a durable preference about the USER, saved to
+		// the global USER.md (next to credentials) and loaded into every session.
+		// Like remember, it's low-risk metadata (not a code mutation, no write gate).
+		uf := strings.TrimSpace(args["fact"])
+		if uf == "" {
+			return Result{Output: "remember_user: nothing to note (empty fact)", Success: false}
+		}
+		if err := profile.Append(uf); err != nil {
+			return Result{Output: "remember_user error: " + err.Error(), Success: false}
+		}
+		return Result{Output: "noted about you: " + uf, Success: true}
+
+	case "recall":
+		// Cross-session recall: search this project's PAST sessions for context.
+		q := strings.TrimSpace(args["query"])
+		if q == "" {
+			return Result{Output: "recall: empty query", Success: false}
+		}
+		hits := session.Search(e.Root, q, 5)
+		if len(hits) == 0 {
+			return Result{Output: "recall: nothing in past sessions matched \"" + q + "\"", Success: true}
+		}
+		var rb strings.Builder
+		rb.WriteString("Found in past sessions:\n")
+		for _, h := range hits {
+			title := h.Title
+			if title == "" {
+				title = "(untitled)"
+			}
+			rb.WriteString("- " + title + " (" + h.Updated.Format("2006-01-02") + "): " + h.Snippet + "\n")
+		}
+		return Result{Output: rb.String(), Success: true}
 
 	case "run_command":
 		if strings.TrimSpace(args["command"]) == "" {

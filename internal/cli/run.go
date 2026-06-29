@@ -16,6 +16,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/ledger"
 	"github.com/mholovetskyi/cliche/internal/memory"
+	"github.com/mholovetskyi/cliche/internal/profile"
 	"github.com/mholovetskyi/cliche/internal/provider"
 	"github.com/mholovetskyi/cliche/internal/repomap"
 	"github.com/mholovetskyi/cliche/internal/secrets"
@@ -287,7 +288,8 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	}
 	sys += skillsSystemNote(f.dir)               // make .cliche/skills discoverable to the agent
 	sys += learnSkillNote()                      // the learning loop: capture reusable workflows as skills
-	sys += memory.SystemNote(memory.Load(f.dir)) // durable facts from earlier sessions
+	sys += memory.SystemNote(memory.Load(f.dir)) // durable facts from earlier sessions (this project)
+	sys += profile.SystemNote(profile.Load())    // who the user is — durable preferences across all projects
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
 		System:             sys,
