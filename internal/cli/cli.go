@@ -104,6 +104,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdCron(rest, stdout, stderr)
 	case "telegram":
 		return cmdTelegram(rest, stdout, stderr)
+	case "doctor":
+		return cmdDoctor(rest, stdout, stderr)
 	case "audit":
 		return cmdAudit(rest, stdout, stderr)
 	case "projects":
@@ -160,6 +162,11 @@ COMMANDS:
                      exit codes. Fails loudly on caps and breakers.
   swarm "<task>"     Multi-agent run: a planner splits the task, executors work
                      it in parallel, a synthesizer combines — one shared budget.
+  cron               Schedule prompts to run unattended — each fire bounded by the
+                     Trust Kernel + a rolling daily cap (add | list | rm |
+                     enable | disable | run). "Leave it running" that can't spiral.
+  telegram           Drive Cliche from a Telegram chat (owner-locked, bounded).
+                     Set CLICHE_TELEGRAM_TOKEN; every run goes through the kernel.
   verify             Independently re-run the project's tests and combine with
                      reward-hack detectors into a verdict (verified/flagged).
   map                Print the project repo map (the structural overview the
@@ -175,8 +182,8 @@ COMMANDS:
   models             Show the maintained price table behind dollar estimates.
   commands           Custom slash commands (saved prompts): list, or
                      'commands new <name>' → .cliche/commands/<name>.md (run /<name>).
-  skills             Skills the agent uses automatically: list, or
-                     'skills new <name>' → .cliche/skills/<name>/SKILL.md.
+  skills             Skills the agent uses automatically: list, 'skills new <name>'
+                     → .cliche/skills/, or 'skills add <url>' to install one.
   plugins            Installable bundles (skills + commands + hooks + MCP): list,
                      or 'plugins new <name>' → .cliche/plugins/<name>/.
   themes             List UI palettes (set via CLICHE_THEME or "theme" in config).
@@ -201,6 +208,8 @@ COMMANDS:
                      them at the start of every session.
   bug                Write a bug report (environment + context) + a GitHub link.
   config             Print and validate the effective configuration.
+  doctor             Health check: providers, toolchain, Trust Kernel, integrations
+                     — what's set up and what to fix.
   version            Print the version.
   help               Show this help.
 
