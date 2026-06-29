@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseErrors(t *testing.T) {
-	bad := []string{"", "* * * *", "60 * * * *", "* 24 * * *", "* * 0 * *", "* * * 13 *", "* * * * 7", "a * * * *", "*/0 * * * *", "5-2 * * * *", "@every 30s", "@every nope"}
+	bad := []string{"", "* * * *", "60 * * * *", "* 24 * * *", "* * 0 * *", "* * * 13 *", "* * * * 8", "a * * * *", "*/0 * * * *", "5-2 * * * *", "@every 30s", "@every nope"}
 	for _, b := range bad {
 		if _, err := Parse(b); err == nil {
 			t.Errorf("Parse(%q) should have errored", b)
@@ -50,6 +50,31 @@ func TestEveryInterval(t *testing.T) {
 	got := mustNext(t, "@every 30m", "2026-01-01T12:00:00Z").UTC().Format(time.RFC3339)
 	if got != "2026-01-01T12:30:00Z" {
 		t.Errorf("@every 30m = %s", got)
+	}
+}
+
+func TestStepRestrictionsAreNotWildcards(t *testing.T) {
+	// "*/5" day-of-month is a RESTRICTION (1,6,11,…), not "every day" — regression
+	// for the star fast-path bug that made dom/dow steps fire daily.
+	got := mustNext(t, "0 0 */5 * *", "2026-01-01T00:00:00Z").UTC().Format(time.RFC3339)
+	if got != "2026-01-06T00:00:00Z" {
+		t.Errorf("0 0 */5 * * = %s, want 2026-01-06T00:00:00Z", got)
+	}
+	// "*/2" day-of-week (Sun/Tue/Thu/Sat) must skip days, not fire daily.
+	a := mustNext(t, "0 0 * * */2", "2026-06-29T00:00:00Z")
+	b := mustNext(t, "0 0 * * */2", a.UTC().Format(time.RFC3339))
+	if b.Sub(a) <= 24*time.Hour {
+		t.Errorf("*/2 dow should skip days; consecutive fires %s, %s", a, b)
+	}
+}
+
+func TestSundayIsSevenOrZero(t *testing.T) {
+	if _, err := Parse("0 0 * * 7"); err != nil {
+		t.Fatalf("dow 7 (Sunday) should parse: %v", err)
+	}
+	n := mustNext(t, "0 0 * * 7", "2026-06-29T12:00:00Z") // a Monday
+	if n.Weekday() != time.Sunday {
+		t.Errorf("dow 7 should fire on Sunday, got %s", n.Weekday())
 	}
 }
 

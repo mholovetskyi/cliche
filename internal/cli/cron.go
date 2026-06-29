@@ -7,10 +7,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/agent"
+	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/cron"
 	"github.com/mholovetskyi/cliche/internal/style"
 )
@@ -30,6 +32,10 @@ func cmdCron(args []string, out, errOut io.Writer) int {
 		return cronList(args[1:], out, errOut)
 	case "rm", "remove":
 		return cronRemove(args[1:], out, errOut)
+	case "enable":
+		return cronSetEnabled(args[1:], true, out, errOut)
+	case "disable":
+		return cronSetEnabled(args[1:], false, out, errOut)
 	case "run":
 		return cronRun(args[1:], out, errOut)
 	default:
@@ -43,8 +49,10 @@ func cronUsage(w io.Writer) int {
 	fmt.Fprintln(w, "  cliche cron add \"<schedule>\" \"<prompt>\"   schedule a prompt (cron spec or @daily/@hourly/@every 30m)")
 	fmt.Fprintln(w, "  cliche cron list                          list scheduled jobs + next fire")
 	fmt.Fprintln(w, "  cliche cron rm <id>                       remove a job")
+	fmt.Fprintln(w, "  cliche cron enable|disable <id>           turn a job on/off")
 	fmt.Fprintln(w, "  cliche cron run                           run the scheduler (foreground; Ctrl-C to stop)")
-	fmt.Fprintln(w, "  flags: --dir <project> --mode <full|auto-edit|plan> --max-usd <cap>")
+	fmt.Fprintln(w, "  add flags:  --dir <project>  --mode <full|auto-edit|plan>  --max-usd <per-fire cap>")
+	fmt.Fprintln(w, "  run flags:  --dir <project>  --max-daily-usd <rolling 24h ceiling, default 10>")
 	return 0
 }
 
@@ -59,6 +67,12 @@ func cronAdd(args []string, out, errOut io.Writer) int {
 	rest := fs.Args()
 	if len(rest) < 2 {
 		fmt.Fprintln(errOut, "usage: cliche cron add [--dir .] [--mode full] [--max-usd 0] \"<schedule>\" \"<prompt>\"")
+		return 2
+	}
+	switch *mode {
+	case "full", "auto-edit", "plan":
+	default:
+		fmt.Fprintf(errOut, "cron add: --mode must be full | auto-edit | plan (got %q; cron is unattended, so 'suggest' has no approver)\n", *mode)
 		return 2
 	}
 	spec, prompt := rest[0], strings.Join(rest[1:], " ")
@@ -135,12 +149,29 @@ func cronRemove(args []string, out, errOut io.Writer) int {
 func cronRun(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("cron run", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "project root")
+	maxDaily := fs.Float64("max-daily-usd", 10.0, "rolling 24h spend ceiling across ALL fires (0 = unlimited)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+
+	// Single-instance lock: two schedulers on one project would double-fire jobs.
+	if err := os.MkdirAll(config.Dir(*dir), 0o755); err != nil {
+		fmt.Fprintf(errOut, "cron run: %v\n", err)
+		return 1
+	}
+	lockPath := filepath.Join(config.Dir(*dir), "cron.lock")
+	lf, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Fprintf(errOut, "cron run: a scheduler may already be running for this project.\n  (lock: %s — delete it if no scheduler is actually running.)\n", lockPath)
+		return 1
+	}
+	fmt.Fprintf(lf, "%d", os.Getpid())
+	lf.Close()
+	defer os.Remove(lockPath)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	fmt.Fprintf(out, "Cliché scheduler running for %s — every fire is bounded by the Trust Kernel. Ctrl-C to stop.\n", *dir)
+	fmt.Fprintf(out, "Cliché scheduler running for %s — each fire is Trust-Kernel-bounded; rolling daily ceiling $%.2f. Ctrl-C to stop.\n", *dir, *maxDaily)
 
 	for {
 		jobs, err := cron.Load(*dir)
@@ -182,8 +213,16 @@ func cronRun(args []string, out, errOut io.Writer) int {
 		if !hasDue {
 			continue
 		}
+		// Aggregate ceiling: even though each fire is capped, throttle the schedule
+		// as a whole so a high-frequency job can't run away in total.
+		if *maxDaily > 0 && cron.SpentLast24h(*dir) >= *maxDaily {
+			fmt.Fprintf(out, "\n[%s] daily ceiling $%.2f reached — skipping %s until the 24h window frees\n", time.Now().Format("15:04:05"), *maxDaily, due.ID)
+			cron.MarkRun(*dir, due.ID, "skipped: daily cap", time.Now())
+			continue
+		}
 		fmt.Fprintf(out, "\n[%s] firing %s — %s\n", time.Now().Format("15:04:05"), due.ID, cronClip(due.Prompt, 60))
 		o := fireCronJob(ctx, *dir, due, out, errOut)
+		cron.RecordSpend(*dir, o.Usage.USD)
 		cron.MarkRun(*dir, due.ID, o.Stop, time.Now())
 	}
 }
@@ -210,12 +249,43 @@ func fireCronJob(ctx context.Context, dir string, j cron.Job, out, errOut io.Wri
 		return agent.Outcome{Stop: "error"}
 	}
 	defer cleanup()
-	o, runErr := a.Run(ctx, j.Prompt)
+	// Hard per-fire deadline so an unattended fire can never block the scheduler
+	// indefinitely, even if the project's governor wall-clock is unset.
+	fctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+	o, runErr := a.Run(fctx, j.Prompt)
 	if runErr != nil {
 		fmt.Fprintf(errOut, "  run error: %v\n", runErr)
 	}
 	fmt.Fprintf(out, "  → %s · %d turns · $%.4f\n", o.Stop, o.Turns, o.Usage.USD)
 	return o
+}
+
+func cronSetEnabled(args []string, on bool, out, errOut io.Writer) int {
+	fs := flag.NewFlagSet("cron toggle", flag.ContinueOnError)
+	dir := fs.String("dir", ".", "project root")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(errOut, "usage: cliche cron enable|disable [--dir .] <id>")
+		return 2
+	}
+	ok, err := cron.SetEnabled(*dir, fs.Arg(0), on)
+	if err != nil {
+		fmt.Fprintf(errOut, "cron: %v\n", err)
+		return 1
+	}
+	if !ok {
+		fmt.Fprintf(errOut, "cron: no job %q\n", fs.Arg(0))
+		return 1
+	}
+	state := "enabled"
+	if !on {
+		state = "disabled"
+	}
+	fmt.Fprintf(out, "%s %s\n", state, fs.Arg(0))
+	return 0
 }
 
 func nextStr(s cron.Schedule) string { return s.Next(time.Now()).Format("Mon 2006-01-02 15:04") }

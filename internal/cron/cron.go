@@ -72,8 +72,11 @@ func Parse(spec string) (Schedule, error) {
 	if s.mon, _, err = parseField(fields[3], 1, 12); err != nil {
 		return Schedule{}, fmt.Errorf("month: %v", err)
 	}
-	if s.dow, s.dowStar, err = parseField(fields[4], 0, 6); err != nil {
+	if s.dow, s.dowStar, err = parseField(fields[4], 0, 7); err != nil {
 		return Schedule{}, fmt.Errorf("day-of-week: %v", err)
+	}
+	if s.dow&(1<<7) != 0 { // Vixie: 7 is an alias for Sunday → fold onto 0
+		s.dow = (s.dow &^ (1 << 7)) | 1
 	}
 	return s, nil
 }
@@ -101,7 +104,11 @@ func parseField(field string, lo, hi int) (uint64, bool, error) {
 		start, end := lo, hi
 		switch {
 		case rng == "*":
-			star = true
+			// A bare "*" is a true wildcard; "*/n" is a RESTRICTION (every nth),
+			// so only the former sets the star fast-path used by the dom/dow rule.
+			if step == 1 {
+				star = true
+			}
 		case strings.IndexByte(rng, '-') > 0:
 			a, b, ok := strings.Cut(rng, "-")
 			ai, err1 := strconv.Atoi(strings.TrimSpace(a))

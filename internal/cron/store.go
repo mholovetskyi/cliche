@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -40,12 +41,13 @@ func Load(root string) ([]Job, error) {
 	}
 	var jobs []Job
 	if err := json.Unmarshal(data, &jobs); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cron store %s is corrupt (edit or delete it): %w", storePath(root), err)
 	}
 	return jobs, nil
 }
 
-// Save writes the jobs atomically (temp + rename) so a crash can't corrupt them.
+// Save writes the jobs atomically + durably (unique temp, fsync, rename) so a
+// crash mid-write can't corrupt or truncate them.
 func Save(root string, jobs []Job) error {
 	d := config.Dir(root)
 	if err := os.MkdirAll(d, 0o755); err != nil {
@@ -55,15 +57,30 @@ func Save(root string, jobs []Job) error {
 	if err != nil {
 		return err
 	}
-	p := storePath(root)
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp, err := os.CreateTemp(d, "cron-*.json")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, p)
+	name := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return os.Rename(name, storePath(root))
 }
 
-// Add validates the spec (rejecting a bad schedule up front) and appends a job.
+// Add validates the spec (rejecting a bad schedule up front) and appends a job,
+// regenerating the id on the (vanishing) chance of a collision.
 func Add(root, spec, prompt, mode string, maxUSD float64) (Job, error) {
 	if _, err := Parse(spec); err != nil {
 		return Job{}, err
@@ -72,8 +89,40 @@ func Add(root, spec, prompt, mode string, maxUSD float64) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
-	j := Job{ID: newID(), Spec: spec, Prompt: prompt, Mode: mode, MaxUSD: maxUSD, Enabled: true, Created: time.Now()}
+	id := newID()
+	for tries := 0; tries < 8 && idExists(jobs, id); tries++ {
+		id = newID()
+	}
+	j := Job{ID: id, Spec: spec, Prompt: prompt, Mode: mode, MaxUSD: maxUSD, Enabled: true, Created: time.Now()}
 	return j, Save(root, append(jobs, j))
+}
+
+func idExists(jobs []Job, id string) bool {
+	for _, j := range jobs {
+		if j.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// SetEnabled toggles a job on/off, reporting whether it existed.
+func SetEnabled(root, id string, on bool) (bool, error) {
+	jobs, err := Load(root)
+	if err != nil {
+		return false, err
+	}
+	found := false
+	for i := range jobs {
+		if jobs[i].ID == id {
+			jobs[i].Enabled = on
+			found = true
+		}
+	}
+	if !found {
+		return false, nil
+	}
+	return found, Save(root, jobs)
 }
 
 // Remove deletes a job by id, reporting whether it existed.
@@ -114,9 +163,9 @@ func MarkRun(root, id, status string, when time.Time) {
 }
 
 func newID() string {
-	b := make([]byte, 4)
+	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
-		return "job" + time.Now().UTC().Format("150405")
+		return fmt.Sprintf("job%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
 }
