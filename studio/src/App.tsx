@@ -89,6 +89,7 @@ import ShaderField from "./ShaderField";
 import DepthField from "./DepthField";
 import MemoryConstellation from "./MemoryConstellation";
 import { LogoMark } from "./Logo";
+import { api, sseUrl, apiBase, setServer, clearServer, isApp } from "./lib/api";
 import { enableAudio, disableAudio, scoreActivity, ping } from "./lib/audio";
 import { REDUCE, flag, setFlag } from "./lib/reduced";
 
@@ -524,7 +525,7 @@ function Setup({ onDone }: { onDone: () => void }) {
   const p = providers.find((x) => x.id === provider)!;
   async function connect() {
     setBusy(true); setErr("");
-    const r = await fetch("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, key }) });
+    const r = await api("/api/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, key }) });
     setBusy(false);
     if (r.status === 204) onDone(); else setErr((await r.text()) || "could not connect");
   }
@@ -571,7 +572,7 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
   const p = PROVIDERS.find((x) => x.id === provider) || PROVIDERS[0];
   async function apply() {
     setBusy(true); setErr("");
-    const r = await fetch("/api/provider", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, key, model }) });
+    const r = await api("/api/provider", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, key, model }) });
     setBusy(false);
     if (r.status === 204) { onApplied(); onClose(); } else setErr((await r.text()) || "could not switch provider");
   }
@@ -921,32 +922,32 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
   const [branch, setBranch] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
-  const refresh = () => fetch("/api/git").then((r) => r.json()).then(setG).catch(() => {});
+  const refresh = () => api("/api/git").then((r) => r.json()).then(setG).catch(() => {});
   useEffect(() => { refresh(); }, []);
   async function commit() {
     if (!msg.trim()) return; setBusy("commit"); setNote(null);
-    const r = await fetch("/api/git/commit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ msg }) });
+    const r = await api("/api/git/commit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ msg }) });
     setBusy("");
     if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Committed " + d.result }); setMsg(""); refresh(); onChanged(); }
     else setNote({ ok: false, text: await r.text() });
   }
   async function makeBranch() {
     if (!branch.trim()) return; setBusy("branch"); setNote(null);
-    const r = await fetch("/api/git/branch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: branch }) });
+    const r = await api("/api/git/branch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: branch }) });
     setBusy("");
     if (r.status === 204) { setNote({ ok: true, text: "Switched to branch " + branch }); setBranch(""); refresh(); }
     else setNote({ ok: false, text: await r.text() });
   }
   async function pr() {
     setBusy("pr"); setNote(null);
-    const r = await fetch("/api/git/pr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: msg.split("\n")[0], body: msg }) });
+    const r = await api("/api/git/pr", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: msg.split("\n")[0], body: msg }) });
     setBusy("");
     if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Pull request opened", url: d.url }); }
     else setNote({ ok: false, text: await r.text() });
   }
   async function deploy() {
     setBusy("deploy"); setNote(null);
-    const r = await fetch("/api/deploy", { method: "POST" });
+    const r = await api("/api/deploy", { method: "POST" });
     setBusy("");
     if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Live! First publish can take ~1 min to go live.", url: d.url }); refresh(); }
     else setNote({ ok: false, text: await r.text() });
@@ -1009,6 +1010,66 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
   );
 }
 
+// Connect — the mobile app's first-run screen: point it at a remote Cliché backend
+// (the cloud gateway / a networked `cliche serve`) with an access token. Only shown
+// inside the native shell; the browser/desktop talk to their own same-origin server.
+function Connect({ onConnected }: { onConnected: () => void }) {
+  const [url, setUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function connect() {
+    const base = url.trim().replace(/\/+$/, "");
+    if (!base) { setErr("Enter your Cliché server URL"); return; }
+    setBusy(true); setErr("");
+    setServer(base, token.trim());
+    try {
+      const r = await api("/api/state");
+      if (!r.ok) throw new Error(r.status === 401 ? "Token rejected" : `Server returned ${r.status}`);
+      onConnected();
+    } catch (e: any) {
+      clearServer();
+      setErr(String(e?.message || "").includes("fetch") ? "Couldn't reach that server" : (e?.message || "Connection failed"));
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="surface w-full max-w-sm rounded-2xl p-6 fade-up">
+        <div className="mb-5 flex items-center gap-3">
+          <span className="text-[#e8e8ea]"><LogoMark size={40} /></span>
+          <div>
+            <div className="text-lg font-semibold tracking-tight">Connect to Cliché</div>
+            <div className="text-xs text-[var(--mut)]">Point the app at your workspace</div>
+          </div>
+        </div>
+        <label className="mb-1 block text-xs font-medium text-[var(--mut)]">Server URL</label>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-cliche-server" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          className="field mb-3 w-full bg-transparent px-3 py-2.5 text-sm outline-none" />
+        <label className="mb-1 block text-xs font-medium text-[var(--mut)]">Access token</label>
+        <input value={token} onChange={(e) => setToken(e.target.value)} type="password" placeholder="paste the token" autoCapitalize="off"
+          className="field mb-4 w-full bg-transparent px-3 py-2.5 text-sm outline-none" />
+        {err && <div className="mb-3 flex items-center gap-1.5 text-xs text-[var(--accent)]"><CircleAlert size={13} /> {err}</div>}
+        <button onClick={connect} disabled={busy} className="btn-accent w-full rounded-xl py-2.5 text-sm">{busy ? "Connecting…" : "Connect"}</button>
+        <div className="mt-3 text-center text-[11px] text-[var(--faint)]">The token authenticates the agent in your private sandbox.</div>
+      </div>
+    </div>
+  );
+}
+
+// notifyDone fires a native "build finished" notification when a run completes
+// while the app is backgrounded. It reaches Capacitor's LocalNotifications via the
+// runtime bridge (window.Capacitor) rather than an npm import, so the shared web
+// build pulls in zero Capacitor dependencies and this is a no-op in the browser.
+function notifyDone() {
+  if (typeof document === "undefined" || !document.hidden) return;
+  const ln = (window as any).Capacitor?.Plugins?.LocalNotifications;
+  if (!ln?.schedule) return;
+  try {
+    ln.schedule({ notifications: [{ title: "Cliché Studio", body: "Your build finished.", id: Math.floor(Date.now() % 100000) }] });
+  } catch { /* ignore */ }
+}
+
 export default function App() {
   const [items, setItems] = useState<Item[]>([]);
   const [state, setState] = useState<State>({});
@@ -1057,12 +1118,12 @@ export default function App() {
   const leaderRef = useRef(false);
   const lastCelebRef = useRef(0);
 
-  const refreshAudit = () => fetch("/api/audit").then((r) => r.json()).then((a) => { setAudit(a); if (lastCelebRef.current === 0) lastCelebRef.current = a.entries || 0; }).catch(() => {});
-  const refreshSessions = () => fetch("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {});
-  const refreshFiles = () => fetch("/api/files").then((r) => r.json()).then(setTree).catch(() => {});
-  const refreshChanges = () => fetch("/api/changes").then((r) => r.json()).then(setChanges).catch(() => {});
-  const refreshRules = () => fetch("/api/rules").then((r) => r.json()).then(setRules).catch(() => {});
-  const refreshTasks = () => fetch("/api/tasks").then((r) => r.json()).then(setTasks).catch(() => {});
+  const refreshAudit = () => api("/api/audit").then((r) => r.json()).then((a) => { setAudit(a); if (lastCelebRef.current === 0) lastCelebRef.current = a.entries || 0; }).catch(() => {});
+  const refreshSessions = () => api("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {});
+  const refreshFiles = () => api("/api/files").then((r) => r.json()).then(setTree).catch(() => {});
+  const refreshChanges = () => api("/api/changes").then((r) => r.json()).then(setChanges).catch(() => {});
+  const refreshRules = () => api("/api/rules").then((r) => r.json()).then(setRules).catch(() => {});
+  const refreshTasks = () => api("/api/tasks").then((r) => r.json()).then(setTasks).catch(() => {});
   useEffect(() => { feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" }); }, [items]);
 
   useEffect(() => {
@@ -1107,13 +1168,13 @@ export default function App() {
   }
 
   useEffect(() => {
-    fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {}).finally(() => setLoaded(true));
-    fetch("/api/templates").then((r) => r.json()).then(setTemplates).catch(() => {});
-    fetch("/api/session").then((r) => r.json()).then((d) => setItems(msgsToItems(d.messages || []))).catch(() => {});
-    fetch("/api/models").then((r) => r.json()).then(setModels).catch(() => {});
-    fetch("/api/commands").then((r) => r.json()).then(setCommands).catch(() => {});
+    api("/api/state").then((r) => r.json()).then(setState).catch(() => {}).finally(() => setLoaded(true));
+    api("/api/templates").then((r) => r.json()).then(setTemplates).catch(() => {});
+    api("/api/session").then((r) => r.json()).then((d) => setItems(msgsToItems(d.messages || []))).catch(() => {});
+    api("/api/models").then((r) => r.json()).then(setModels).catch(() => {});
+    api("/api/commands").then((r) => r.json()).then(setCommands).catch(() => {});
     refreshSessions(); refreshAudit(); refreshFiles(); refreshChanges(); refreshRules(); refreshTasks();
-    const es = new EventSource("/api/events");
+    const es = new EventSource(sseUrl("/api/events"));
     es.onmessage = (m) => {
       const e: Ev = JSON.parse(m.data);
       setItems((prev) => reduce(prev, e));
@@ -1126,8 +1187,9 @@ export default function App() {
       if (e.kind === "delta" || e.kind === "tool_call" || e.kind === "tool_result" || e.kind === "approval" || e.kind === "error" || e.kind === "end") ping(e.kind);
       if (e.kind === "state" && e.data) setState(e.data);
       if (e.kind === "end") {
+        notifyDone();
         setPreviewKey((k) => k + 1); refreshSessions(); refreshFiles(); refreshChanges(); refreshTasks();
-        fetch("/api/audit").then((r) => r.json()).then((fresh) => {
+        api("/api/audit").then((r) => r.json()).then((fresh) => {
           setAudit(fresh);
           if (fresh.ok && lastCelebRef.current > 0 && fresh.entries > lastCelebRef.current && !REDUCE.matches) setCelebrate(true);
           lastCelebRef.current = fresh.entries || 0;
@@ -1167,52 +1229,52 @@ export default function App() {
   }, [tab, changes.length]);
 
   function answer(id: string, allow: boolean) {
-    fetch("/api/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, allow }) });
+    api("/api/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, allow }) });
     setItems((prev) => prev.map((it) => (it.t === "approval" && it.id === id ? { ...it, answered: allow ? "allowed" : "declined" } : it)));
   }
   async function run(p: string) {
     if (!p.trim() || state.running) return;
     setMobileView("chat");
     setItems((prev) => [...prev, { t: "you", text: p }]); setPrompt("");
-    const r = await fetch("/api/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: p }) });
+    const r = await api("/api/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: p }) });
     if (!r.ok) setItems((prev) => [...prev, { t: "error", text: r.status === 409 ? "a run is already in progress" : `request failed (${r.status})` }]);
     else setImgCount(0);
   }
-  async function addTask(title: string) { const r = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }); setTasks(await r.json()); }
-  async function toggleTask(id: number) { const r = await fetch("/api/tasks/done", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); setTasks(await r.json()); }
-  async function clearTasks() { const r = await fetch("/api/tasks/clear", { method: "POST" }); setTasks(await r.json()); }
-  async function uploadImage(file: File) { const fd = new FormData(); fd.append("file", file); const r = await fetch("/api/image", { method: "POST", body: fd }); if (r.ok) setImgCount((await r.json()).count); }
+  async function addTask(title: string) { const r = await api("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }); setTasks(await r.json()); }
+  async function toggleTask(id: number) { const r = await api("/api/tasks/done", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); setTasks(await r.json()); }
+  async function clearTasks() { const r = await api("/api/tasks/clear", { method: "POST" }); setTasks(await r.json()); }
+  async function uploadImage(file: File) { const fd = new FormData(); fd.append("file", file); const r = await api("/api/image", { method: "POST", body: fd }); if (r.ok) setImgCount((await r.json()).count); }
   async function uploadImages(files: File[]) { for (const f of files) { if (f.type.startsWith("image/")) await uploadImage(f); } }
   function onComposerPaste(e: React.ClipboardEvent) { const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/")); if (imgs.length) { e.preventDefault(); uploadImages(imgs); } }
   function onComposerDrop(e: React.DragEvent) { e.preventDefault(); setDragOver(false); const imgs = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/")); if (imgs.length) uploadImages(imgs); }
   async function newChat() {
-    await fetch("/api/sessions/new", { method: "POST" });
+    await api("/api/sessions/new", { method: "POST" });
     setItems([]); refreshSessions(); setMobileView("chat");
   }
   async function pickSession(id: string) {
-    const r = await fetch("/api/sessions/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    const r = await api("/api/sessions/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     const d = await r.json(); setItems(msgsToItems(d.messages || [])); refreshSessions(); setMobileView("chat");
   }
   async function renameSession(id: string, title: string) {
-    await fetch("/api/sessions/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, title }) });
+    await api("/api/sessions/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, title }) });
     refreshSessions();
   }
   async function deleteSession(id: string) {
-    const r = await fetch("/api/sessions/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    const r = await api("/api/sessions/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     if (r.ok) { const wasActive = sessions.find((s) => s.id === id)?.active; if (wasActive) setItems([]); refreshSessions(); }
   }
-  const refreshState = () => fetch("/api/state").then((r) => r.json()).then(setState).catch(() => {});
+  const refreshState = () => api("/api/state").then((r) => r.json()).then(setState).catch(() => {});
   async function setMode(mode: string) {
-    await fetch("/api/mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
+    await api("/api/mode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode }) });
     refreshState(); refreshRules();
   }
-  async function undo() { await fetch("/api/undo", { method: "POST" }); refreshChanges(); refreshFiles(); setPreviewKey((k) => k + 1); }
-  async function rewind() { await fetch("/api/rewind", { method: "POST" }); refreshChanges(); refreshFiles(); setPreviewKey((k) => k + 1); }
+  async function undo() { await api("/api/undo", { method: "POST" }); refreshChanges(); refreshFiles(); setPreviewKey((k) => k + 1); }
+  async function rewind() { await api("/api/rewind", { method: "POST" }); refreshChanges(); refreshFiles(); setPreviewKey((k) => k + 1); }
   async function setModel(model: string) {
-    await fetch("/api/model", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
+    await api("/api/model", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) });
     refreshState();
   }
-  function stop() { fetch("/api/stop", { method: "POST" }); }
+  function stop() { api("/api/stop", { method: "POST" }); }
 
   function runCommand(line: string): boolean {
     const [cmd, ...rest] = line.slice(1).split(/\s+/);
@@ -1237,7 +1299,7 @@ export default function App() {
       case "trust": case "rules": case "status": showWs(); setTab("trust"); return true;
       case "focus": case "chat": setWorkspaceOpen(false); persistWs(false); return true;
       case "split": case "panel": showWs(); return true;
-      case "export": window.location.href = "/api/export"; return true;
+      case "export": window.location.href = sseUrl("/api/export"); return true;
       default: return false;
     }
   }
@@ -1248,7 +1310,7 @@ export default function App() {
   }
 
   async function openFileAt(path: string) {
-    const r = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+    const r = await api(`/api/file?path=${encodeURIComponent(path)}`);
     if (!r.ok) return;
     const text = await r.text();
     setOpenFile({ path, html: hljs.highlightAuto(text).value });
@@ -1258,8 +1320,9 @@ export default function App() {
     setExpanded((prev) => { const n = new Set(prev); if (n.has(p)) n.delete(p); else n.add(p); return n; });
   }
 
+  if (isApp() && !apiBase()) return <Connect onConnected={() => location.reload()} />;
   if (!loaded) return <Boot />;
-  if (state.needs_setup) return <Setup onDone={() => fetch("/api/state").then((r) => r.json()).then(setState)} />;
+  if (state.needs_setup) return <Setup onDone={() => api("/api/state").then((r) => r.json()).then(setState)} />;
 
   const activeTitle = sessions.find((s) => s.active)?.title;
   const allCommands = [...COMMANDS, ...commands.map((c) => ({ cmd: c.name, desc: c.desc, arg: true }))];
@@ -1302,7 +1365,7 @@ export default function App() {
       {booting && <Boot />}
       {celebrate && <Sparks origin={{ x: 32, y: 26 }} onDone={() => setCelebrate(false)} />}
       {showMemory && <MemoryConstellation sessions={sessions} relTime={relTime} onPick={pickSession} onClose={() => setShowMemory(false)} />}
-      {showSettings && <Settings state={state} onClose={() => setShowSettings(false)} onApplied={() => { refreshState(); fetch("/api/models").then((r) => r.json()).then(setModels).catch(() => {}); }} />}
+      {showSettings && <Settings state={state} onClose={() => setShowSettings(false)} onApplied={() => { refreshState(); api("/api/models").then((r) => r.json()).then(setModels).catch(() => {}); }} />}
       {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
       {showKeys && <KeysOverlay onClose={() => setShowKeys(false)} />}
       {leader && <div className="fade-up glass elev fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--mut)]">go to <span className="kbd">p</span><span className="kbd">f</span><span className="kbd">c</span><span className="kbd">t</span><span className="kbd">n</span></div>}
@@ -1383,7 +1446,7 @@ export default function App() {
               {imgCount > 0 && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--accent)]/15 px-2 py-1 text-xs text-[var(--accent)]">
                   {imgCount} image{imgCount > 1 ? "s" : ""}
-                  <button type="button" onClick={() => { fetch("/api/image/clear", { method: "POST" }); setImgCount(0); }} title="Remove"><X size={11} /></button>
+                  <button type="button" onClick={() => { api("/api/image/clear", { method: "POST" }); setImgCount(0); }} title="Remove"><X size={11} /></button>
                 </span>
               )}
               <input value={prompt} onChange={(e) => setPrompt(e.target.value)} onPaste={onComposerPaste} placeholder={dragOver ? "Drop image to attach…" : "Describe what you want to build…"} autoFocus className="flex-1 bg-transparent py-2.5 text-[15px] outline-none placeholder:text-[var(--dim)]" />
@@ -1412,7 +1475,7 @@ export default function App() {
           <span className="flex-1" />
           {tab === "preview" && (
             <>
-              <a href="/api/export" className="icon-btn h-8 w-8" title="Download (.zip)"><Download size={15} /></a>
+              <a href={sseUrl("/api/export")} className="icon-btn h-8 w-8" title="Download (.zip)"><Download size={15} /></a>
               <button onClick={() => setPreviewKey((k) => k + 1)} className="icon-btn h-8 w-8" title="Refresh"><RefreshCw size={15} /></button>
               <a href="/preview/" target="_blank" className="icon-btn h-8 w-8" title="Open in a tab"><ExternalLink size={15} /></a>
             </>
