@@ -564,18 +564,42 @@ function Setup({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Settings({ state, onClose, onApplied }: { state: State; onClose: () => void; onApplied: () => void }) {
+const MODE_DESC: Record<string, string> = {
+  plan: "Read-only — reads, plans, and answers, but never writes or runs commands.",
+  suggest: "Asks before every file write, command, and memory save. The careful default.",
+  "auto-edit": "Auto-applies file edits; still asks before running commands.",
+  full: "Auto-approves writes and commands. Fastest — the budget cap & governor still hold.",
+};
+
+function SettingsSection({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="border-t border-[var(--line)] px-6 py-5">
+      <div className="mb-0.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-[var(--dim)]">{title}</div>
+      {hint && <div className="mb-3 text-[11px] leading-relaxed text-[var(--faint)]">{hint}</div>}
+      {!hint && <div className="mb-3" />}
+      {children}
+    </div>
+  );
+}
+
+function Settings({ state, theme, accent, inst, onClose, onApplied, onSetTheme, onAccent, onToggleInst, onMode }: {
+  state: State; theme: string; accent: string; inst: { substrate: boolean; sound: boolean; oracle: boolean };
+  onClose: () => void; onApplied: () => void; onSetTheme: (t: string) => void; onAccent: (id: string) => void;
+  onToggleInst: (k: "substrate" | "sound" | "oracle") => void; onMode: (m: string) => void;
+}) {
   const [provider, setProvider] = useState(state.provider || "anthropic");
   const [key, setKey] = useState("");
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [mode, setMode] = useState(state.mode || "suggest");
   const [pers, setPers] = useState<{ active: string; options: { name: string; title: string; desc: string }[] }>({ active: "default", options: [] });
   useEffect(() => { api("/api/persona").then((r) => r.json()).then((d) => setPers({ active: d.active || "default", options: d.options || [] })).catch(() => {}); }, []);
   async function pickPersona(name: string) {
     setPers((x) => ({ ...x, active: name }));
     await api("/api/persona", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
   }
+  function pickMode(m: string) { setMode(m); onMode(m); }
   const p = PROVIDERS.find((x) => x.id === provider) || PROVIDERS[0];
   async function apply() {
     setBusy(true); setErr("");
@@ -583,41 +607,81 @@ function Settings({ state, onClose, onApplied }: { state: State; onClose: () => 
     setBusy(false);
     if (r.status === 204) { onApplied(); onClose(); } else setErr((await r.text()) || "could not switch provider");
   }
+  const insts: { k: "substrate" | "sound" | "oracle"; label: string }[] = [
+    { k: "substrate", label: "Ambient field" }, { k: "sound", label: "Sound" }, { k: "oracle", label: "Oracle quips" },
+  ];
   return (
     <div className="fade-in fixed inset-0 z-[110] grid place-items-center bg-black/55 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="glass elev pop-in w-[460px] rounded-2xl border border-[var(--line2)] p-6">
-        <div className="mb-1 flex items-center gap-2 text-sm font-semibold"><SlidersHorizontal size={16} className="text-[var(--accent)]" /> Settings</div>
-        <div className="mb-5 text-xs text-[var(--mut)]">Currently: <b className="text-[var(--ink)]">{state.provider || "—"}</b> · <span className="font-mono">{state.model || "—"}</span>{state.mode ? ` · ${state.mode}` : ""}</div>
-        <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Provider</label>
-        <select value={provider} onChange={(e) => setProvider(e.target.value)} className="field mb-3 w-full px-3 py-2 text-sm">
-          {PROVIDERS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-        </select>
-        {!p.local && (
-          <>
-            <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">API key {state.provider === provider ? "(blank = keep current)" : ""}</label>
-            <div className="field relative mb-1 flex items-center">
-              <KeyRound size={15} className="absolute left-3 text-[var(--dim)]" />
-              <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="paste your key…" className="w-full bg-transparent py-2 pl-9 pr-3 font-mono text-sm outline-none" />
-            </div>
-            {p.keyUrl && <a href={p.keyUrl} target="_blank" className="text-xs text-[var(--accent)]">get a key →</a>}
-          </>
-        )}
-        <label className="mb-1.5 mt-3 block text-xs font-medium text-[var(--mut)]">Model (optional)</label>
-        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={p.local ? "e.g. llama3.2" : "blank = the provider's strong default"} className="field w-full bg-transparent px-3 py-2 font-mono text-sm outline-none" />
-        {pers.options.length > 0 && (
-          <>
-            <label className="mb-1.5 mt-4 block text-xs font-medium text-[var(--mut)]">Personality</label>
-            <div className="flex flex-wrap gap-1.5">
-              {pers.options.map((o) => (
-                <button key={o.name} onClick={() => pickPersona(o.name)} title={o.desc} className={`rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${pers.active === o.name ? "border-[var(--accent)]/50 bg-[var(--accent)]/[0.12] text-[var(--ink)]" : "border-[var(--line)] text-[var(--mut)] hover:text-[var(--ink)]"}`}>{o.title}</button>
+      <div onClick={(e) => e.stopPropagation()} className="glass elev pop-in flex max-h-[86vh] w-[540px] flex-col overflow-hidden rounded-2xl border border-[var(--line2)]">
+        <div className="flex items-center gap-2 px-6 py-4">
+          <SlidersHorizontal size={16} className="text-[var(--accent)]" />
+          <span className="text-sm font-semibold">Settings</span>
+          <span className="flex-1" />
+          <span className="text-[11px] text-[var(--mut)]"><b className="text-[var(--ink)]">{state.provider || "—"}</b> · <span className="font-mono">{state.model || "—"}</span></span>
+          <button onClick={onClose} className="icon-btn h-7 w-7"><X size={15} /></button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <SettingsSection title="Provider & model" hint="Switch model or provider without losing the conversation. Your key stays on this computer.">
+            <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Provider</label>
+            <select value={provider} onChange={(e) => setProvider(e.target.value)} className="field mb-3 w-full px-3 py-2 text-sm">
+              {PROVIDERS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </select>
+            {!p.local && (
+              <>
+                <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">API key {state.provider === provider ? "(blank = keep current)" : ""}</label>
+                <div className="field relative mb-1 flex items-center">
+                  <KeyRound size={15} className="absolute left-3 text-[var(--dim)]" />
+                  <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="paste your key…" className="w-full bg-transparent py-2 pl-9 pr-3 font-mono text-sm outline-none" />
+                </div>
+                {p.keyUrl && <a href={p.keyUrl} target="_blank" className="text-xs text-[var(--accent)]">get a key →</a>}
+              </>
+            )}
+            <label className="mb-1.5 mt-3 block text-xs font-medium text-[var(--mut)]">Model (optional)</label>
+            <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={p.local ? "e.g. llama3.2" : "blank = the provider's strong default"} className="field w-full bg-transparent px-3 py-2 font-mono text-sm outline-none" />
+            {err && <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--accent)]"><CircleAlert size={13} /> {err}</div>}
+            <button onClick={apply} disabled={busy} className="btn-accent mt-4 w-full rounded-xl py-2.5 text-sm">{busy ? "switching…" : "Connect & switch"}</button>
+          </SettingsSection>
+
+          {pers.options.length > 0 && (
+            <SettingsSection title="Personality" hint="Shapes the agent's tone and priorities — never its permissions. Applies on your next message.">
+              <div className="flex flex-wrap gap-1.5">
+                {pers.options.map((o) => (
+                  <button key={o.name} onClick={() => pickPersona(o.name)} title={o.desc} className={`rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${pers.active === o.name ? "border-[var(--accent)]/50 bg-[var(--accent)]/[0.12] text-[var(--ink)]" : "border-[var(--line)] text-[var(--mut)] hover:text-[var(--ink)]"}`}>{o.title}</button>
+                ))}
+              </div>
+            </SettingsSection>
+          )}
+
+          <SettingsSection title="Permissions" hint={MODE_DESC[mode]}>
+            <div className="seg w-full">
+              {MODES.map((m) => (
+                <button key={m.id} data-on={mode === m.id} onClick={() => pickMode(m.id)} className="seg-item flex-1 justify-center">{m.label}</button>
               ))}
             </div>
-            <div className="mt-1.5 text-[11px] text-[var(--dim)]">Shapes the agent's tone — takes effect on your next message. The Trust Kernel is unaffected.</div>
-          </>
-        )}
-        {err && <div className="mt-3 flex items-center gap-1.5 text-xs text-[var(--accent)]"><CircleAlert size={13} /> {err}</div>}
-        <button onClick={apply} disabled={busy} className="btn-accent mt-5 w-full rounded-xl py-3 text-sm">{busy ? "switching…" : "Connect & switch"}</button>
-        <div className="mt-2 text-center text-[11px] text-[var(--dim)]">Keeps your current conversation. Your key stays on this computer.</div>
+            <div className="mt-2 text-[11px] text-[var(--faint)]">Whatever the mode, the Trust Kernel's budget cap, governor, and deny rules always hold.</div>
+          </SettingsSection>
+
+          <SettingsSection title="Appearance">
+            <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Theme</label>
+            <div className="seg mb-4 w-full">
+              {[{ id: "dark", label: "Dark", icon: Moon }, { id: "light", label: "Light", icon: Sun }].map((t) => (
+                <button key={t.id} data-on={(theme || "dark") === t.id} onClick={() => onSetTheme(t.id)} className="seg-item flex-1 justify-center gap-1.5"><t.icon size={13} /> {t.label}</button>
+              ))}
+            </div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Accent</label>
+            <div className="mb-4 flex items-center gap-2">
+              {ACCENTS.map((ac) => (
+                <button key={ac.id} onClick={() => onAccent(ac.id)} title={ac.id} className={`h-7 w-7 rounded-full border-2 transition-transform hover:scale-110 ${accent === ac.id ? "border-[var(--ink)]" : "border-transparent"}`} style={{ background: `linear-gradient(135deg, ${ac.a2}, ${ac.a})` }} />
+              ))}
+            </div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Ambient</label>
+            <div className="flex flex-wrap gap-1.5">
+              {insts.map((it) => (
+                <button key={it.k} onClick={() => onToggleInst(it.k)} className={`rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${inst[it.k] ? "border-[var(--accent)]/50 bg-[var(--accent)]/[0.12] text-[var(--ink)]" : "border-[var(--line)] text-[var(--mut)] hover:text-[var(--ink)]"}`}>{it.label} · {inst[it.k] ? "on" : "off"}</button>
+              ))}
+            </div>
+          </SettingsSection>
+        </div>
       </div>
     </div>
   );
@@ -1670,7 +1734,7 @@ export default function App() {
       {booting && <Boot />}
       {celebrate && <Sparks origin={{ x: 32, y: 26 }} onDone={() => setCelebrate(false)} />}
       {showMemory && <MemoryConstellation sessions={sessions} relTime={relTime} onPick={pickSession} onClose={() => setShowMemory(false)} />}
-      {showSettings && <Settings state={state} onClose={() => setShowSettings(false)} onApplied={() => { refreshState(); api("/api/models").then((r) => r.json()).then(setModels).catch(() => {}); }} />}
+      {showSettings && <Settings state={state} theme={theme} accent={accent} inst={inst} onClose={() => setShowSettings(false)} onApplied={() => { refreshState(); api("/api/models").then((r) => r.json()).then(setModels).catch(() => {}); }} onSetTheme={(t) => setTheme(t)} onAccent={setAccentTheme} onToggleInst={toggleInst} onMode={setMode} />}
       {paletteOpen && <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} />}
       {showKeys && <KeysOverlay onClose={() => setShowKeys(false)} />}
       {leader && <div className="fade-up glass elev fixed bottom-6 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--mut)]">go to <span className="kbd">p</span><span className="kbd">f</span><span className="kbd">c</span><span className="kbd">t</span><span className="kbd">n</span></div>}
