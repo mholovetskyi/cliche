@@ -52,6 +52,7 @@ var slashCommands = []slashCmd{
 	{"/provider", "[name]", "switch provider (login inline if needed)", "control"},
 	{"/theme", "[name]", "show or switch the UI palette", "control"},
 	{"/mode", "[name]", "show or switch permission mode", "control"},
+	{"/persona", "[name]", "show or set the agent personality (tone only)", "control"},
 	{"/clear", "", "reset the conversation context", "control"},
 	{"/recover", "", "undo the last context compaction", "control"},
 	{"/help", "", "show this list", "control"},

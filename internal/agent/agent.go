@@ -33,7 +33,12 @@ import (
 // Config holds per-run agent settings.
 type Config struct {
 	System string
-	Model  string
+	// SystemSuffix, if set, is appended to System at the START OF EACH TURN, so a
+	// live-mutable note (e.g. the active personality) takes effect on the next
+	// message without rebuilding the agent. Keep it small and stable — it only
+	// changes the cached system block when its value actually changes.
+	SystemSuffix func() string
+	Model        string
 	// Preflight token estimates used by the Budget Kernel's first gate.
 	EstInputTokens  int
 	EstOutputTokens int
@@ -246,7 +251,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 			return a.budgetHalt(err, turn), nil
 		}
 
-		req := provider.Request{System: a.cfg.System, Model: a.cfg.Model, Messages: a.messages, Tools: a.toolSpecs()}
+		sys := a.cfg.System
+		if a.cfg.SystemSuffix != nil {
+			sys += a.cfg.SystemSuffix() // live note (e.g. the active personality), re-read each turn
+		}
+		req := provider.Request{System: sys, Model: a.cfg.Model, Messages: a.messages, Tools: a.toolSpecs()}
 		// Bound this request's OUTPUT by the remaining token budget (the tightest
 		// across the kernel chain, so a scoped subagent is bounded too). Input
 		// overshoot is still caught post-turn by Record. Remaining() returns 0

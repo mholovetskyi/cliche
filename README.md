@@ -6,8 +6,9 @@
 <h3><em>the AI coding agent you can actually leave running</em></h3>
 
 <p>
-  <b>An open-source coding agent for your terminal</b> that wraps <b>any model</b> in a deterministic<br>
-  <b>Trust Kernel</b> — hard token cap · runaway breaker · reward-hack verifier · signed ledger. <b>All on by default.</b>
+  <b>An open-source coding agent for your terminal <em>and</em> your browser</b> that wraps <b>any model</b><br>
+  in a deterministic <b>Trust Kernel</b> — hard token cap · runaway breaker · reward-hack verifier · signed ledger.<br>
+  Skills it writes itself, memory that asks first, schedules, personalities — <b>autonomy that can't spiral.</b>
 </p>
 
 <p>
@@ -33,6 +34,7 @@
   <a href="#quickstart"><b>⚡ Quickstart</b></a> &nbsp;·&nbsp;
   <a href="#cliché-studio--the-same-agent-in-a-browser">🎨 Studio</a> &nbsp;·&nbsp;
   <a href="#the-trust-kernel">🛡️ Trust Kernel</a> &nbsp;·&nbsp;
+  <a href="#autonomy-you-can-leave-running">🤖 Autonomy</a> &nbsp;·&nbsp;
   <a href="#usage">🚀 Usage</a> &nbsp;·&nbsp;
   <a href="#command-reference">📖 Commands</a> &nbsp;·&nbsp;
   <a href="#configuration">⚙️ Config</a> &nbsp;·&nbsp;
@@ -47,6 +49,17 @@
 
 > [!IMPORTANT]
 > **Every other coding CLI competes on capability. Cliche competes on the thing none of them ship: guardrails the model cannot argue its way past** — because they're code wrapped around the loop, not a prompt the model can ignore. A `--yolo` flag may skip approvals, but it can **never** bypass the budget cap, the governor, a deny rule, plan mode, the egress allowlist, or a pre-tool-use hook.
+
+## What you get
+
+| | |
+|---|---|
+| 🛡️ **A Trust Kernel, not a prompt** | Hard token cap · dollar cap · runaway governor · reward-hack verifier · signed ledger. Deterministic Go around the loop — the model never sees the levers, and `--yolo` can't move them. |
+| 🤖 **Autonomy you can leave running** | Skills it writes itself · personalities · memory that asks before it saves · cron schedules · drive-it-from-Telegram · parallel subagents — **every bit bounded by the same kernel.** |
+| 🎨 **Cliché Studio** | `cliche serve` opens a local web app for the *same* agent: build by chatting, live preview, diffs, Git, one-click deploy — every write an in-app **Allow** card. No Node, baked into the binary. |
+| 🧠 **Any model, no lock-in** | 24 built-in provider presets + any OpenAI-compatible endpoint — Anthropic, OpenAI, Gemini, Grok, DeepSeek, local Ollama/vLLM. Auto-detected from your key. |
+| 🧩 **Extensible & governed** | MCP (stdio + HTTP) · OAuth connectors · skills · custom commands · hooks that can block any tool call · plugin bundles — all permission-gated and ledgered like built-ins. |
+| 📦 **Zero dependencies** | The entire core is the Go standard library — **`0` third-party deps**, verified every commit. One static binary, signed releases + SBOM, nothing to audit but code you can read. |
 
 ## Why it exists
 
@@ -74,8 +87,9 @@ No Node, no build step — the UI is baked into the single Go binary. It's a ful
 
 - **Build by chatting** — describe what you want; **paste or drag in a screenshot** to clone a design or debug a UI. Cliché can even **see its own work** (a screenshot tool feeds the rendered page back to the model) and the screenshots show up right in the chat.
 - **Live preview · file tree · diffs · Git** — watch the site build in an iframe, browse files, review changes, then **commit, open a PR, or one-click Deploy to a live URL** — all from the app.
-- **The Trust Kernel, visible** — every write/command is an in-app **Allow** card; the budget, governor, and signed ledger are on a trust dashboard. `--yolo` still can't bypass them.
-- **Liquid-glass UI** — ⌘K palette, focus mode (chat only), provider/model switcher, session history. Switch providers without touching a config file.
+- **Skills & Tools · Messaging · Artifacts** — a side-nav to browse and install skills, inspect the agent's tool roster, wire up the Telegram bridge, and see everything Cliché *remembers and made* (project memory, your profile, a recall search over past sessions).
+- **The Trust Kernel, visible — and adjustable** — every write/command is an in-app **Allow** card; the budget, governor, and signed ledger sit on a trust dashboard. **Dial the budget, token cap, and turn limit live** from Settings — the caps stay *hard*, you just choose where they sit. `--yolo` still can't move them.
+- **Make it yours** — a **Personality** picker (concise · mentor · architect · skeptic · shipper, or your own `PERSONA.md`), dark/light themes, ⌘K palette, focus mode (chat only), and a provider/model switcher — no config file to touch.
 
 > Projects build in a dedicated workspace (`~/Cliche Projects`), never the folder you launched from. Point it anywhere with `cliche serve --dir .`.
 
@@ -83,10 +97,12 @@ No Node, no build step — the UI is baked into the single Go binary. It's a ful
 
 ## Table of contents
 
+- [What you get](#what-you-get)
 - [Quickstart](#quickstart)
 - [Cliché Studio (the visual app)](#cliché-studio--the-same-agent-in-a-browser)
 - [The Trust Kernel](#the-trust-kernel)
 - [See it fire](#see-it-fire)
+- [Autonomy you can leave running](#autonomy-you-can-leave-running)
 - [Usage](#usage)
 - [The session cockpit](#the-session-cockpit)
 - [Command reference](#command-reference)
@@ -182,6 +198,23 @@ cliche demo
     → verdict: flagged
       • [deleted_test] a test was removed: func TestChargesCustomer...
 ```
+
+---
+
+## Autonomy you can leave running
+
+The category is full of agents that *can* do this. The difference here: **none of it can spiral** — every loop below runs inside the same Trust Kernel as a foreground chat.
+
+| | |
+|---|---|
+| 🧪 **Skills it writes itself** | After a gnarly task, the agent distills the procedure into a reusable `SKILL.md` (`save_skill`) — the save is **approval-gated**, so it never self-modifies behind your back. Install more from any URL: `cliche skills add <url>`. |
+| 🎭 **Personalities** | `cliche persona <name>` — concise · mentor · architect · skeptic · shipper, or your own `PERSONA.md`. Shapes tone and priorities **only**; a persona can never widen a permission or a cap. |
+| 🧠 **Memory that asks first** | The agent can persist a durable fact about the project (`remember`) or about you (`remember_user`) — but the write is **gated like any other**: it proposes, *you* approve. `recall` searches every past session. Nothing edits its memory of you behind your back. |
+| ⏰ **Schedules** | `cliche cron add "@daily" "…"` runs prompts unattended — each fire bounded by the **full Trust Kernel** *and* a rolling 24-hour spend ceiling. "Leave it running" that genuinely can't run away. |
+| 💬 **Drive it from your phone** | `cliche telegram` turns a chat into a remote control — **owner-locked**, every run bounded and counted against the same daily cap. |
+| 🐝 **Parallel subagents** | `spawn_subagent` fans isolated work out to child agents with **scoped sub-budgets that bubble up** to the session cap — a fleet can't outspend the whole. |
+
+> These ideas aren't new — agents like **[Hermes](https://github.com/NousResearch/hermes-agent)** pioneered the skills-from-experience loop and the cross-platform gateway. Cliché's twist is to run **every one of them inside the Trust Kernel**. The autonomy is the easy part; making it safe to walk away from is the product.
 
 ---
 
@@ -299,11 +332,20 @@ Unambiguous abbreviations just work (`/s` → `/status`); clickable hyperlinks f
 | `connectors` | List connectors (`connectors rm <name>`) |
 | `org` | Connect a control plane (Team tier): `org login` pins a signed tighten-only policy; `org show` / `logout` |
 | `commands` | Custom saved-prompt slash commands (`commands new <name>`) |
-| `skills` | Skills the agent uses automatically (`skills new <name>`) |
+| `skills` | Skills the agent uses automatically (`skills new <name>` · `skills add <url>`) |
 | `plugins` | Installable bundles: skills + commands + hooks + MCP (`plugins new <name>`) |
 | `themes` | List UI palettes |
 | `memory` | Show/edit cross-session project memory (`add` / `clear`) |
 | `sessions` | List saved chat sessions |
+
+**Autonomy & surfaces**
+| Command | What it does |
+|---|---|
+| `serve` / `studio` | Open **Cliché Studio**, the local web app (same agent + Trust Kernel) |
+| `persona` | Set the agent's personality (`persona <name>` · `show` · `edit`); also `personality` |
+| `cron` | Schedule unattended prompts (`add` / `list` / `rm` / `run`) — each fire kernel-bounded + a daily cap |
+| `telegram` | Drive Cliché from an owner-locked Telegram chat, every run bounded |
+| `doctor` | Health check: providers, toolchain, Trust Kernel, integrations |
 
 **Meta:** `config` (print + validate), `bug`, `version` (`-v`), `help` (`-h`).
 
@@ -336,7 +378,7 @@ Unambiguous abbreviations just work (`/s` → `/status`); clickable hyperlinks f
 <details>
 <summary><b>Slash commands</b> — inside a chat session</summary>
 
-`/status` `/cost` `/context` `/insights` `/rules` `/permissions` · `/plan` `/tasks` `/done` · `/sessions` `/new` `/fork` `/resume` `/kill` · `/browse` `/dash` `/tui` `/changes` · `/diff` `/undo` `/rewind` `/commit` `/verify` · `/model` `/models` `/provider` · `/connect` `/mcp` · `/memory` `/theme` `/mode` `/clear` `/bug` `/help`
+`/status` `/cost` `/context` `/insights` `/rules` `/permissions` · `/plan` `/tasks` `/done` · `/sessions` `/new` `/fork` `/resume` `/kill` · `/browse` `/dash` `/tui` `/changes` · `/diff` `/undo` `/rewind` `/commit` `/verify` · `/model` `/models` `/provider` · `/persona` `/cron` `/connect` `/mcp` · `/memory` `/theme` `/mode` `/clear` `/bug` `/help`
 
 </details>
 

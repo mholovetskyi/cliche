@@ -291,10 +291,13 @@ func buildAgent(f *runFlags, approve tools.Approver, staticMode bool) (*agent.Ag
 	sys += learnSkillNote()                      // the learning loop: capture reusable workflows as skills
 	sys += memory.SystemNote(memory.Load(f.dir)) // durable facts from earlier sessions (this project)
 	sys += profile.SystemNote(profile.Load())    // who the user is — durable preferences across all projects
-	sys += persona.SystemNote(persona.Active())  // the chosen personality — tone/style only, never permissions
 	wallClock := time.Duration(cfg.Governor.MaxWallClockSeconds) * time.Second
 	acfg := agent.Config{
-		System:             sys,
+		System: sys,
+		// Personality is appended fresh each turn (not baked into the cached system
+		// block), so `/persona` and the Studio picker take effect on the next message
+		// without rebuilding the agent. Tone/style only — never permissions.
+		SystemSuffix:       func() string { return persona.SystemNote(persona.Active()) },
 		Model:              b.model,
 		MaxWallClock:       wallClock,
 		ContextLimitTokens: cfg.Context.LimitTokens,
