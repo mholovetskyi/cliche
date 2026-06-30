@@ -1611,6 +1611,8 @@ export default function App() {
   const depthRef = useRef<(kind: string) => void>(() => {});
   const leaderRef = useRef(false);
   const lastCelebRef = useRef(0);
+  const prevPreviewRef = useRef(false);   // tracks has_preview to auto-open the tab on first appearance
+  const reloadTimerRef = useRef<any>(null); // debounces live preview reloads
 
   const refreshAudit = () => api("/api/audit").then((r) => r.json()).then((a) => { setAudit(a); if (lastCelebRef.current === 0) lastCelebRef.current = a.entries || 0; }).catch(() => {});
   const refreshSessions = () => api("/api/sessions").then((r) => r.json()).then(setSessions).catch(() => {});
@@ -1679,8 +1681,22 @@ export default function App() {
       if (e.kind === "approval") setAwaiting(true);
       if (e.kind === "end" || e.kind === "error") setAwaiting(false);
       if (e.kind === "delta" || e.kind === "tool_call" || e.kind === "tool_result" || e.kind === "approval" || e.kind === "error" || e.kind === "end") ping(e.kind);
-      if (e.kind === "state" && e.data) setState(e.data);
+      if (e.kind === "state" && e.data) {
+        setState(e.data);
+        // Auto-open the Preview the moment the first previewable build appears.
+        if (e.data.has_preview && !prevPreviewRef.current) { prevPreviewRef.current = true; setTab("preview"); setPreviewKey((k) => k + 1); }
+        if (!e.data.has_preview) prevPreviewRef.current = false;
+      }
       if (e.kind === "tasks" && e.data) setTasks(e.data);
+      if (e.kind === "reload") {
+        // A file changed — live-refresh the preview (debounced). A running dev
+        // server hot-reloads itself, so don't reload its iframe; just refresh files.
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = setTimeout(() => {
+          refreshFiles(); refreshChanges();
+          if (devRef.current.state !== "running") setPreviewKey((k) => k + 1);
+        }, 500);
+      }
       if (e.kind === "end") {
         notifyDone();
         setPreviewKey((k) => k + 1); refreshSessions(); refreshFiles(); refreshChanges(); refreshTasks();
@@ -1784,6 +1800,10 @@ export default function App() {
   const refreshDev = () => api("/api/dev").then((r) => r.json()).then(setDev).catch(() => {});
   const devCtl = (action: string, dir?: string) => api("/api/dev", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, dir: dir || "" }) }).then(() => refreshDev());
   useEffect(() => { refreshDev(); const t = setInterval(refreshDev, 1500); return () => clearInterval(t); }, []);
+  const devRef = useRef(dev);
+  useEffect(() => { devRef.current = dev; }, [dev]);
+  // When a dev server comes up, jump to the Preview so the running app is front-and-center.
+  useEffect(() => { if (dev.state === "running" && dev.url) setTab("preview"); }, [dev.state, dev.url]);
   const [projects, setProjects] = useState<ProjectsView>({ workspace: "", active: "", projects: [] });
   const [apps, setApps] = useState<AppRow[]>([]);
   const refreshProjects = () => api("/api/projects").then((r) => r.json()).then(setProjects).catch(() => {});

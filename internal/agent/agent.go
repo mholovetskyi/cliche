@@ -385,7 +385,7 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 				shotImages = append(shotImages, provider.Image{MediaType: im.MediaType, Data: im.Data})
 				shotURLs = append(shotURLs, "data:"+im.MediaType+";base64,"+base64.StdEncoding.EncodeToString(im.Data))
 			}
-			a.emit(Event{Kind: "tool_result", Turn: turn, Tool: call.Name, OK: res.Success, Detail: resDetail, Images: shotURLs})
+			a.emit(Event{Kind: "tool_result", Turn: turn, Tool: call.Name, OK: res.Success, IsEdit: res.IsEdit, Detail: resDetail, Images: shotURLs})
 			// Any successful tool call (not just an edit) counts as progress, so
 			// legitimately read-only/exploratory work is not falsely halted.
 			if res.Success {

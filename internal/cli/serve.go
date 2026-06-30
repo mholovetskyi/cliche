@@ -276,6 +276,9 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 					}
 					emit(ev)
 					emit(web.Event{Kind: "state", Data: curState()})
+					if e.IsEdit && e.OK {
+						emit(web.Event{Kind: "reload"}) // a file changed → live-refresh the preview
+					}
 				case "plan":
 					// The agent's live progress checklist becomes the session plan,
 					// pushed to the UI so the user watches it tick off in real time.
