@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +19,7 @@ import (
 	"github.com/mholovetskyi/cliche/internal/config"
 	"github.com/mholovetskyi/cliche/internal/cron"
 	"github.com/mholovetskyi/cliche/internal/style"
+	"github.com/mholovetskyi/cliche/internal/telegram"
 )
 
 // cmdCron is the scheduler surface: schedule prompts to run on a cron spec, then
@@ -51,7 +56,7 @@ func cronUsage(w io.Writer) int {
 	fmt.Fprintln(w, "  cliche cron rm <id>                       remove a job")
 	fmt.Fprintln(w, "  cliche cron enable|disable <id>           turn a job on/off")
 	fmt.Fprintln(w, "  cliche cron run                           run the scheduler (foreground; Ctrl-C to stop)")
-	fmt.Fprintln(w, "  add flags:  --dir <project>  --mode <full|auto-edit|plan>  --max-usd <per-fire cap>")
+	fmt.Fprintln(w, "  add flags:  --dir <project>  --mode <full|auto-edit|plan>  --max-usd <per-fire cap>  --notify <telegram|https webhook>")
 	fmt.Fprintln(w, "  run flags:  --dir <project>  --max-daily-usd <rolling 24h ceiling, default 10>")
 	return 0
 }
@@ -61,6 +66,7 @@ func cronAdd(args []string, out, errOut io.Writer) int {
 	dir := fs.String("dir", ".", "project root")
 	mode := fs.String("mode", "full", "permission mode for the fire: full | auto-edit | plan")
 	maxUSD := fs.Float64("max-usd", 0, "per-fire budget cap in USD (0 = the project's config cap)")
+	notify := fs.String("notify", "", "deliver each result: 'telegram' (owner chat) or an https webhook URL")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -76,7 +82,7 @@ func cronAdd(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 	spec, prompt := rest[0], strings.Join(rest[1:], " ")
-	j, err := cron.Add(*dir, spec, prompt, *mode, *maxUSD)
+	j, err := cron.Add(*dir, spec, prompt, *mode, strings.TrimSpace(*notify), *maxUSD)
 	if err != nil {
 		fmt.Fprintf(errOut, "cron add: %v\n", err)
 		return 1
@@ -258,7 +264,61 @@ func fireCronJob(ctx context.Context, dir string, j cron.Job, out, errOut io.Wri
 		fmt.Fprintf(errOut, "  run error: %v\n", runErr)
 	}
 	fmt.Fprintf(out, "  → %s · %d turns · $%.4f\n", o.Stop, o.Turns, o.Usage.USD)
+	if d := deliverCronResult(j, a, o); d != "" {
+		fmt.Fprintf(out, "  notified %s\n", d)
+	}
 	return o
+}
+
+// deliverCronResult sends a fired job's result to its configured destination —
+// the owner's Telegram chat or an https webhook. Best-effort; a delivery failure
+// never affects the run. Returns the destination it sent to (for the log), or "".
+func deliverCronResult(j cron.Job, a *agent.Agent, o agent.Outcome) string {
+	notify := strings.TrimSpace(j.Notify)
+	if notify == "" {
+		return ""
+	}
+	last := lastAssistantText(a.Transcript())
+	if len(last) > 1500 {
+		last = last[:1500] + "…"
+	}
+	msg := fmt.Sprintf("⏰ Cliché cron\nPrompt: %s\nResult: %s · %d turns · $%.4f\n\n%s",
+		clip(j.Prompt, 140), o.Stop, o.Turns, o.Usage.USD, last)
+	return sendNotify(notify, j.Prompt, o.Stop, msg, o.Usage.USD)
+}
+
+// sendNotify delivers msg to a destination ("telegram" or an http(s) webhook).
+// Best-effort: any failure returns "" so it can never affect the run. Split from
+// deliverCronResult so the transport is unit-testable without a live agent.
+func sendNotify(notify, prompt, stop, msg string, usd float64) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	switch {
+	case strings.HasPrefix(notify, "https://") || strings.HasPrefix(notify, "http://"):
+		body, _ := json.Marshal(map[string]any{"text": msg, "prompt": prompt, "stop": stop, "usd": usd})
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, notify, bytes.NewReader(body))
+		if err != nil {
+			return ""
+		}
+		req.Header.Set("content-type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return ""
+		}
+		resp.Body.Close()
+		return "webhook"
+	case notify == "telegram":
+		token := strings.TrimSpace(os.Getenv("CLICHE_TELEGRAM_TOKEN"))
+		chat, _ := strconv.ParseInt(strings.TrimSpace(os.Getenv("CLICHE_TELEGRAM_CHAT")), 10, 64)
+		if token == "" || chat == 0 {
+			return ""
+		}
+		if err := telegram.New(token).SendMessage(ctx, chat, msg); err != nil {
+			return ""
+		}
+		return "telegram"
+	}
+	return ""
 }
 
 func cronSetEnabled(args []string, on bool, out, errOut io.Writer) int {

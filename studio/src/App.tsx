@@ -1193,6 +1193,7 @@ function ScheduledPanel({ onRun }: { onRun: (prompt: string) => void }) {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [spec, setSpec] = useState("@daily");
   const [prompt, setPrompt] = useState("");
+  const [notify, setNotify] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const refresh = () => api("/api/cron").then((r) => r.json()).then(setJobs).catch(() => {});
@@ -1201,9 +1202,9 @@ function ScheduledPanel({ onRun }: { onRun: (prompt: string) => void }) {
   async function add() {
     if (!spec.trim() || !prompt.trim()) return;
     setBusy(true); setErr("");
-    const r = await post({ action: "add", spec, prompt });
+    const r = await post({ action: "add", spec, prompt, notify: notify.trim() });
     setBusy(false);
-    if (r.ok) { setPrompt(""); refresh(); } else setErr((await r.text()).trim());
+    if (r.ok) { setPrompt(""); setNotify(""); refresh(); } else setErr((await r.text()).trim());
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
@@ -1213,6 +1214,8 @@ function ScheduledPanel({ onRun }: { onRun: (prompt: string) => void }) {
       <input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="@daily · @hourly · @every 30m · 0 9 * * 1-5" className="field mb-2 w-full bg-transparent px-3 py-2 font-mono text-xs outline-none" />
       <label className="mb-1 block text-xs font-medium text-[var(--mut)]">Prompt</label>
       <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2} placeholder="what to do on each run…" className="field mb-2 w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" />
+      <label className="mb-1 block text-xs font-medium text-[var(--mut)]">Notify <span className="text-[var(--faint)]">(optional)</span></label>
+      <input value={notify} onChange={(e) => setNotify(e.target.value)} placeholder="telegram · or an https webhook URL" className="field mb-3 w-full bg-transparent px-3 py-2 font-mono text-xs outline-none" />
       <div className="mb-5 flex items-center gap-2">
         <button onClick={add} disabled={!spec.trim() || !prompt.trim() || busy} className="btn-accent rounded-lg px-3.5 py-1.5 text-sm">{busy ? "adding…" : "Schedule"}</button>
         {err && <span className="flex items-center gap-1 text-xs text-[var(--accent)]"><CircleAlert size={12} /> {err}</span>}

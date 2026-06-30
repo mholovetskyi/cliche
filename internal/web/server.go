@@ -73,7 +73,7 @@ type Server struct {
 	deploy    func() (string, error)
 
 	cronList   func() []CronJob
-	cronAdd    func(spec, prompt string) error
+	cronAdd    func(spec, prompt, notify string) error
 	cronRemove func(id string) (bool, error)
 	cronToggle func(id string, on bool) (bool, error)
 
@@ -394,7 +394,7 @@ type CronJob struct {
 }
 
 // SetCron wires the scheduled-jobs surface (list + add/remove/enable-disable).
-func (s *Server) SetCron(list func() []CronJob, add func(spec, prompt string) error, remove func(id string) (bool, error), toggle func(id string, on bool) (bool, error)) {
+func (s *Server) SetCron(list func() []CronJob, add func(spec, prompt, notify string) error, remove func(id string) (bool, error), toggle func(id string, on bool) (bool, error)) {
 	s.cronList, s.cronAdd, s.cronRemove, s.cronToggle = list, add, remove, toggle
 }
 
@@ -418,6 +418,7 @@ func (s *Server) handleCron(w http.ResponseWriter, r *http.Request) {
 		Action  string `json:"action"` // add | remove | toggle
 		Spec    string `json:"spec"`
 		Prompt  string `json:"prompt"`
+		Notify  string `json:"notify"` // "", "telegram", or an https webhook URL
 		ID      string `json:"id"`
 		Enabled bool   `json:"enabled"`
 	}
@@ -429,7 +430,7 @@ func (s *Server) handleCron(w http.ResponseWriter, r *http.Request) {
 	switch body.Action {
 	case "add":
 		if s.cronAdd != nil {
-			err = s.cronAdd(body.Spec, body.Prompt)
+			err = s.cronAdd(body.Spec, body.Prompt, body.Notify)
 		}
 	case "remove":
 		if s.cronRemove != nil {

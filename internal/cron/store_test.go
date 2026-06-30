@@ -10,7 +10,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if jobs, _ := Load(root); len(jobs) != 0 {
 		t.Fatal("a fresh store should be empty")
 	}
-	j, err := Add(root, "@daily", "do the thing", "full", 0.5)
+	j, err := Add(root, "@daily", "do the thing", "full", "", 0.5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatalf("add/load mismatch: %+v", jobs)
 	}
 	// A bad spec is rejected at add time, never stored.
-	if _, err := Add(root, "not a cron", "x", "full", 0); err == nil {
+	if _, err := Add(root, "not a cron", "x", "full", "", 0); err == nil {
 		t.Fatal("bad spec should be rejected")
 	}
 	MarkRun(root, j.ID, "completed", time.Now())

@@ -16,7 +16,7 @@ func TestSpendTracking(t *testing.T) {
 
 func TestSetEnabled(t *testing.T) {
 	root := t.TempDir()
-	j, err := Add(root, "@daily", "x", "full", 0)
+	j, err := Add(root, "@daily", "x", "full", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

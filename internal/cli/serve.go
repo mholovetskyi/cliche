@@ -632,7 +632,10 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 			}
 			return out
 		},
-		func(spec, prompt string) error { _, err := cron.Add(f.dir, spec, prompt, "full", 0); return err },
+		func(spec, prompt, notify string) error {
+			_, err := cron.Add(f.dir, spec, prompt, "full", notify, 0)
+			return err
+		},
 		func(id string) (bool, error) { return cron.Remove(f.dir, id) },
 		func(id string, on bool) (bool, error) { return cron.SetEnabled(f.dir, id, on) },
 	)

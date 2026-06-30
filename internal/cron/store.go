@@ -22,6 +22,7 @@ type Job struct {
 	Prompt     string    `json:"prompt"`            // what to run
 	Mode       string    `json:"mode,omitempty"`    // permission mode for the fire ("" = full/autonomous)
 	MaxUSD     float64   `json:"max_usd,omitempty"` // per-fire budget cap (0 = config default)
+	Notify     string    `json:"notify,omitempty"`  // where to deliver the result: "telegram" or an https webhook URL
 	Enabled    bool      `json:"enabled"`
 	Created    time.Time `json:"created"`
 	LastRun    time.Time `json:"last_run,omitempty"`
@@ -81,7 +82,7 @@ func Save(root string, jobs []Job) error {
 
 // Add validates the spec (rejecting a bad schedule up front) and appends a job,
 // regenerating the id on the (vanishing) chance of a collision.
-func Add(root, spec, prompt, mode string, maxUSD float64) (Job, error) {
+func Add(root, spec, prompt, mode, notify string, maxUSD float64) (Job, error) {
 	if _, err := Parse(spec); err != nil {
 		return Job{}, err
 	}
@@ -93,7 +94,7 @@ func Add(root, spec, prompt, mode string, maxUSD float64) (Job, error) {
 	for tries := 0; tries < 8 && idExists(jobs, id); tries++ {
 		id = newID()
 	}
-	j := Job{ID: id, Spec: spec, Prompt: prompt, Mode: mode, MaxUSD: maxUSD, Enabled: true, Created: time.Now()}
+	j := Job{ID: id, Spec: spec, Prompt: prompt, Mode: mode, Notify: notify, MaxUSD: maxUSD, Enabled: true, Created: time.Now()}
 	return j, Save(root, append(jobs, j))
 }
 
