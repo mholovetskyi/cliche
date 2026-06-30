@@ -36,6 +36,15 @@ on `main`.
 - **Personalities** — built-in presets + your own `PERSONA.md`, applied everywhere
   (tone only, never permissions).
 
+### Code intelligence
+- **`diagnostics` tool** — runs the project's real type-checker/compiler (Go
+  `build`+`vet`, TypeScript `tsc` or the package.json typecheck script, Python
+  mypy/ruff, Rust `cargo check`) and returns **structured `file:line:col` errors**
+  the agent acts on — reliable "does this compile/type-check" feedback without a
+  language server. Read-only; runs in plan mode.
+- **`find_symbol` tool** — go-to-definition / find-references across the codebase;
+  Go uses precise stdlib AST parsing, other languages use declaration patterns.
+
 ### Trust Kernel & safety
 - **Untrusted-input boundary** — every tool result (built-in, MCP, or subagent) is
   now size-bounded and secret-redacted before it reaches the model or the ledger.

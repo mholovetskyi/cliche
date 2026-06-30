@@ -288,6 +288,12 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 	case "scaffold_backend":
 		return e.scaffoldBackend(args)
 
+	case "diagnostics":
+		return e.diagnostics(ctx, args)
+
+	case "find_symbol":
+		return e.findSymbol(args)
+
 	case "screenshot":
 		return e.screenshot(ctx, args)
 

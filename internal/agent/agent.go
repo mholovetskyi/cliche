@@ -561,6 +561,28 @@ func DefaultToolSpecs() []provider.ToolSpec {
 			},
 		},
 		{
+			Name:        "diagnostics",
+			Description: "Run the project's REAL type-checker / compiler / linter and return findings as structured file:line:col errors — Go (go build + vet), Node/TS (tsc or the package.json typecheck/lint script), Python (mypy/ruff), Rust (cargo check). Auto-detects the toolchain and only runs checkers that are installed. Use this to VERIFY a change compiles and type-checks after editing — prefer it over running go build / tsc yourself via run_command. Read-only.",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"path": strProp("optional subproject directory to check (default: project root)")},
+			},
+		},
+		{
+			Name:        "find_symbol",
+			Description: "Find where a symbol is DEFINED (op=definition, default) or REFERENCED (op=references) across the codebase — go-to-definition / find-references without a language server. Go uses precise AST parsing; other languages use declaration patterns. Use it to navigate a real codebase instead of grepping blindly.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name":     strProp("the symbol name to find (e.g. a function, type, or variable)"),
+					"op":       strProp("'definition' (default) or 'references'"),
+					"language": strProp("optional language filter: go | ts | js | py | rust | java"),
+					"path":     strProp("optional directory to search under (default: project root)"),
+				},
+				"required": []string{"name"},
+			},
+		},
+		{
 			Name:        "web_fetch",
 			Description: "Fetch a URL and return its text (HTML is reduced to readable text). Use to pull current docs/specs into context. Network access is permission-gated.",
 			Schema: map[string]any{

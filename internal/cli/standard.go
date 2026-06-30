@@ -10,7 +10,7 @@ const baseStandard = "\nStandard of work — aim for production quality, not thr
 	"- Match the project's existing stack, structure, and conventions. When starting something new, scaffold a real, modern setup rather than one giant single-file script.\n" +
 	"- Prefer typed, modular, reusable code over one huge file; name things well and keep functions small and focused.\n" +
 	"- For any UI, make it accessible (semantic HTML, labels, keyboard support, adequate contrast) and responsive, with a consistent visual system (a type scale, spacing, and color tokens) — never unstyled browser defaults. After building or changing a UI, use the screenshot tool to actually SEE the rendered result and fix what looks off.\n" +
-	"- Add or update tests for behavior you change, and run the project's build / typecheck / linter / tests; read the output and fix what it reports before you call the work done.\n" +
+	"- Add or update tests for behavior you change, then VERIFY: call the diagnostics tool to type-check/compile the project (it returns structured file:line errors), and run the tests; read the output and fix what it reports before you call the work done. Use find_symbol to navigate an unfamiliar codebase (go-to-definition / find-references) instead of guessing.\n" +
 	"- Handle errors and edge cases. Don't leave TODOs, stubs, or placeholder lorem-ipsum in the path you were asked to deliver."
 
 // productStandard is the full senior-engineer bar applied in product mode
