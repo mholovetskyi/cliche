@@ -65,6 +65,7 @@ type Server struct {
 	sessionDelete func(id string) error
 	files         func() []FileNode
 	fileRead      func(rel string) (string, bool)
+	fileWrite     func(rel, content string) error
 
 	gitStatus func() GitStatus
 	gitCommit func(msg string) (string, error)
@@ -361,8 +362,8 @@ func (s *Server) SetSessionOps(rename func(id, title string) error, del func(id 
 }
 
 // SetFiles wires the workspace file tree + read-only file viewer.
-func (s *Server) SetFiles(tree func() []FileNode, read func(string) (string, bool)) {
-	s.files, s.fileRead = tree, read
+func (s *Server) SetFiles(tree func() []FileNode, read func(string) (string, bool), write func(string, string) error) {
+	s.files, s.fileRead, s.fileWrite = tree, read, write
 }
 
 // GitStatus is the working tree at a glance (the Git workspace tab).
@@ -945,6 +946,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/files", s.handleFiles)
 	mux.HandleFunc("/api/file", s.handleFile)
+	mux.HandleFunc("/api/file/save", s.handleFileWrite)
 	mux.HandleFunc("/api/git", s.handleGit)
 	mux.HandleFunc("/api/git/commit", s.handleGitCommit)
 	mux.HandleFunc("/api/git/branch", s.handleGitBranch)
@@ -1117,6 +1119,37 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = io.WriteString(w, txt)
+}
+
+// handleFileWrite saves an edit from the in-Studio editor. POST-only (the mux
+// dispatches by path, and handleFile is GET); the write callback re-enforces
+// confinement + sensitive-file guards. On success it emits a reload so the file
+// tree, Changes panel, and live preview refresh — the same path an agent edit
+// takes. In networked/cloud mode the whole mux is already behind token auth.
+func (s *Server) handleFileWrite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.fileWrite == nil {
+		http.Error(w, "editing not available", http.StatusNotImplemented)
+		return
+	}
+	var body struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.fileWrite(body.Path, body.Content); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.hub.Emit(Event{Kind: "reload", Data: map[string]any{"dev_scoped": false}})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, _ *http.Request) {

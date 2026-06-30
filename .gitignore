@@ -20,6 +20,7 @@ coverage*
 # Editor / OS noise
 .idea/
 .vscode/
+.claude/
 .DS_Store
 
 api.txt

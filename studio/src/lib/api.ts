@@ -38,6 +38,17 @@ export function api(path: string, opts: RequestInit = {}): Promise<Response> {
   return fetch(base + path, { ...opts, headers, credentials: base ? "include" : "same-origin" });
 }
 
+// saveFile persists an edit from the in-Studio editor. Throws with the server's
+// message on rejection (e.g. a sensitive file or a path that escapes the project).
+export async function saveFile(path: string, content: string): Promise<void> {
+  const r = await api("/api/file/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, content }),
+  });
+  if (!r.ok) throw new Error((await r.text()).trim() || "save failed");
+}
+
 // sseUrl builds a URL for EventSource / direct navigation (downloads): these can't
 // set an Authorization header, so the token rides as a query param.
 export function sseUrl(path: string): string {

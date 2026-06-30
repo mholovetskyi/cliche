@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -165,4 +166,33 @@ func readProjectFile(root, rel string) (string, bool) {
 		return "", false
 	}
 	return string(data), true
+}
+
+// writeProjectFile saves content to rel within root for the in-Studio editor,
+// enforcing the SAME confinement and sensitive-file guards as readProjectFile so
+// the editor can never escape the project root or create/overwrite a secret.
+func writeProjectFile(root, rel, content string) error {
+	if rel == "" {
+		return fmt.Errorf("no file path")
+	}
+	if len(content) > 512*1024 {
+		return fmt.Errorf("file too large (max 512 KB)")
+	}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return fmt.Errorf("path escapes the project")
+	}
+	if web.IsSensitiveFile(filepath.Base(clean)) {
+		return fmt.Errorf("refusing to write a sensitive file")
+	}
+	full := filepath.Join(root, clean)
+	if rp, err := filepath.Rel(root, full); err != nil || rp == ".." || strings.HasPrefix(rp, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path escapes the project")
+	}
+	if dir := filepath.Dir(full); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(full, []byte(content), 0o644)
 }

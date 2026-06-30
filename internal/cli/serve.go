@@ -43,8 +43,10 @@ import (
 func cmdServe(args []string, out, errOut io.Writer) int {
 	f, fs := parseRunFlags("serve", args)
 	var listenAddr, authToken string
+	var noBrowser bool
 	fs.StringVar(&listenAddr, "listen", "", "bind address for remote/cloud access, e.g. :7878 or 0.0.0.0:7878 (default: loopback only)")
 	fs.StringVar(&authToken, "token", os.Getenv("CLICHE_SERVE_TOKEN"), "require this bearer token (mandatory for a non-loopback --listen)")
+	fs.BoolVar(&noBrowser, "no-browser", false, "don't open a browser window (for headless/CI/automation)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -593,6 +595,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	srv.SetFiles(
 		func() []web.FileNode { return fileTree(previewDir) },
 		func(rel string) (string, bool) { return readProjectFile(previewDir, rel) },
+		func(rel, content string) error { return writeProjectFile(previewDir, rel, content) },
 	)
 
 	// Git surface: status, commit, branch, and (gh) open-a-PR — the "ship what I
@@ -930,7 +933,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(out, "  Cliche Studio is running → %s  (Ctrl-C to stop)\n", url)
 	}
 	// Only auto-open a browser for the local default; networked/cloud runs are headless.
-	if os.Getenv("CLICHE_NO_BROWSER") == "" && listenAddr == "" {
+	if os.Getenv("CLICHE_NO_BROWSER") == "" && !noBrowser && listenAddr == "" {
 		openBrowser(url)
 	}
 

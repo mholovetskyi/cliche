@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -371,6 +372,7 @@ func TestSessionEndpoints(t *testing.T) {
 
 func TestFileEndpoints(t *testing.T) {
 	srv := NewServer(nil, nil, nil)
+	saved := map[string]string{}
 	srv.SetFiles(
 		func() []FileNode {
 			return []FileNode{{Name: "src", Path: "src", Dir: true, Children: []FileNode{{Name: "a.go", Path: "src/a.go"}}}}
@@ -380,6 +382,13 @@ func TestFileEndpoints(t *testing.T) {
 				return "package main", true
 			}
 			return "", false
+		},
+		func(rel, content string) error {
+			if rel == "" {
+				return fmt.Errorf("no path")
+			}
+			saved[rel] = content
+			return nil
 		},
 	)
 	ts := httptest.NewServer(srv.Handler())
@@ -403,6 +412,22 @@ func TestFileEndpoints(t *testing.T) {
 	r, _ = http.Get(ts.URL + "/api/file?path=nope")
 	if r.StatusCode != http.StatusNotFound {
 		t.Fatalf("missing file should 404, got %d", r.StatusCode)
+	}
+	r.Body.Close()
+
+	// Save round-trip: POST /api/file/save persists via the write callback.
+	r, _ = http.Post(ts.URL+"/api/file/save", "application/json", strings.NewReader(`{"path":"src/a.go","content":"package edited"}`))
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("save should 200, got %d", r.StatusCode)
+	}
+	r.Body.Close()
+	if saved["src/a.go"] != "package edited" {
+		t.Fatalf("save did not persist: %q", saved["src/a.go"])
+	}
+	// A GET to the save route is rejected (POST-only).
+	r, _ = http.Get(ts.URL + "/api/file/save")
+	if r.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET save should 405, got %d", r.StatusCode)
 	}
 	r.Body.Close()
 }

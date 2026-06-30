@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, lazy, Suspense } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import hljs from "highlight.js";
 import {
   ShieldCheck, ShieldAlert, Download, RefreshCw, ExternalLink, ArrowUp, Sparkles,
   Check, Wrench, Globe, Wand2, Hammer, FileSearch, KeyRound, CircleAlert, Plus,
@@ -11,6 +10,10 @@ import {
   GitBranch, AtSign, PanelRight, Copy, Pencil, Pin, Rocket, Clock, Mic, Sun, Moon,
   MessageCircle, Package, Send, BookMarked, BrainCircuit,
 } from "lucide-react";
+
+// Code-split the editor (CodeMirror + language packs, ~150KB gzipped) so it only
+// loads when a file is actually opened, keeping the initial paint unchanged.
+const CodeEditor = lazy(() => import("./components/CodeEditor"));
 
 type GitStatus = { repo: boolean; gh: boolean; branch: string; dirty: boolean; stat: string; files: string[] };
 function flattenTree(nodes: any[]): string[] {
@@ -90,7 +93,7 @@ import ShaderField from "./ShaderField";
 import DepthField from "./DepthField";
 import MemoryConstellation from "./MemoryConstellation";
 import { LogoMark } from "./Logo";
-import { api, sseUrl, apiBase, setServer, clearServer, isApp } from "./lib/api";
+import { api, sseUrl, apiBase, setServer, clearServer, isApp, saveFile } from "./lib/api";
 import { enableAudio, disableAudio, scoreActivity, ping } from "./lib/audio";
 import { REDUCE, flag, setFlag } from "./lib/reduced";
 
@@ -1632,7 +1635,10 @@ export default function App() {
   const [tab, setTab] = useState<"preview" | "files" | "changes" | "git" | "schedule" | "trust">("preview");
   const [tree, setTree] = useState<FileNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [openFile, setOpenFile] = useState<{ path: string; html: string } | null>(null);
+  const [openFile, setOpenFile] = useState<{ path: string; text: string } | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
   const [pill, setPill] = useState({ left: 0, width: 0 });
   const feedRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1911,8 +1917,16 @@ export default function App() {
     const r = await api(`/api/file?path=${encodeURIComponent(path)}`);
     if (!r.ok) return;
     const text = await r.text();
-    setOpenFile({ path, html: hljs.highlightAuto(text).value });
+    setOpenFile({ path, text });
+    setDirty(false); setSaveErr("");
     setTab("files");
+  }
+  async function saveOpenFile() {
+    if (!openFile || saving) return;
+    setSaving(true); setSaveErr("");
+    try { await saveFile(openFile.path, openFile.text); setDirty(false); }
+    catch (e) { setSaveErr(e instanceof Error ? e.message : "save failed"); }
+    finally { setSaving(false); }
   }
   function toggleDir(p: string) {
     setExpanded((prev) => { const n = new Set(prev); if (n.has(p)) n.delete(p); else n.add(p); return n; });
@@ -2100,13 +2114,24 @@ export default function App() {
               {tree.length === 0 ? <div className="p-3 text-xs text-[var(--dim)]">No files yet</div> :
                 <Tree nodes={tree} depth={0} expanded={expanded} onToggle={toggleDir} onOpen={openFileAt} active={openFile?.path || ""} />}
             </div>
-            <div className="min-w-0 flex-1 overflow-auto">
+            <div className="flex min-w-0 flex-1 flex-col">
               {openFile ? (
                 <>
-                  <div className="glass sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--line)] px-4 py-2 font-mono text-[11px] text-[var(--mut)]"><FileText size={12} className="text-[var(--dim)]" />{openFile.path}</div>
-                  <pre className="hljs !bg-transparent p-4 text-[12.5px] leading-relaxed"><code dangerouslySetInnerHTML={{ __html: openFile.html }} /></pre>
+                  <div className="glass sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--line)] px-4 py-2 font-mono text-[11px] text-[var(--mut)]">
+                    <FileText size={12} className="shrink-0 text-[var(--dim)]" />
+                    <span className="truncate">{openFile.path}</span>
+                    {dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" title="unsaved changes" />}
+                    <span className="flex-1" />
+                    {saveErr && <span className="flex items-center gap-1 text-[var(--accent)]"><CircleAlert size={11} /><span className="max-w-[14rem] truncate">{saveErr}</span></span>}
+                    <button onClick={saveOpenFile} disabled={!dirty || saving} className="btn-soft rounded-md px-2.5 py-1 text-[11px] disabled:opacity-40">{saving ? "Saving…" : "Save"}</button>
+                  </div>
+                  <div className="min-h-0 flex-1" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveOpenFile(); } }}>
+                    <Suspense fallback={<div className="p-4 text-xs text-[var(--dim)]">Loading editor…</div>}>
+                      <CodeEditor value={openFile.text} filename={openFile.path} onChange={(v) => { setOpenFile((f) => (f ? { ...f, text: v } : f)); setDirty(true); }} />
+                    </Suspense>
+                  </div>
                 </>
-              ) : <div className="grid h-full place-items-center p-6 text-sm text-[var(--dim)]"><span><FileText size={26} className="mx-auto mb-2 opacity-50" />Select a file to view it</span></div>}
+              ) : <div className="grid h-full place-items-center p-6 text-sm text-[var(--dim)]"><span><FileText size={26} className="mx-auto mb-2 opacity-50" />Select a file to edit it</span></div>}
             </div>
           </div>
         )}
