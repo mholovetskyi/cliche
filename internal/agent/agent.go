@@ -361,6 +361,11 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 					res = a.exec.Execute(ctx, call.Name, call.Args)
 				}
 			}
+			// Trust-Kernel input boundary: bound the size and redact secrets from
+			// EVERY tool result — built-in, MCP, or subagent — before it reaches the
+			// model or the ledger. Untrusted output can't flood the context or leak a
+			// credential in plain sight.
+			res.Output = tools.SanitizeOutput(res.Output)
 			// Record an attributable target (path or truncated command) — but
 			// never file contents or old_string (which could carry secrets).
 			target := call.Args["file"]

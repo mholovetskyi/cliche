@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -40,7 +42,26 @@ func StartHTTP(name, url string) *HTTPClient { return StartHTTPWithHeaders(name,
 // StartHTTPWithHeaders is StartHTTP plus extra headers sent on every request —
 // used to attach a connector's OAuth bearer token (Authorization header).
 func StartHTTPWithHeaders(name, url string, headers map[string]string) *HTTPClient {
-	return &HTTPClient{name: name, url: url, headers: headers, hc: &http.Client{Timeout: 120 * time.Second}}
+	// SSRF guard: a project/connector config could point an MCP HTTP server — which
+	// carries the OAuth Bearer token — at a cloud-metadata or link-local address to
+	// steal credentials. Block those at DIAL time (after DNS resolution, so a
+	// hostname can't be rebound to 169.254.169.254). Loopback and ordinary private
+	// ranges stay allowed: local MCP servers are legitimate.
+	dialer := &net.Dialer{Timeout: 30 * time.Second, Control: guardDial}
+	tr := &http.Transport{DialContext: dialer.DialContext, ForceAttemptHTTP2: true}
+	return &HTTPClient{name: name, url: url, headers: headers, hc: &http.Client{Timeout: 120 * time.Second, Transport: tr}}
+}
+
+// guardDial rejects connections to link-local / cloud-metadata addresses.
+func guardDial(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
+		return fmt.Errorf("mcp: refused connection to link-local/metadata address %s (SSRF guard)", host)
+	}
+	return nil
 }
 
 func (h *HTTPClient) Name() string { return h.name }
