@@ -7,6 +7,17 @@ on `main`.
 ## Unreleased
 
 ### Cliché Studio (the web app)
+- **Editable Files tab** — the file browser is now a real CodeMirror code editor
+  (syntax highlighting, line gutters) with Save and Ctrl/Cmd-S; edits save through a
+  confined endpoint and live-reload the preview. Lazy-loaded, so the main bundle got
+  *lighter*, not heavier.
+- **Ship to Vercel / Netlify** — the Deploy button offers three hosts now, not just
+  GitHub Pages.
+- **Real backends** — the agent can `scaffold_backend` to give a built app a
+  Supabase database + auth (typed client, schema with RLS, connect guide).
+- **Cron delivery** — scheduled jobs can deliver their results to Telegram or an
+  https webhook.
+- **`cliche serve --no-browser`** — headless mode for CI/automation.
 - **Live dev-server preview** — `cliche serve` can run a built app's real dev
   server (`npm run dev`, Vite/Next/CRA) with hot reload; the preview auto-opens on
   the first pass and live-reloads on every edit. A **Build ⇄ Live** toggle picks
