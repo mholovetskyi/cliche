@@ -579,6 +579,17 @@ func DefaultToolSpecs() []provider.ToolSpec {
 			},
 		},
 		{
+			Name:        "scaffold_backend",
+			Description: "Give the app a REAL backend — a Supabase (hosted Postgres + auth) integration: a typed client, an env template, a starter schema with row-level security, and a connect guide. Use this whenever the app needs to persist data, authenticate users, or do anything a static frontend can't. One call writes the whole scaffold (existing files are never overwritten); afterwards install @supabase/supabase-js and wire the client into your components. If a Supabase MCP connector is available, it can create the project and apply the schema.",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind": strProp("backend kind — currently \"supabase\" (the default)"),
+					"dir":  strProp("app directory to scaffold into, relative to the project root (default \".\")"),
+				},
+			},
+		},
+		{
 			Name:        "screenshot",
 			Description: "Render a web UI with a headless browser and return a screenshot image so you can SEE the result and judge it. ALWAYS use this after building or changing any visual UI, then critique what you see (layout, spacing, type, color, polish) and iterate until it looks world-class — do not ship a UI you have not looked at. The target is a project-relative file (default index.html) or a localhost URL. Returns the image directly to you.",
 			Schema: map[string]any{

@@ -285,6 +285,9 @@ func (e OSExecutor) execute(ctx context.Context, name string, args map[string]st
 	case "clone_site":
 		return e.cloneSite(ctx, args)
 
+	case "scaffold_backend":
+		return e.scaffoldBackend(args)
+
 	case "screenshot":
 		return e.screenshot(ctx, args)
 
