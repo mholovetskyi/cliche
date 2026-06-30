@@ -216,7 +216,17 @@ type Outcome struct {
 // Run appends prompt to the transcript and drives the loop until the model
 // completes, a breaker trips, or a cap is hit. Every exit path is a structured
 // Outcome.
-func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
+func (a *Agent) Run(ctx context.Context, prompt string) (out Outcome, err error) {
+	// A panic anywhere in the turn — a buggy tool, provider, or MCP server — must
+	// NOT take down a long-running `cliche serve` / cron / telegram process. Recover
+	// it into a structured error so the loop fails the run, not the whole daemon.
+	defer func() {
+		if r := recover(); r != nil {
+			a.emit(Event{Kind: "halt", Detail: fmt.Sprintf("recovered from an internal error: %v", r)})
+			out = Outcome{Stop: StopError, Reason: fmt.Sprintf("internal error (recovered): %v", r), Usage: a.bud.Usage()}
+			err = fmt.Errorf("agent panic recovered: %v", r)
+		}
+	}()
 	// Bound the whole run (and any single tool command) by the wall-clock
 	// limit, so a hung command cannot outlast the Governor's breaker, which is
 	// only checked between turns.

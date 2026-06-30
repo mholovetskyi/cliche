@@ -1272,17 +1272,24 @@ func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	go func() {
+		// This runs in a spawned goroutine, so net/http's handler-panic recovery
+		// does NOT cover it — an unrecovered panic here would crash the whole serve.
+		// Always release `running` and end the stream cleanly, even on panic.
+		defer func() {
+			if r := recover(); r != nil {
+				s.hub.Emit(Event{Kind: "error", Text: fmt.Sprintf("internal error (recovered): %v", r)})
+			}
+			s.mu.Lock()
+			s.running = false
+			s.cancel = nil
+			s.mu.Unlock()
+			s.hub.Emit(Event{Kind: "end"})
+			s.hub.Emit(Event{Kind: "state", Data: s.snapshot(false)})
+		}()
 		s.hub.Emit(Event{Kind: "state", Data: s.snapshot(true)})
-		err := s.run(ctx, body.Prompt, s.hub.Emit)
-		if err != nil {
+		if err := s.run(ctx, body.Prompt, s.hub.Emit); err != nil {
 			s.hub.Emit(Event{Kind: "error", Text: err.Error()})
 		}
-		s.mu.Lock()
-		s.running = false
-		s.cancel = nil
-		s.mu.Unlock()
-		s.hub.Emit(Event{Kind: "end"})
-		s.hub.Emit(Event{Kind: "state", Data: s.snapshot(false)})
 	}()
 	w.WriteHeader(http.StatusAccepted)
 }
