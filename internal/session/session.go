@@ -22,9 +22,10 @@ import (
 // Task is one item on the session's lightweight plan (the /plan, /tasks, /done
 // surface). Persisted with the record so resuming a session restores the plan.
 type Task struct {
-	ID    int    `json:"id"`
-	Title string `json:"title"`
-	Done  bool   `json:"done"`
+	ID     int    `json:"id"`
+	Title  string `json:"title"`
+	Done   bool   `json:"done"`
+	Status string `json:"status,omitempty"` // "pending" | "doing" | "done" (agent plan); empty for user tasks
 }
 
 // Record is a persisted session.

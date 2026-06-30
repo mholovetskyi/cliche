@@ -200,7 +200,7 @@ type FileNode = { name: string; path: string; dir: boolean; children?: FileNode[
 type Msg = { role: string; text: string };
 type ModelInfo = { model: string; input_per_m: number; output_per_m: number };
 type Change = { path: string; before: string; after: string; was_new: boolean; deleted: boolean };
-type Task = { id: number; title: string; done: boolean };
+type Task = { id: number; title: string; done: boolean; status?: string };
 type CommandInfo = { name: string; desc: string };
 type Rules = { mode: string; mode_desc: string; allow: string[]; deny: string[]; egress: string[]; hooks: string[]; max_turns: number; max_wall_sec: number; max_failed_edits: number };
 
@@ -799,12 +799,15 @@ function Sidebar({ sessions, state, audit, tasks, inst, isMobile, mobileShow, th
             <span className="tabular-nums">{doneCount}/{tasks.length}</span>
             <button onClick={onClearTasks} className="icon-btn h-5 w-5" title="Clear the plan"><Trash2 size={12} /></button>
           </div>
-          {tasks.map((t) => (
-            <button key={t.id} onClick={() => onToggleTask(t.id)} className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-[13px] hover:bg-white/[0.04]">
-              <span className={`mt-0.5 grid h-[15px] w-[15px] shrink-0 place-items-center rounded-[5px] border transition-colors ${t.done ? "border-[var(--ok)] bg-[var(--ok)]/20 text-[var(--ok)]" : "border-[var(--line2)]"}`}>{t.done && <Check size={10} strokeWidth={3} />}</span>
-              <span className={t.done ? "text-[var(--dim)] line-through" : "text-[var(--mut)]"}>{t.title}</span>
-            </button>
-          ))}
+          {tasks.map((t) => {
+            const doing = t.status === "doing" && !t.done;
+            return (
+              <button key={t.id} onClick={() => onToggleTask(t.id)} className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-[13px] hover:bg-white/[0.04]">
+                <span className={`mt-0.5 grid h-[15px] w-[15px] shrink-0 place-items-center rounded-[5px] border transition-colors ${t.done ? "border-[var(--ok)] bg-[var(--ok)]/20 text-[var(--ok)]" : doing ? "border-[var(--accent)]" : "border-[var(--line2)]"}`}>{t.done ? <Check size={10} strokeWidth={3} /> : doing ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" /> : null}</span>
+                <span className={t.done ? "text-[var(--dim)] line-through" : doing ? "font-medium text-[var(--ink)]" : "text-[var(--mut)]"}>{t.title}</span>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="border-t border-[var(--line)] p-3">
@@ -1677,6 +1680,7 @@ export default function App() {
       if (e.kind === "end" || e.kind === "error") setAwaiting(false);
       if (e.kind === "delta" || e.kind === "tool_call" || e.kind === "tool_result" || e.kind === "approval" || e.kind === "error" || e.kind === "end") ping(e.kind);
       if (e.kind === "state" && e.data) setState(e.data);
+      if (e.kind === "tasks" && e.data) setTasks(e.data);
       if (e.kind === "end") {
         notifyDone();
         setPreviewKey((k) => k + 1); refreshSessions(); refreshFiles(); refreshChanges(); refreshTasks();

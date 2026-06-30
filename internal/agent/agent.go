@@ -352,6 +352,8 @@ func (a *Agent) Run(ctx context.Context, prompt string) (Outcome, error) {
 				res = a.spawnSubagent(ctx, call.Args)
 			case "spawn_subagents":
 				res = a.spawnSubagents(ctx, call.Args)
+			case "update_plan":
+				res = a.updatePlan(turn, call.Args)
 			default:
 				if a.mcp != nil && strings.HasPrefix(call.Name, "mcp__") {
 					res = a.mcp.Call(ctx, call.Name, call.Raw)
@@ -655,6 +657,7 @@ func DefaultToolSpecs() []provider.ToolSpec {
 // spawn_subagent when nesting is still permitted at this depth.
 func (a *Agent) toolSpecs() []provider.ToolSpec {
 	specs := DefaultToolSpecs()
+	specs = append(specs, updatePlanSpec())
 	if a.depth < a.cfg.MaxSubagentDepth {
 		specs = append(specs, spawnSubagentSpec(), spawnSubagentsSpec())
 	}
@@ -662,6 +665,57 @@ func (a *Agent) toolSpecs() []provider.ToolSpec {
 		specs = append(specs, a.mcp.Tools()...)
 	}
 	return specs
+}
+
+// updatePlanSpec advertises the live progress checklist.
+func updatePlanSpec() provider.ToolSpec {
+	return provider.ToolSpec{
+		Name:        "update_plan",
+		Description: "Maintain a short, user-visible progress checklist for a multi-step task. Call it ONCE up front to lay out the 3–8 concrete steps, then call it again to flip a step's status as you go — exactly one step \"doing\" at a time, finished steps \"done\". The user watches this tick off in real time, so keep titles short and imperative. Use it for any task that takes more than a couple of tool calls (building an app, a multi-file change, a clone). Don't use it for trivial one-shot answers.",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"steps": map[string]any{
+					"type":        "array",
+					"description": "the full checklist, in order — resend the whole list each call with updated statuses",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"title":  map[string]any{"type": "string", "description": "short imperative step, e.g. 'Build the hero section'"},
+							"status": map[string]any{"type": "string", "enum": []string{"pending", "doing", "done"}, "description": "pending | doing | done"},
+						},
+						"required": []string{"title", "status"},
+					},
+				},
+			},
+			"required": []string{"steps"},
+		},
+	}
+}
+
+// updatePlan records the agent's checklist and streams it to the UI so the user
+// can watch progress. It's pure signal — no filesystem or budget effect.
+func (a *Agent) updatePlan(turn int, args map[string]string) tools.Result {
+	var steps []PlanStep
+	if err := json.Unmarshal([]byte(args["steps"]), &steps); err != nil || len(steps) == 0 {
+		return tools.Result{Output: "update_plan: steps must be a non-empty JSON array of {title,status}", Success: false}
+	}
+	for i := range steps {
+		steps[i].Title = strings.TrimSpace(steps[i].Title)
+		switch steps[i].Status {
+		case "doing", "done", "pending":
+		default:
+			steps[i].Status = "pending"
+		}
+	}
+	a.emit(Event{Kind: "plan", Turn: turn, Plan: steps})
+	done := 0
+	for _, s := range steps {
+		if s.Status == "done" {
+			done++
+		}
+	}
+	return tools.Result{Output: fmt.Sprintf("plan updated: %d/%d steps done", done, len(steps)), Success: true}
 }
 
 func spawnSubagentSpec() provider.ToolSpec {

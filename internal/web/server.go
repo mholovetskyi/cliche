@@ -254,11 +254,13 @@ func (s *Server) SetLimitsCtl(get func() Limits, set func(Limits) error) {
 	s.limitsGet, s.limitsSet = get, set
 }
 
-// Task is one item on the session plan (/plan /tasks /done).
+// Task is one item on the session plan (/plan /tasks /done, or the agent's
+// live update_plan checklist).
 type Task struct {
-	ID    int    `json:"id"`
-	Title string `json:"title"`
-	Done  bool   `json:"done"`
+	ID     int    `json:"id"`
+	Title  string `json:"title"`
+	Done   bool   `json:"done"`
+	Status string `json:"status,omitempty"` // "pending" | "doing" | "done" (agent plan)
 }
 
 // CommandInfo is a user-defined .cliche/commands shortcut, surfaced to the palette.

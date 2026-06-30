@@ -276,6 +276,19 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 					}
 					emit(ev)
 					emit(web.Event{Kind: "state", Data: curState()})
+				case "plan":
+					// The agent's live progress checklist becomes the session plan,
+					// pushed to the UI so the user watches it tick off in real time.
+					amu.Lock()
+					curTasks = curTasks[:0]
+					tasks := make([]web.Task, 0, len(e.Plan))
+					for i, s := range e.Plan {
+						curTasks = append(curTasks, sess.Task{ID: i + 1, Title: s.Title, Done: s.Status == "done", Status: s.Status})
+						tasks = append(tasks, web.Task{ID: i + 1, Title: s.Title, Done: s.Status == "done", Status: s.Status})
+					}
+					nextTaskID = len(curTasks) + 1
+					amu.Unlock()
+					emit(web.Event{Kind: "tasks", Data: tasks})
 				case "halt", "budget":
 					emit(web.Event{Kind: "error", Text: strings.TrimSpace(e.Text + " " + e.Detail)})
 				}
@@ -803,7 +816,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 	webTasks := func() []web.Task {
 		out := make([]web.Task, 0, len(curTasks))
 		for _, t := range curTasks {
-			out = append(out, web.Task{ID: t.ID, Title: t.Title, Done: t.Done})
+			out = append(out, web.Task{ID: t.ID, Title: t.Title, Done: t.Done, Status: t.Status})
 		}
 		return out
 	}
