@@ -1487,38 +1487,48 @@ function ProjectSwitcher({ projects, onOpen, onCreate }: {
 // PreviewPane — the live preview. Runs the app's real dev server (npm run dev →
 // Vite/Next/CRA) for a hot-reloading preview (the Lovable experience); falls back
 // to the static built page, a run-the-app prompt, or an empty state.
-function PreviewPane({ state, dev, previewKey, ritual, lastActText, onDev }: {
-  state: State; dev: DevStatus; previewKey: number; ritual: boolean; lastActText: string; onDev: (a: string) => void;
+function PreviewPane({ state, dev, previewKey, ritual, lastActText, onDev, src, onSrc }: {
+  state: State; dev: DevStatus; previewKey: number; ritual: boolean; lastActText: string; onDev: (a: string) => void; src: "static" | "dev"; onSrc: (s: "static" | "dev") => void;
 }) {
   const running = dev.state === "running" && !!dev.url;
   const busy = dev.state === "installing" || dev.state === "starting";
+  const hasStatic = !!state.has_preview;
+  const both = running && hasStatic;                       // a leftover dev server AND a static build
+  const showDev = running && (src === "dev" || !hasStatic); // dev only when chosen, or the only option
   const Logs = () => dev.logs && dev.logs.length > 0 ? (
     <pre className="mt-3 max-h-44 w-full max-w-lg overflow-auto rounded-lg bg-black/30 p-3 text-left font-mono text-[11px] leading-relaxed text-[var(--mut)]">{dev.logs.slice(-40).join("\n")}</pre>
   ) : null;
 
   let body: React.ReactNode;
-  if (running) {
+  if (showDev) {
     body = <iframe key={previewKey} src={dev.url} title="app" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals" />;
+  } else if (hasStatic) {
+    body = <iframe key={previewKey} src={`/preview/${state.preview_path ? state.preview_path + "/" : ""}?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />;
   } else if (busy) {
     body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><span className="orb mb-3" /><div className="text-sm font-medium">{dev.state === "installing" ? "Installing dependencies…" : "Starting the dev server…"}</div><div className="mt-1 font-mono text-[12px] text-[var(--dim)]">{dev.script}</div><Logs /><button onClick={() => onDev("stop")} className="btn-soft mt-4 rounded-lg px-3 py-1.5 text-xs">Cancel</button></div>;
   } else if (dev.state === "error") {
     body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><CircleAlert size={26} className="mb-3 text-[var(--accent)]" /><div className="text-sm font-medium">The dev server stopped with an error</div><Logs /><button onClick={() => onDev("restart")} className="btn-accent mt-4 rounded-lg px-3.5 py-1.5 text-sm">Try again</button></div>;
   } else if (dev.detected) {
-    body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><Rocket size={26} className="mb-3 text-[var(--accent)]" /><div className="text-sm font-medium">App ready to run</div><div className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-[var(--mut)]">Start the dev server for a live, hot-reloading preview (<code className="rounded bg-white/10 px-1">{dev.script}</code>).</div><button onClick={() => onDev("start")} className="btn-accent mt-4 rounded-xl px-4 py-2 text-sm">▶ Run the app</button>{state.has_preview && <a href={`/preview/${state.preview_path ? state.preview_path + "/" : ""}`} target="_blank" rel="noreferrer" className="mt-2 text-[12px] text-[var(--dim)] hover:text-[var(--accent)]">or open the static build →</a>}</div>;
-  } else if (state.has_preview) {
-    body = <iframe key={previewKey} src={`/preview/${state.preview_path ? state.preview_path + "/" : ""}?k=${previewKey}`} title="preview" className="flex-1 border-0 bg-white" sandbox="allow-scripts allow-forms allow-same-origin" />;
+    body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><Rocket size={26} className="mb-3 text-[var(--accent)]" /><div className="text-sm font-medium">App ready to run</div><div className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-[var(--mut)]">Start the dev server for a live, hot-reloading preview (<code className="rounded bg-white/10 px-1">{dev.script}</code>).</div><button onClick={() => onDev("start")} className="btn-accent mt-4 rounded-xl px-4 py-2 text-sm">▶ Run the app</button></div>;
   } else {
     body = <div className="flex flex-1 flex-col items-center justify-center p-8 text-center"><Eye size={26} className="mb-3 text-[var(--dim)]" /><div className="text-sm font-medium">Nothing to preview yet</div><div className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-[var(--mut)]">Ask Cliché to build an app — a static page previews here, and a real React/Vite app runs <b>live with hot reload</b>.</div></div>;
   }
 
-  const label = running ? dev.url : busy ? dev.state + "…" : (state.has_preview ? (state.preview_path ? state.preview_path + "/" : "localhost preview") : "preview");
+  const label = showDev ? dev.url : hasStatic ? (state.preview_path ? state.preview_path + "/" : "localhost preview") : busy ? dev.state + "…" : "preview";
   return (
     <div className="min-h-0 flex-1 p-3">
       <div className="surface elev relative flex h-full flex-col overflow-hidden rounded-2xl">
         <div className="flex h-9 items-center gap-2 border-b border-[var(--line)] px-3.5">
           <span className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" /><i className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" /><i className="h-2.5 w-2.5 rounded-full bg-[#28c840]" /></span>
           <span className="mx-2 flex-1 truncate rounded-md bg-black/30 px-2.5 py-1 text-center text-[11px] text-[var(--dim)]">{label}</span>
-          {running && <span className="flex items-center gap-1 text-[10px] text-[var(--ok)]"><span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--ok)]" style={{ boxShadow: "0 0 6px var(--ok)" }} /> live</span>}
+          {both ? (
+            <div className="seg h-6 text-[10px]">
+              <button data-on={src === "static"} onClick={() => onSrc("static")} className="seg-item px-2 py-0.5" title="This build (static)">Build</button>
+              <button data-on={src === "dev"} onClick={() => onSrc("dev")} className="seg-item px-2 py-0.5" title={"Live dev server · " + dev.url}>● Live</button>
+            </div>
+          ) : showDev ? (
+            <span className="flex items-center gap-1 text-[10px] text-[var(--ok)]"><span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--ok)]" style={{ boxShadow: "0 0 6px var(--ok)" }} /> live</span>
+          ) : null}
         </div>
         {body}
         {ritual && (
@@ -1684,17 +1694,19 @@ export default function App() {
       if (e.kind === "state" && e.data) {
         setState(e.data);
         // Auto-open the Preview the moment the first previewable build appears.
-        if (e.data.has_preview && !prevPreviewRef.current) { prevPreviewRef.current = true; setTab("preview"); setPreviewKey((k) => k + 1); }
+        if (e.data.has_preview && !prevPreviewRef.current) { prevPreviewRef.current = true; setPreviewSrc("static"); setTab("preview"); setPreviewKey((k) => k + 1); }
         if (!e.data.has_preview) prevPreviewRef.current = false;
       }
       if (e.kind === "tasks" && e.data) setTasks(e.data);
       if (e.kind === "reload") {
-        // A file changed — live-refresh the preview (debounced). A running dev
-        // server hot-reloads itself, so don't reload its iframe; just refresh files.
+        // A file changed. If it's inside the RUNNING dev app, that server hot-reloads
+        // itself — leave its iframe alone. Otherwise it's a separate build (e.g. the
+        // static page you're cloning): switch the preview to it and reload (debounced).
+        const devScoped = !!(e.data && e.data.dev_scoped);
         clearTimeout(reloadTimerRef.current);
         reloadTimerRef.current = setTimeout(() => {
           refreshFiles(); refreshChanges();
-          if (devRef.current.state !== "running") setPreviewKey((k) => k + 1);
+          if (!devScoped) { setPreviewSrc("static"); setTab("preview"); setPreviewKey((k) => k + 1); }
         }, 500);
       }
       if (e.kind === "end") {
@@ -1802,8 +1814,12 @@ export default function App() {
   useEffect(() => { refreshDev(); const t = setInterval(refreshDev, 1500); return () => clearInterval(t); }, []);
   const devRef = useRef(dev);
   useEffect(() => { devRef.current = dev; }, [dev]);
-  // When a dev server comes up, jump to the Preview so the running app is front-and-center.
-  useEffect(() => { if (dev.state === "running" && dev.url) setTab("preview"); }, [dev.state, dev.url]);
+  // previewSrc decides what the Preview shows when BOTH a static build and a running
+  // dev server exist — so a leftover dev server (another app) can't hijack the preview
+  // of what you're currently building. Default to the static build.
+  const [previewSrc, setPreviewSrc] = useState<"static" | "dev">("static");
+  const previewSrcRef = useRef(previewSrc);
+  useEffect(() => { previewSrcRef.current = previewSrc; }, [previewSrc]);
   const [projects, setProjects] = useState<ProjectsView>({ workspace: "", active: "", projects: [] });
   const [apps, setApps] = useState<AppRow[]>([]);
   const refreshProjects = () => api("/api/projects").then((r) => r.json()).then(setProjects).catch(() => {});
@@ -2055,7 +2071,7 @@ export default function App() {
           )}
         </div>
 
-        {tab === "preview" && <PreviewPane state={state} dev={dev} previewKey={previewKey} ritual={ritual} lastActText={lastActText} onDev={devCtl} />}
+        {tab === "preview" && <PreviewPane state={state} dev={dev} previewKey={previewKey} ritual={ritual} lastActText={lastActText} onDev={devCtl} src={previewSrc} onSrc={setPreviewSrc} />}
 
         {tab === "files" && (
           <div className="flex min-h-0 flex-1">
@@ -2080,7 +2096,7 @@ export default function App() {
         {tab === "trust" && <TrustPanel a={audit} rules={rules} />}
       </aside>
       )}
-      {nav === "apps" && <AppsPanel apps={apps} projectName={projects.projects.find((p) => p.active)?.name || ""} onClose={() => setNav("chat")} onRefresh={refreshApps} onRun={(rel) => { devCtl("start", rel); setNav("chat"); setMobileView("chat"); setTab("preview"); }} />}
+      {nav === "apps" && <AppsPanel apps={apps} projectName={projects.projects.find((p) => p.active)?.name || ""} onClose={() => setNav("chat")} onRefresh={refreshApps} onRun={(rel) => { devCtl("start", rel); setPreviewSrc("dev"); setNav("chat"); setMobileView("chat"); setTab("preview"); }} />}
       {nav === "skills" && <SkillsToolsPanel onRun={(p) => { setNav("chat"); setMobileView("chat"); run(p); }} onClose={() => setNav("chat")} />}
       {nav === "messaging" && <MessagingPanel onClose={() => setNav("chat")} />}
       {nav === "artifacts" && <ArtifactsPanel onClose={() => setNav("chat")} />}

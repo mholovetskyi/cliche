@@ -11,6 +11,7 @@ type Event struct {
 	Detail string     // compact human detail
 	OK     bool       // tool success (tool_result)
 	IsEdit bool       // the tool mutated a file (write/edit) — drives live preview reload
+	Path   string     // the file an edit touched (project-relative), for preview scoping
 	Images []string   // data: URLs a tool produced (e.g. screenshots), for the UI feed
 	Plan   []PlanStep // the agent's live checklist (Kind == "plan")
 }

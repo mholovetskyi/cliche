@@ -277,7 +277,20 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 					emit(ev)
 					emit(web.Event{Kind: "state", Data: curState()})
 					if e.IsEdit && e.OK {
-						emit(web.Event{Kind: "reload"}) // a file changed → live-refresh the preview
+						// Is this edit inside the RUNNING dev app (so it hot-reloads itself),
+						// or a separate build (e.g. a static page) the preview should switch to?
+						devScoped := false
+						st := dev.Status(previewDir)
+						if st.State == "running" && st.Dir != "" && e.Path != "" {
+							editAbs := e.Path
+							if !filepath.IsAbs(editAbs) {
+								editAbs = filepath.Join(previewDir, e.Path)
+							}
+							if rel, rerr := filepath.Rel(st.Dir, editAbs); rerr == nil && !strings.HasPrefix(rel, "..") {
+								devScoped = true
+							}
+						}
+						emit(web.Event{Kind: "reload", Data: map[string]any{"dev_scoped": devScoped}})
 					}
 				case "plan":
 					// The agent's live progress checklist becomes the session plan,
