@@ -615,7 +615,7 @@ func cmdServe(args []string, out, errOut io.Writer) int {
 		func(name string) error { return git.CreateBranch(f.dir, name) },
 		func(title, body string) (string, error) { return openPR(f.dir, title, body) },
 	)
-	srv.SetDeploy(func() (string, error) { return deployPages(previewDir) })
+	srv.SetDeploy(func(target string) (string, error) { return deployTarget(previewDir, target) })
 
 	// Scheduled jobs surface (the "Scheduled" panel) — manage .cliche/cron.json from
 	// the web; `cliche cron run` fires them, each bounded by the Trust Kernel.

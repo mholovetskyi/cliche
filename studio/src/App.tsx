@@ -1036,6 +1036,7 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
   const [branch, setBranch] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState<{ ok: boolean; text: string; url?: string } | null>(null);
+  const [target, setTarget] = useState("pages");
   const refresh = () => api("/api/git").then((r) => r.json()).then(setG).catch(() => {});
   useEffect(() => { refresh(); }, []);
   async function commit() {
@@ -1061,11 +1062,18 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
   }
   async function deploy() {
     setBusy("deploy"); setNote(null);
-    const r = await api("/api/deploy", { method: "POST" });
+    const r = await api("/api/deploy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target }) });
     setBusy("");
     if (r.ok) { const d = await r.json(); setNote({ ok: true, text: "Live! First publish can take ~1 min to go live.", url: d.url }); refresh(); }
     else setNote({ ok: false, text: await r.text() });
   }
+  const DeployPicker = (
+    <select value={target} onChange={(e) => setTarget(e.target.value)} className="field bg-transparent px-2 py-2 text-xs outline-none" title="Where to publish">
+      <option value="pages">GitHub Pages</option>
+      <option value="vercel">Vercel</option>
+      <option value="netlify">Netlify</option>
+    </select>
+  );
   const NoteLine = note && (
     <div className={`mt-3 flex items-center gap-1.5 text-xs ${note.ok ? "text-[var(--ok)]" : "text-[var(--accent)]"}`}>
       {note.ok ? <Check size={13} /> : <CircleAlert size={13} />}
@@ -1078,10 +1086,13 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
       <div className="max-w-xs">
         <Rocket size={26} className="mx-auto mb-2 text-[var(--accent)] opacity-80" />
         Not a git repository — but you can still ship.<br />
-        <span className="text-xs">Publish this project to a public URL (GitHub Pages):</span>
-        <button onClick={deploy} disabled={busy === "deploy"} className="btn-accent mx-auto mt-3 flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm">
-          <Rocket size={14} /> {busy === "deploy" ? "Deploying…" : "Deploy to a live URL"}
-        </button>
+        <span className="text-xs">Publish this project to a public URL:</span>
+        <div className="mx-auto mt-3 flex items-center justify-center gap-2">
+          {DeployPicker}
+          <button onClick={deploy} disabled={busy === "deploy"} className="btn-accent flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm">
+            <Rocket size={14} /> {busy === "deploy" ? "Deploying…" : "Deploy to a live URL"}
+          </button>
+        </div>
         {NoteLine}
         <div className="mt-3 text-[11px] text-[var(--faint)]">Or run <code className="rounded bg-white/10 px-1">git init</code> to enable commits & PRs.</div>
       </div>
@@ -1114,10 +1125,17 @@ function GitPanel({ onAsk, onChanged }: { onAsk: (p: string) => void; onChanged:
       </div>
       <div className="mt-5 border-t border-[var(--line)] pt-4">
         <label className="mb-1.5 block text-xs font-medium text-[var(--mut)]">Ship it</label>
-        <button onClick={deploy} disabled={busy === "deploy"} className="btn-accent flex w-full items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm">
-          <Rocket size={15} /> {busy === "deploy" ? "Deploying…" : "Deploy to a live URL"}
-        </button>
-        <div className="mt-1.5 text-[11px] text-[var(--faint)]">Publishes the project to a public GitHub Pages URL (needs the gh CLI, signed in).</div>
+        <div className="flex gap-2">
+          {DeployPicker}
+          <button onClick={deploy} disabled={busy === "deploy"} className="btn-accent flex flex-1 items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm">
+            <Rocket size={15} /> {busy === "deploy" ? "Deploying…" : "Deploy to a live URL"}
+          </button>
+        </div>
+        <div className="mt-1.5 text-[11px] text-[var(--faint)]">
+          {target === "pages" && "Publishes to a public GitHub Pages URL (needs the gh CLI, signed in)."}
+          {target === "vercel" && "Deploys to Vercel via npx (needs Node + a VERCEL_TOKEN env var)."}
+          {target === "netlify" && "Deploys to Netlify via npx (needs Node + a NETLIFY_AUTH_TOKEN env var)."}
+        </div>
       </div>
       {NoteLine}
     </div>

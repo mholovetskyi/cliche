@@ -1,14 +1,115 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/mholovetskyi/cliche/internal/git"
 )
+
+// deployTarget publishes the built project to the chosen host and returns the
+// live URL. "pages" (default) uses GitHub Pages via gh; "vercel" and "netlify"
+// shell out to their CLIs through npx, reading a token from the environment.
+// Every missing prerequisite is a clear, human error so it reads as guidance.
+func deployTarget(dir, target string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(target)) {
+	case "", "pages", "github":
+		return deployPages(dir)
+	case "vercel":
+		return deployVercel(dir)
+	case "netlify":
+		return deployNetlify(dir)
+	default:
+		return "", fmt.Errorf("unknown deploy target %q — use pages, vercel, or netlify", target)
+	}
+}
+
+func deployVercel(dir string) (string, error) {
+	token := strings.TrimSpace(os.Getenv("VERCEL_TOKEN"))
+	if token == "" {
+		return "", fmt.Errorf("set VERCEL_TOKEN (vercel.com → Account Settings → Tokens) to deploy to Vercel")
+	}
+	if !cmdAvailable("npx") {
+		return "", fmt.Errorf("Node's npx isn't installed — install Node.js, then deploy (Cliché runs the Vercel CLI via npx)")
+	}
+	out, err := runInDir(dir, 6*time.Minute, "npx", "--yes", "vercel", "deploy", "--prod", "--yes", "--token", token)
+	if err != nil {
+		return "", fmt.Errorf("vercel deploy failed: %s", prErrLine(out, err))
+	}
+	if url := lastURL(out); url != "" {
+		return url, nil
+	}
+	return "", fmt.Errorf("vercel deployed but returned no URL:\n%s", clip(out, 300))
+}
+
+func deployNetlify(dir string) (string, error) {
+	token := strings.TrimSpace(os.Getenv("NETLIFY_AUTH_TOKEN"))
+	if token == "" {
+		return "", fmt.Errorf("set NETLIFY_AUTH_TOKEN (Netlify → User settings → Applications → personal access tokens) to deploy to Netlify")
+	}
+	if !cmdAvailable("npx") {
+		return "", fmt.Errorf("Node's npx isn't installed — install Node.js, then deploy (Cliché runs the Netlify CLI via npx)")
+	}
+	// Prefer a built output directory if one exists; otherwise publish the root.
+	pub := dir
+	for _, d := range []string{"dist", "build", "out"} {
+		if _, err := os.Stat(filepath.Join(dir, d, "index.html")); err == nil {
+			pub = filepath.Join(dir, d)
+			break
+		}
+	}
+	out, err := runInDir(dir, 6*time.Minute, "npx", "--yes", "netlify-cli", "deploy", "--prod", "--dir", pub, "--json", "--auth", token)
+	if err != nil {
+		return "", fmt.Errorf("netlify deploy failed: %s", prErrLine(out, err))
+	}
+	if url := parseNetlifyURL(out); url != "" {
+		return url, nil
+	}
+	if url := lastURL(out); url != "" {
+		return url, nil
+	}
+	return "", fmt.Errorf("netlify deployed but returned no URL:\n%s", clip(out, 300))
+}
+
+func cmdAvailable(name string) bool { _, err := exec.LookPath(name); return err == nil }
+
+var urlRe = regexp.MustCompile(`https?://[^\s"']+`)
+
+// lastURL returns the last http(s) URL in s — for Vercel/Netlify CLIs that print
+// the production URL last after build/inspect lines.
+func lastURL(s string) string {
+	m := urlRe.FindAllString(s, -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return strings.TrimRight(m[len(m)-1], ".,)")
+}
+
+// parseNetlifyURL reads the live URL from `netlify deploy --json` output, which
+// is a JSON object carrying url / deploy_url (the CLI may prefix it with logs).
+func parseNetlifyURL(out string) string {
+	i := strings.IndexByte(out, '{')
+	if i < 0 {
+		return ""
+	}
+	var r struct {
+		URL       string `json:"url"`
+		DeployURL string `json:"deploy_url"`
+	}
+	if json.Unmarshal([]byte(out[i:]), &r) != nil {
+		return ""
+	}
+	if r.URL != "" {
+		return r.URL
+	}
+	return r.DeployURL
+}
 
 // deployPages publishes the project — a static site with an index.html at its
 // root — to GitHub Pages via the gh CLI, returning the public URL. It's the

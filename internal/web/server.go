@@ -70,7 +70,7 @@ type Server struct {
 	gitCommit func(msg string) (string, error)
 	gitBranch func(name string) error
 	gitPR     func(title, body string) (string, error)
-	deploy    func() (string, error)
+	deploy    func(target string) (string, error)
 
 	cronList   func() []CronJob
 	cronAdd    func(spec, prompt, notify string) error
@@ -380,8 +380,9 @@ func (s *Server) SetGit(status func() GitStatus, commit func(string) (string, er
 	s.gitStatus, s.gitCommit, s.gitBranch, s.gitPR = status, commit, branch, pr
 }
 
-// SetDeploy wires the "publish to a live URL" button (GitHub Pages via gh).
-func (s *Server) SetDeploy(deploy func() (string, error)) { s.deploy = deploy }
+// SetDeploy wires the "publish to a live URL" button. The target selects the
+// host: "" / "pages" (GitHub Pages via gh), "vercel", or "netlify".
+func (s *Server) SetDeploy(deploy func(target string) (string, error)) { s.deploy = deploy }
 
 // CronJob is a scheduled prompt as shown in the Studio "Scheduled" panel.
 type CronJob struct {
@@ -674,7 +675,11 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "deploy not available", http.StatusNotImplemented)
 		return
 	}
-	url, err := s.deploy()
+	var body struct {
+		Target string `json:"target"`
+	}
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&body) // optional; "" = Pages
+	url, err := s.deploy(body.Target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
